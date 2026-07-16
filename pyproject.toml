@@ -1,0 +1,93 @@
+[project]
+name = "swarmcore"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[tool.uv.workspace]
+members = [
+  "apps/api",
+  "apps/command-dispatcher",
+  "apps/worker-control",
+  "apps/worker-agent",
+  "apps/event-publisher",
+  "apps/projection-reconciler",
+  "packages/spec",
+  "packages/compiler",
+  "packages/domain",
+  "packages/persistence",
+  "packages/runtime-temporal",
+  "packages/adapter-agno",
+  "packages/observability",
+]
+
+[dependency-groups]
+dev = [
+  "mypy==1.17.0",
+  "pytest==8.4.1",
+  "pytest-asyncio==1.1.0",
+  "pytest-cov==6.2.1",
+  "ruff==0.12.3",
+  "types-jsonschema==4.25.0.20250720",
+  "types-PyYAML==6.0.12.20250516",
+]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+testpaths = ["tests"]
+pythonpath = [
+  "packages/spec/src",
+  "packages/compiler/src",
+  "packages/domain/src",
+  "packages/persistence/src",
+  "packages/runtime-temporal/src",
+  "packages/adapter-agno/src",
+  "apps/api/src",
+  "apps/command-dispatcher/src",
+  "apps/worker-control/src",
+  "apps/worker-agent/src",
+  "apps/event-publisher/src",
+  "apps/projection-reconciler/src",
+  "packages/observability/src",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = [
+  "swarmcore_spec",
+  "swarmcore_compiler",
+  "swarmcore_domain",
+  "swarmcore_persistence",
+  "swarmcore_runtime_temporal",
+  "swarmcore_adapter_agno",
+  "swarmcore_api",
+  "swarmcore_command_dispatcher",
+  "swarmcore_worker_control",
+  "swarmcore_worker_agent",
+  "swarmcore_event_publisher",
+  "swarmcore_projection_reconciler",
+  "swarmcore_observability",
+]
+mypy_path = [
+  "packages/spec/src",
+  "packages/compiler/src",
+  "packages/domain/src",
+  "packages/persistence/src",
+  "packages/runtime-temporal/src",
+  "packages/adapter-agno/src",
+  "apps/api/src",
+  "apps/command-dispatcher/src",
+  "apps/worker-control/src",
+  "apps/worker-agent/src",
+  "apps/event-publisher/src",
+  "apps/projection-reconciler/src",
+  "packages/observability/src",
+]

@@ -1,0 +1,17 @@
+[project]
+name = "swarmcore-persistence"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "alembic==1.16.4",
+  "asyncpg==0.30.0",
+  "sqlalchemy[asyncio]==2.0.41",
+  "swarmcore-domain",
+]
+
+[tool.uv.sources]
+swarmcore-domain = { workspace = true }
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"

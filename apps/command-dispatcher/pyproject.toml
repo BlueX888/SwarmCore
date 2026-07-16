@@ -1,0 +1,23 @@
+[project]
+name = "swarmcore-command-dispatcher"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pydantic-settings==2.14.2",
+  "swarmcore-persistence",
+  "swarmcore-observability",
+  "swarmcore-runtime-temporal",
+  "temporalio==1.15.0",
+]
+
+[project.scripts]
+swarmcore-command-dispatcher = "swarmcore_command_dispatcher.main:run"
+
+[tool.uv.sources]
+swarmcore-persistence = { workspace = true }
+swarmcore-observability = { workspace = true }
+swarmcore-runtime-temporal = { workspace = true }
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"

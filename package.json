@@ -1,0 +1,12 @@
+{
+  "name": "swarmcore",
+  "private": true,
+  "packageManager": "pnpm@10.26.0",
+  "scripts": {
+    "web:dev": "pnpm --filter @swarmcore/web dev",
+    "web:build": "pnpm --filter @swarmcore/web build",
+    "web:test": "pnpm --filter @swarmcore/web test",
+    "web:lint": "pnpm --filter @swarmcore/web lint",
+    "web:e2e": "pnpm --filter @swarmcore/web test:e2e"
+  }
+}

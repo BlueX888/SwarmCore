@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-outfit: "Outfit", "Segoe UI", sans-serif;
+  --color-brand-50: #ecf3ff;
+  --color-brand-100: #dde9ff;
+  --color-brand-300: #9cb9ff;
+  --color-brand-400: #7592ff;
+  --color-brand-500: #465fff;
+  --color-brand-600: #3641f5;
+  --color-brand-700: #2a31d8;
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f2f4f7;
+  --color-gray-200: #e4e7ec;
+  --color-gray-300: #d0d5dd;
+  --color-gray-400: #98a2b3;
+  --color-gray-500: #667085;
+  --color-gray-600: #475467;
+  --color-gray-700: #344054;
+  --color-gray-800: #1d2939;
+  --color-gray-900: #101828;
+  --color-gray-dark: #1a2231;
+  --color-success-50: #ecfdf3;
+  --color-success-500: #12b76a;
+  --color-success-600: #039855;
+  --color-error-50: #fef3f2;
+  --color-error-500: #f04438;
+  --color-error-600: #d92d20;
+  --color-warning-50: #fffaeb;
+  --color-warning-500: #f79009;
+  --color-warning-600: #dc6803;
+  --shadow-theme-xs: 0 1px 2px 0 rgb(16 24 40 / 0.05);
+  --shadow-theme-sm: 0 1px 3px 0 rgb(16 24 40 / 0.1), 0 1px 2px -1px rgb(16 24 40 / 0.1);
+  --breakpoint-2xl: 1536px;
+}
+
+@utility menu-item {
+  @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-500/20;
+}
+@utility menu-item-active { @apply bg-brand-50 text-brand-500 dark:bg-brand-500/12 dark:text-brand-400; }
+@utility menu-item-inactive { @apply text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/5; }
+@utility z-99999 { z-index: 99999; }
+
+html, body, #root { min-height: 100%; }
+body { margin: 0; font-family: var(--font-outfit); background: var(--color-gray-50); color: var(--color-gray-800); }
+.dark body { background: var(--color-gray-900); color: rgb(255 255 255 / 0.9); }
+* { box-sizing: border-box; }
+
+.react-flow__node { font-family: var(--font-outfit); }
+.react-flow__controls { overflow: hidden; border: 1px solid var(--color-gray-200); border-radius: .5rem; box-shadow: var(--shadow-theme-sm); }
+.dark .react-flow__controls { border-color: var(--color-gray-700); }
+.dark .react-flow__controls-button { background: var(--color-gray-800); color: white; border-color: var(--color-gray-700); }
+.run-node { border: 1px solid var(--color-gray-300); border-radius: .75rem; background: white; color: var(--color-gray-800); box-shadow: var(--shadow-theme-xs); }
+.run-node-succeeded { border-color: var(--color-success-500); background: var(--color-success-50); }
+.run-node-failed, .run-node-cancelled { border-color: var(--color-error-500); background: var(--color-error-50); }
+.run-node-running { border-color: var(--color-brand-500); background: var(--color-brand-50); }
+.dark .run-node { background: var(--color-gray-800); color: white; }
+.dark .run-node-succeeded { background: rgb(18 183 106 / .15); }
+.dark .run-node-failed, .dark .run-node-cancelled { background: rgb(240 68 56 / .15); }
+.dark .run-node-running { background: rgb(70 95 255 / .15); }

@@ -1,0 +1,20 @@
+[project]
+name = "swarmcore-projection-reconciler"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pydantic-settings==2.14.2",
+  "swarmcore-observability",
+  "swarmcore-persistence",
+]
+
+[project.scripts]
+swarmcore-projection-reconciler = "swarmcore_projection_reconciler.main:run"
+
+[tool.uv.sources]
+swarmcore-observability = { workspace = true }
+swarmcore-persistence = { workspace = true }
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"

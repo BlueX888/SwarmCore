@@ -1,0 +1,4 @@
+interface:
+  display_name: "B Design System Tailadmin Radix"
+  short_description: "TailAdmin 视觉 × React + shadcn + Radix + Tailwind v4 设计系统 Skill"
+  default_prompt: "使用 $b-design-system-tailadmin-radix 按 TailAdmin 设计系统（shadcn/Radix 实现）构建 UI。"

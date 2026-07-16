@@ -1,0 +1,21 @@
+[project]
+name = "swarmcore-event-publisher"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "nats-py==2.11.0",
+  "pydantic-settings==2.14.2",
+  "swarmcore-persistence",
+  "swarmcore-observability",
+]
+
+[project.scripts]
+swarmcore-event-publisher = "swarmcore_event_publisher.main:run"
+
+[tool.uv.sources]
+swarmcore-persistence = { workspace = true }
+swarmcore-observability = { workspace = true }
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"

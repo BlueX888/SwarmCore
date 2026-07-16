@@ -1,0 +1,22 @@
+[project]
+name = "swarmcore-worker-agent"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "agno==2.7.3",
+  "pydantic-settings==2.14.2",
+  "swarmcore-adapter-agno",
+  "swarmcore-observability",
+  "temporalio==1.15.0",
+]
+
+[project.scripts]
+swarmcore-worker-agent = "swarmcore_worker_agent.main:run"
+
+[tool.uv.sources]
+swarmcore-adapter-agno = { workspace = true }
+swarmcore-observability = { workspace = true }
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"

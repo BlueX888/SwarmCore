@@ -97,6 +97,7 @@ class StrategyDraft(Base, IdMixin, TenantMixin):
     base_version_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     raw_spec: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    editor_state: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     diagnostics: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
     updated_by: Mapped[str] = mapped_column(String(256), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

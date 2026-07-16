@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any, Protocol
 
 from temporalio import activity
 
 from agno.models.base import Model
+
+logger = logging.getLogger(__name__)
 
 
 class StaticModelResolver:
@@ -28,9 +32,41 @@ class AgentActivities:
 
     @activity.defn(name="execute_agent")
     async def execute_agent(self, request: dict[str, Any]) -> dict[str, Any]:
-        activity.heartbeat({"stage": "starting", "nodeKey": request["node"]["key"]})
-        result = await self._adapter.execute(request)
-        activity.heartbeat({"stage": "completed", "nodeKey": request["node"]["key"]})
+        node_key = str(request["node"]["key"])
+        model_ref = request["agent"].get("model") or request.get("defaultModel")
+        activity.heartbeat({"stage": "starting", "nodeKey": node_key})
+        logger.info(
+            "agent_execution_started %s",
+            json.dumps({"nodeKey": node_key, "modelRef": model_ref}, sort_keys=True),
+        )
+        try:
+            result = await self._adapter.execute(request)
+        except Exception as exc:
+            logger.exception(
+                "agent_execution_failed %s",
+                json.dumps(
+                    {
+                        "nodeKey": node_key,
+                        "modelRef": model_ref,
+                        "errorType": type(exc).__name__,
+                    },
+                    sort_keys=True,
+                ),
+            )
+            raise
+        activity.heartbeat({"stage": "completed", "nodeKey": node_key})
+        logger.info(
+            "agent_execution_completed %s",
+            json.dumps(
+                {
+                    "nodeKey": node_key,
+                    "model": result.get("model"),
+                    "status": result.get("status"),
+                    "metrics": result.get("metrics", {}),
+                },
+                sort_keys=True,
+            ),
+        )
         return result
 
     @activity.defn(name="execute_team")

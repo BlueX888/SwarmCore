@@ -55,7 +55,15 @@ async def test_strategy_queries_are_project_scoped_and_versioned() -> None:
     headers = {"X-Tenant-ID": str(tenant_id)}
     base = f"/v1/projects/{project_id}/strategies"
     with TestClient(create_app(Settings(database_url=database_url))) as client:
-        created = client.post(base, headers=headers, json={"name": "api-strategy", "spec": spec})
+        initial_editor_state = {
+            "positions": {"one": {"x": 10, "y": 20}},
+            "viewport": {"x": 1, "y": 2, "zoom": 0.8},
+        }
+        created = client.post(
+            base,
+            headers=headers,
+            json={"name": "api-strategy", "spec": spec, "editorState": initial_editor_state},
+        )
         assert created.status_code == 201
         handle = created.json()
 
@@ -72,6 +80,7 @@ async def test_strategy_queries_are_project_scoped_and_versioned() -> None:
         draft = client.get(draft_url, headers=headers)
         assert draft.status_code == 200
         assert draft.headers["etag"] == '"1"'
+        assert draft.json()["editorState"] == initial_editor_state
 
         conflict = client.put(
             draft_url,
@@ -87,9 +96,54 @@ async def test_strategy_queries_are_project_scoped_and_versioned() -> None:
         )
         assert published.status_code == 200
         version_id = published.json()["strategyVersionId"]
+        initial_plan_hash = published.json()["planHash"]
+
+        moved_editor_state = {
+            "positions": {"one": {"x": 900, "y": 700}},
+            "viewport": {"x": -50, "y": 25, "zoom": 1.25},
+        }
+        moved = client.put(
+            draft_url,
+            headers={**headers, "If-Match": '"1"'},
+            json={"spec": spec, "editorState": moved_editor_state},
+        )
+        assert moved.status_code == 200
+        assert moved.headers["etag"] == '"2"'
+        assert moved.json()["editorState"] == moved_editor_state
+        refreshed = client.get(draft_url, headers=headers)
+        assert refreshed.json()["editorState"] == moved_editor_state
+
+        republished = client.post(
+            f"{base}/{handle['strategyId']}/publish",
+            headers=headers,
+            json={"draftId": handle["draftId"]},
+        )
+        assert republished.status_code == 200
+        assert republished.json()["planHash"] == initial_plan_hash
+
+        changed_spec = spec | {
+            "spec": spec["spec"]
+            | {
+                "agents": spec["spec"]["agents"]
+                | {"one": {"role": "worker", "instructions": "changed semantics"}}
+            }
+        }
+        changed = client.put(
+            draft_url,
+            headers={**headers, "If-Match": '"2"'},
+            json={"spec": changed_spec, "editorState": moved_editor_state},
+        )
+        assert changed.status_code == 200
+        changed_publish = client.post(
+            f"{base}/{handle['strategyId']}/publish",
+            headers=headers,
+            json={"draftId": handle["draftId"]},
+        )
+        assert changed_publish.status_code == 200
+        assert changed_publish.json()["planHash"] != initial_plan_hash
 
         versions = client.get(f"{base}/{handle['strategyId']}/versions", headers=headers)
-        assert versions.json()["total"] == 1
+        assert versions.json()["total"] == 3
         version = client.get(
             f"{base}/{handle['strategyId']}/versions/{version_id}", headers=headers
         )

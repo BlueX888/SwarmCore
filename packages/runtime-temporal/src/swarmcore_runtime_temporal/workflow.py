@@ -86,11 +86,13 @@ class SwarmRunWorkflow:
                     continue
                 result = self._render_result(plan, self._nodes)
                 await self._project("run.completed", {"result": result})
+                await workflow.wait_condition(workflow.all_handlers_finished)
                 return {"status": "SUCCEEDED", "result": result, "outputs": self._outputs}
 
             batch = ready_nodes(self._nodes, self._states, max_parallelism=max_parallelism)
             if not batch:
                 await self._project("run.failed", {"code": "GRAPH_DEADLOCK"})
+                await workflow.wait_condition(workflow.all_handlers_finished)
                 return {"status": "FAILED", "code": "GRAPH_DEADLOCK"}
 
             by_key = {str(node["key"]): node for node in self._nodes}

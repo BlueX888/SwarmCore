@@ -1,29 +1,19 @@
 [project]
-name = "swarmcore-api"
+name = "swarmcore-application"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "fastapi==0.116.1",
   "jsonschema==4.25.0",
-  "pydantic-settings==2.14.2",
-  "swarmcore-application",
+  "pydantic==2.11.7",
   "swarmcore-compiler",
   "swarmcore-domain",
-  "swarmcore-observability",
   "swarmcore-persistence",
   "swarmcore-spec",
-  "uvicorn[standard]==0.35.0",
 ]
 
-[project.scripts]
-swarmcore-api = "swarmcore_api.main:run"
-swarmcore-seed = "swarmcore_api.seed:run"
-
 [tool.uv.sources]
-swarmcore-application = { workspace = true }
 swarmcore-compiler = { workspace = true }
 swarmcore-domain = { workspace = true }
-swarmcore-observability = { workspace = true }
 swarmcore-persistence = { workspace = true }
 swarmcore-spec = { workspace = true }
 

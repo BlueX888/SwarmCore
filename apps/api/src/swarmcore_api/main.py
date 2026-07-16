@@ -11,6 +11,7 @@ from jsonschema import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
+from swarmcore_application import RunNotTerminalError
 from swarmcore_compiler import CompileError
 from swarmcore_observability import configure_telemetry, get_tracer
 from swarmcore_persistence import Database
@@ -59,6 +60,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(PersistenceConflictError)
     async def conflict(request: Request, exc: PersistenceConflictError) -> JSONResponse:
         return _problem(request, 409, "CONFLICT", str(exc))
+
+    @app.exception_handler(RunNotTerminalError)
+    async def run_not_terminal(request: Request, exc: RunNotTerminalError) -> JSONResponse:
+        return _problem(request, 409, "RUN_NOT_TERMINAL", str(exc))
 
     @app.exception_handler(CompileError)
     async def compile_error(request: Request, exc: CompileError) -> JSONResponse:

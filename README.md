@@ -1,7 +1,9 @@
 # SwarmCore
 
-SwarmCore is a durable, multi-tenant swarm-agent execution runtime. The implementation follows
-[`docs/swarmcore-system-design.md`](docs/swarmcore-system-design.md).
+SwarmCore is a protocol-neutral, durable multi-agent orchestration execution runtime. The
+implementation follows [`docs/swarmcore-system-design.md`](docs/swarmcore-system-design.md), and
+development progress is tracked in
+[`docs/swarmcore-development-plan.md`](docs/swarmcore-development-plan.md).
 
 ## Development
 

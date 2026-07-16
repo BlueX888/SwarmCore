@@ -5,11 +5,11 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from conftest import TemporalTestEnvironment
 from swarmcore_compiler import Compiler, dag, parallel, sequential, supervisor
 from swarmcore_runtime_temporal import SwarmRunWorkflow
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
-from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 PROJECTED: list[str] = []
@@ -82,18 +82,20 @@ async def slow_execute_agent(_: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_phase_one_workflow_acceptance() -> None:
+async def test_phase_one_workflow_acceptance(
+    temporal_environment: TemporalTestEnvironment,
+) -> None:
     PROJECTED.clear()
-    environment = await WorkflowEnvironment.start_time_skipping()
+    client = temporal_environment.client
     control_worker = Worker(
-        environment.client,
+        client,
         task_queue="swarm-control",
         workflows=[SwarmRunWorkflow],
         activities=[load_execution_plan, project_transition, execute_control_node],
     )
     async with control_worker:
         agent_worker = Worker(
-            environment.client,
+            client,
             task_queue="agent-general",
             activities=[execute_agent],
         )
@@ -104,7 +106,7 @@ async def test_phase_one_workflow_acceptance() -> None:
                 ("dag", {"two": True}),
                 ("supervisor", {"synthesize": True}),
             ]:
-                result = await environment.client.execute_workflow(
+                result = await client.execute_workflow(
                     SwarmRunWorkflow.run,
                     {
                         "tenantId": str(uuid4()),
@@ -123,12 +125,12 @@ async def test_phase_one_workflow_acceptance() -> None:
                 assert result["result"] == expected
 
         slow_worker = Worker(
-            environment.client,
+            client,
             task_queue="agent-general",
             activities=[slow_execute_agent],
         )
         async with slow_worker:
-            handle = await environment.client.start_workflow(
+            handle = await client.start_workflow(
                 SwarmRunWorkflow.run,
                 {
                     "tenantId": str(uuid4()),
@@ -158,9 +160,7 @@ async def test_phase_one_workflow_acceptance() -> None:
                 ),
                 timeout=5,
             )
-            result = await asyncio.wait_for(handle.result(), timeout=5)
-    await environment.shutdown()
-
+            result = await asyncio.wait_for(handle.result(), timeout=30)
     assert update == {"status": "APPLIED"}
     assert result["status"] == "CANCELLED"
     assert PROJECTED[-2:] == ["run.cancelling", "run.cancelled"]

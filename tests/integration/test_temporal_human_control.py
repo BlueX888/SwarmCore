@@ -5,10 +5,10 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from conftest import TemporalTestEnvironment
 from swarmcore_runtime_temporal import SwarmRunWorkflow
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
-from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 PROJECTED: list[str] = []
@@ -57,35 +57,37 @@ async def controlled_agent(value: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _wait_for(
-    handle: Any, predicate: Any, *, attempts: int = 100
+    handle: Any, predicate: Any, *, attempts: int = 200
 ) -> dict[str, Any]:
     for _ in range(attempts):
         state = await handle.query("engine_state", result_type=dict[str, Any])
         if predicate(state):
             return state
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.05)
     raise AssertionError("workflow state was not reached")
 
 
 @pytest.mark.asyncio
-async def test_pause_resume_approval_input_retry_and_recovery() -> None:
+async def test_pause_resume_approval_input_retry_and_recovery(
+    temporal_environment: TemporalTestEnvironment,
+) -> None:
     global FAILURES
     FAILURES = 0
     PROJECTED.clear()
-    environment = await WorkflowEnvironment.start_time_skipping()
+    client = temporal_environment.client
     control = Worker(
-        environment.client,
+        client,
         task_queue="swarm-control",
         workflows=[SwarmRunWorkflow],
         activities=[load_human_plan, project_human_transition],
     )
     agent = Worker(
-        environment.client,
+        client,
         task_queue="agent-general",
         activities=[controlled_agent],
     )
     async with control, agent:
-        pause_handle = await environment.client.start_workflow(
+        pause_handle = await client.start_workflow(
             SwarmRunWorkflow.run,
             _input("agent", slow=True),
             id=f"phase2a:pause:{uuid4()}",
@@ -102,7 +104,7 @@ async def test_pause_resume_approval_input_retry_and_recovery() -> None:
         assert (await pause_handle.result())["status"] == "SUCCEEDED"
 
         for fixture, command_type in (("approval", "approve"), ("input", "provide_input")):
-            handle = await environment.client.start_workflow(
+            handle = await client.start_workflow(
                 SwarmRunWorkflow.run,
                 _input(fixture),
                 id=f"phase2a:{fixture}:{uuid4()}",
@@ -119,7 +121,7 @@ async def test_pause_resume_approval_input_retry_and_recovery() -> None:
             assert applied["status"] == "APPLIED"
             assert (await handle.result())["status"] == "SUCCEEDED"
 
-        retry_handle = await environment.client.start_workflow(
+        retry_handle = await client.start_workflow(
             SwarmRunWorkflow.run,
             _input("agent", failUntilManualRetry=True),
             id=f"phase2a:retry:{uuid4()}",
@@ -137,12 +139,75 @@ async def test_pause_resume_approval_input_retry_and_recovery() -> None:
         )
         assert retried["status"] == "APPLIED"
         assert (await retry_handle.result())["status"] == "SUCCEEDED"
-    await environment.shutdown()
-
     assert "run.paused" in PROJECTED
     assert "approval.approved" in PROJECTED
     assert "input.received" in PROJECTED
     assert "task.retry_started" in PROJECTED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("fixture", "command_type"),
+    (("approval", "approve"), ("input", "provide_input")),
+)
+async def test_pending_human_request_and_command_cursor_survive_worker_restart(
+    temporal_environment: TemporalTestEnvironment,
+    fixture: str,
+    command_type: str,
+) -> None:
+    if temporal_environment.embedded is not None:
+        pytest.skip("worker restart recovery requires the persistent Temporal test service")
+    client = temporal_environment.client
+    workflow_id = f"phase2a:restart:{fixture}:{uuid4()}"
+    control = Worker(
+        client,
+        task_queue="swarm-control",
+        workflows=[SwarmRunWorkflow],
+        activities=[load_human_plan, project_human_transition],
+    )
+    async with control:
+        handle = await client.start_workflow(
+            SwarmRunWorkflow.run,
+            _input(fixture),
+            id=workflow_id,
+            task_queue="swarm-control",
+        )
+        before = await _wait_for(handle, lambda value: value["pendingHumanRequests"] == 1)
+        request_id = next(iter(before["humanRequests"]))
+        assert before["lastAppliedCommandSeq"] == 1
+
+    restarted_control = Worker(
+        client,
+        task_queue="swarm-control",
+        workflows=[SwarmRunWorkflow],
+        activities=[load_human_plan, project_human_transition],
+    )
+    async with restarted_control:
+        handle = client.get_workflow_handle(workflow_id)
+        recovered = await _wait_for(handle, lambda value: value["pendingHumanRequests"] == 1)
+        assert recovered["humanRequests"] == before["humanRequests"]
+        assert recovered["lastAppliedCommandSeq"] == 1
+
+        out_of_order = await handle.execute_update(
+            "apply_command",
+            _command(3, command_type, {"requestId": request_id, "value": {"reason": "ok"}}),
+            id=str(uuid4()),
+            result_type=dict[str, Any],
+        )
+        assert out_of_order == {
+            "status": "REJECTED",
+            "code": "COMMAND_OUT_OF_ORDER",
+            "lastAppliedCommandSeq": 1,
+        }
+
+        applied = await handle.execute_update(
+            "apply_command",
+            _command(2, command_type, {"requestId": request_id, "value": {"reason": "ok"}}),
+            id=str(uuid4()),
+            result_type=dict[str, Any],
+        )
+        assert applied["status"] == "APPLIED"
+        assert (await handle.result())["status"] == "SUCCEEDED"
 
 
 def _input(fixture: str, **extra: Any) -> dict[str, Any]:

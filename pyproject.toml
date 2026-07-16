@@ -6,6 +6,7 @@ dependencies = []
 
 [tool.uv.workspace]
 members = [
+  "packages/application",
   "apps/api",
   "apps/command-dispatcher",
   "apps/worker-control",
@@ -36,6 +37,7 @@ dev = [
 addopts = "--strict-config --strict-markers"
 testpaths = ["tests"]
 pythonpath = [
+  "packages/application/src",
   "packages/spec/src",
   "packages/compiler/src",
   "packages/domain/src",
@@ -62,6 +64,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 packages = [
+  "swarmcore_application",
   "swarmcore_spec",
   "swarmcore_compiler",
   "swarmcore_domain",
@@ -77,6 +80,7 @@ packages = [
   "swarmcore_observability",
 ]
 mypy_path = [
+  "packages/application/src",
   "packages/spec/src",
   "packages/compiler/src",
   "packages/domain/src",

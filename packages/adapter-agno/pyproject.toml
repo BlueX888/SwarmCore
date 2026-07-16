@@ -3,7 +3,7 @@ name = "swarmcore-adapter-agno"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "agno==2.7.3",
+  "agno[ollama,openai]==2.7.3",
   "jsonschema==4.25.0",
 ]
 

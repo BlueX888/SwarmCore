@@ -1,5 +1,5 @@
 import type {
-  ApprovalListResponse, CommandHandle, CompileResponse, DraftSnapshot, EventHistory,
+  ApprovalListResponse, CapabilityCatalog, CommandHandle, CompileResponse, DraftSnapshot, EditorState, EventHistory,
   ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, StrategyHandle,
   StrategyListResponse, StrategyVersionDetail,
   StrategyVersionListResponse,
@@ -37,9 +37,10 @@ async function request<T>(path: string, tenantId: string, init?: RequestInit): P
 
 export const api = {
   listStrategies: (tenantId: string, projectId: string) => request<StrategyListResponse>(`/v1/projects/${projectId}/strategies`, tenantId),
-  createStrategy: (tenantId: string, projectId: string, name: string, spec: Record<string, unknown>) => request<StrategyHandle>(`/v1/projects/${projectId}/strategies`, tenantId, { method: "POST", body: JSON.stringify({ name, spec }) }),
+  getCapabilities: (tenantId: string, projectId: string) => request<CapabilityCatalog>(`/v1/projects/${projectId}/capabilities`, tenantId),
+  createStrategy: (tenantId: string, projectId: string, name: string, spec: Record<string, unknown>, editorState: EditorState) => request<StrategyHandle>(`/v1/projects/${projectId}/strategies`, tenantId, { method: "POST", body: JSON.stringify({ name, spec, editorState }) }),
   getDraft: (tenantId: string, projectId: string, strategyId: string, draftId: string) => request<DraftSnapshot>(`/v1/projects/${projectId}/strategies/${strategyId}/drafts/${draftId}`, tenantId),
-  updateDraft: (tenantId: string, projectId: string, strategyId: string, draftId: string, revision: number, spec: Record<string, unknown>) => request<StrategyHandle>(`/v1/projects/${projectId}/strategies/${strategyId}/drafts/${draftId}`, tenantId, { method: "PUT", headers: { "If-Match": `"${revision}"` }, body: JSON.stringify({ spec }) }),
+  updateDraft: (tenantId: string, projectId: string, strategyId: string, draftId: string, revision: number, spec: Record<string, unknown>, editorState: EditorState) => request<DraftSnapshot>(`/v1/projects/${projectId}/strategies/${strategyId}/drafts/${draftId}`, tenantId, { method: "PUT", headers: { "If-Match": `"${revision}"` }, body: JSON.stringify({ spec, editorState }) }),
   compileStrategy: (tenantId: string, projectId: string, spec: Record<string, unknown>) => request<CompileResponse>(`/v1/projects/${projectId}/strategies/compile`, tenantId, { method: "POST", body: JSON.stringify({ spec }) }),
   listVersions: (tenantId: string, projectId: string, strategyId: string) => request<StrategyVersionListResponse>(`/v1/projects/${projectId}/strategies/${strategyId}/versions`, tenantId),
   getVersion: (tenantId: string, projectId: string, strategyId: string, versionId: string) => request<StrategyVersionDetail>(`/v1/projects/${projectId}/strategies/${strategyId}/versions/${versionId}`, tenantId),

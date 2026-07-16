@@ -12,6 +12,20 @@ export interface TaskSnapshot {
 
 export interface Diagnostic { severity: "error" | "warning"; code: string; path: string; message: string; }
 export interface CompileResponse { valid: boolean; plan: Record<string, unknown> | null; diagnostics: Diagnostic[]; }
+export interface EditorState {
+  positions: Record<string, { x: number; y: number }>;
+  viewport: { x: number; y: number; zoom: number };
+}
+export interface CapabilityCatalog {
+  schemaVersion: string;
+  registrySnapshot: string;
+  nodeTypes: Array<{ type: string; schema: Record<string, unknown> }>;
+  agents: Array<{ id: string; runtime: string; environments: string[]; declarationSchema: Record<string, unknown> }>;
+  tools: unknown[];
+  models: Array<{ ref: string; runtime: string; environments: string[] }>;
+  limits: Record<string, unknown>;
+  swarmSpecSchema: Record<string, unknown>;
+}
 export interface StrategySummary {
   strategyId: string; name: string; lifecycle: string; createdAt: string; updatedAt: string;
   draftId: string | null; draftRevision: number | null; latestVersion: number | null;
@@ -19,6 +33,7 @@ export interface StrategySummary {
 export interface StrategyListResponse { items: StrategySummary[]; total: number; }
 export interface DraftSnapshot {
   draftId: string; strategyId: string; revision: number; spec: Record<string, unknown>;
+  editorState: EditorState;
   diagnostics: Diagnostic[]; updatedBy: string; updatedAt: string;
 }
 export interface StrategyVersionSummary {
@@ -30,7 +45,7 @@ export interface StrategyVersionDetail extends StrategyVersionSummary {
   spec: Record<string, unknown>; normalizedSpec: Record<string, unknown>; plan: Record<string, unknown>;
 }
 export interface StrategyHandle { strategyId: string; draftId: string; revision: number; }
-export interface RunHandle { runId: string; status: string; commandId: string; commandStatus: string; }
+export interface RunHandle { runId: string; status: string; commandId: string; commandStatus: string; planHash: string; }
 
 export interface RunSnapshot {
   runId: string;

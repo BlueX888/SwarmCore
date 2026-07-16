@@ -1,7 +1,13 @@
+import asyncio
 from typing import Any
 
 import pytest
 from swarmcore_adapter_agno import AgnoAdapter
+from swarmcore_adapter_agno import adapter as adapter_module
+
+from agno.models.message import Message
+from agno.models.metrics import Metrics
+from agno.run.agent import RunOutput
 
 
 class Resolver:
@@ -31,6 +37,87 @@ def test_missing_model_is_rejected_before_calling_agno() -> None:
         "node": {"key": "node"},
     }
     with pytest.raises(ValueError, match="model reference"):
-        import asyncio
-
         asyncio.run(AgnoAdapter(Resolver()).execute(request))
+
+
+def test_normal_text_response_uses_content() -> None:
+    output = RunOutput(run_id="run", content="final answer", reasoning_content="private")
+
+    assert AgnoAdapter._extract_final_content(output) == ("final answer", "content")
+
+
+def test_reasoning_is_not_used_as_final_answer() -> None:
+    output = RunOutput(
+        run_id="run",
+        content="",
+        reasoning_content="private chain of thought",
+        messages=[
+            Message(
+                role="assistant",
+                content="private chain of thought",
+                reasoning_content="private",
+            )
+        ],
+    )
+
+    assert AgnoAdapter._extract_final_content(output) == (None, None)
+
+
+def test_final_assistant_message_is_used_when_run_content_is_empty() -> None:
+    output = RunOutput(
+        run_id="run",
+        content="",
+        reasoning_content="private",
+        messages=[Message(role="assistant", content="visible answer")],
+    )
+
+    assert AgnoAdapter._extract_final_content(output) == (
+        "visible answer",
+        "assistant_message.content",
+    )
+
+
+def test_empty_response_fails_execution(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeAgent:
+        def __init__(self, **_: Any) -> None:
+            pass
+
+        async def arun(self, *_: Any, **__: Any) -> RunOutput:
+            return RunOutput(run_id="agno-run", content="", reasoning_content="private")
+
+    monkeypatch.setattr(adapter_module, "Agent", FakeAgent)
+    request = {
+        "agent": {
+            "role": "worker",
+            "instructions": "work",
+            "model": "model://general",
+        },
+        "run": {"runId": "run", "input": {"prompt": "sensitive"}},
+        "node": {"key": "node", "config": {}},
+        "taskExecutionId": "task",
+        "agentInstanceId": "agent",
+    }
+
+    with pytest.raises(ValueError, match="no final answer"):
+        asyncio.run(AgnoAdapter(Resolver()).execute(request))
+
+
+def test_token_metrics_are_converted_and_cost_is_optional() -> None:
+    without_cost = RunOutput(
+        run_id="run",
+        metrics=Metrics(input_tokens=12, output_tokens=7),
+    )
+    with_cost = RunOutput(
+        run_id="run",
+        metrics=Metrics(input_tokens=3, output_tokens=2, cost=0.004),
+    )
+
+    assert AgnoAdapter._extract_metrics(without_cost) == {
+        "input_tokens": 12,
+        "output_tokens": 7,
+    }
+    assert AgnoAdapter._extract_metrics(with_cost) == {
+        "input_tokens": 3,
+        "output_tokens": 2,
+        "cost_usd": 0.004,
+    }

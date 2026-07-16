@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ApiModel(BaseModel):
@@ -14,7 +14,7 @@ class ApiModel(BaseModel):
 class CompileRequest(ApiModel):
     spec: dict[str, Any]
     registry_snapshot: str = Field(default="inline", alias="registrySnapshot")
-    policy_revision: str = Field(default="phase1", alias="policyRevision")
+    policy_revision: str = Field(default="phase2b", alias="policyRevision")
 
 
 class CompileResponse(ApiModel):
@@ -23,9 +23,26 @@ class CompileResponse(ApiModel):
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class EditorPosition(ApiModel):
+    x: float
+    y: float
+
+
+class EditorViewport(ApiModel):
+    x: float = 0
+    y: float = 0
+    zoom: float = Field(default=1, gt=0)
+
+
+class EditorState(ApiModel):
+    positions: dict[str, EditorPosition] = Field(default_factory=dict)
+    viewport: EditorViewport = Field(default_factory=EditorViewport)
+
+
 class CreateStrategyRequest(ApiModel):
     name: str = Field(min_length=1, max_length=128)
     spec: dict[str, Any]
+    editor_state: EditorState = Field(default_factory=EditorState, alias="editorState")
 
 
 class StrategyHandle(ApiModel):
@@ -59,6 +76,7 @@ class DraftSnapshot(ApiModel):
     strategy_id: UUID = Field(alias="strategyId")
     revision: int
     spec: dict[str, Any]
+    editor_state: EditorState = Field(alias="editorState")
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
     updated_by: str = Field(alias="updatedBy")
     updated_at: datetime = Field(alias="updatedAt")
@@ -88,6 +106,7 @@ class StrategyVersionDetail(StrategyVersionSummary):
 
 class UpdateDraftRequest(ApiModel):
     spec: dict[str, Any]
+    editor_state: EditorState | None = Field(default=None, alias="editorState")
 
 
 class PublishRequest(ApiModel):
@@ -104,8 +123,15 @@ class StrategyVersionHandle(ApiModel):
 
 
 class CreateRunRequest(ApiModel):
-    strategy_version_id: UUID = Field(alias="strategyVersionId")
+    strategy_version_id: UUID | None = Field(default=None, alias="strategyVersionId")
+    spec: dict[str, Any] | None = None
     input: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def has_one_strategy_source(self) -> CreateRunRequest:
+        if (self.strategy_version_id is None) == (self.spec is None):
+            raise ValueError("exactly one of strategyVersionId or spec is required")
+        return self
 
 
 class RunHandle(ApiModel):
@@ -113,6 +139,7 @@ class RunHandle(ApiModel):
     status: str
     command_id: UUID = Field(alias="commandId")
     command_status: str = Field(alias="commandStatus")
+    plan_hash: str = Field(alias="planHash")
 
 
 class CommandHandle(ApiModel):

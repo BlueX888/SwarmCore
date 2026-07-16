@@ -1,0 +1,25 @@
+name: Backend integration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  postgres-temporal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.3"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --all-packages --frozen
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run pytest -q tests/unit
+      - run: bash scripts/test-integration.sh

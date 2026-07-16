@@ -9,10 +9,19 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from jsonschema import Draft202012Validator
-from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from swarmcore_compiler import CompileError
+from swarmcore_application import (
+    CapabilityCatalog,
+    CapabilityCatalogService,
+    CompilationService,
+    RunQueryService,
+    RunResult,
+    RunResultService,
+    RunService,
+    StrategyService,
+    render_run_snapshot,
+)
 from swarmcore_persistence import tenant_transaction
 from swarmcore_persistence.models import (
     ApprovalRequest,
@@ -36,6 +45,7 @@ from .schemas import (
     CreateRunRequest,
     CreateStrategyRequest,
     DraftSnapshot,
+    EditorState,
     ExternalInputListResponse,
     ExternalInputSnapshot,
     HumanResponseRequest,
@@ -51,17 +61,25 @@ from .schemas import (
     StrategyVersionHandle,
     StrategyVersionListResponse,
     StrategyVersionSummary,
-    TaskSnapshot,
     UpdateDraftRequest,
 )
-from .services import RunService, StrategyService
 
 router = APIRouter(prefix="/v1")
 strategies = StrategyService()
 runs = RunService()
+run_queries = RunQueryService()
+run_results = RunResultService()
+capabilities = CapabilityCatalogService()
+compilation = CompilationService(strategies)
 
 Scope = Annotated[RequestScope, Depends(request_scope)]
 Session = Annotated[AsyncSession, Depends(db_session)]
+
+
+@router.get("/projects/{project_id}/capabilities", response_model=CapabilityCatalog)
+async def get_capabilities(scope: Scope) -> CapabilityCatalog:
+    del scope
+    return capabilities.get()
 
 
 @router.post(
@@ -70,31 +88,16 @@ Session = Annotated[AsyncSession, Depends(db_session)]
 )
 async def compile_strategy(body: CompileRequest, scope: Scope) -> CompileResponse:
     del scope
-    try:
-        _, plan = strategies.compile(
-            body.spec,
-            registry_snapshot=body.registry_snapshot,
-            policy_revision=body.policy_revision,
-        )
-        return CompileResponse(valid=True, plan=plan.model_dump(mode="json", by_alias=True))
-    except CompileError as exc:
-        return CompileResponse(
-            valid=False,
-            diagnostics=[item.model_dump(mode="json") for item in exc.diagnostics],
-        )
-    except ValidationError as exc:
-        return CompileResponse(
-            valid=False,
-            diagnostics=[
-                {
-                    "severity": "error",
-                    "code": "STRUCTURAL_VALIDATION_ERROR",
-                    "path": "$." + ".".join(str(part) for part in item["loc"]),
-                    "message": item["msg"],
-                }
-                for item in exc.errors(include_url=False)
-            ],
-        )
+    result = compilation.compile(
+        body.spec,
+        registry_snapshot=body.registry_snapshot,
+        policy_revision=body.policy_revision,
+    )
+    return CompileResponse(
+        valid=result.valid,
+        plan=result.plan,
+        diagnostics=result.diagnostics,
+    )
 
 
 @router.post(
@@ -114,6 +117,7 @@ async def create_strategy(
         project_id=scope.project_id,
         name=body.name,
         raw_spec=body.spec,
+        editor_state=body.editor_state.model_dump(mode="json"),
         actor=actor,
     )
     return StrategyHandle(strategyId=strategy.id, draftId=draft.id, revision=draft.revision)
@@ -226,7 +230,7 @@ async def get_strategy_version(
 
 @router.put(
     "/projects/{project_id}/strategies/{strategy_id}/drafts/{draft_id}",
-    response_model=StrategyHandle,
+    response_model=DraftSnapshot,
 )
 async def update_strategy_draft(
     strategy_id: UUID,
@@ -237,7 +241,7 @@ async def update_strategy_draft(
     response: Response,
     if_match: Annotated[str, Header(alias="If-Match")],
     actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
-) -> StrategyHandle:
+) -> DraftSnapshot:
     try:
         expected_revision = int(if_match.strip('W/"'))
     except ValueError as exc:
@@ -251,10 +255,13 @@ async def update_strategy_draft(
         draft_id=draft_id,
         expected_revision=expected_revision,
         raw_spec=body.spec,
+        editor_state=(
+            body.editor_state.model_dump(mode="json") if body.editor_state is not None else None
+        ),
         actor=actor,
     )
     response.headers["ETag"] = f'"{draft.revision}"'
-    return StrategyHandle(strategyId=strategy_id, draftId=draft.id, revision=draft.revision)
+    return _draft_snapshot(draft)
 
 
 @router.post(
@@ -290,54 +297,56 @@ async def create_run(
     session: Session,
     idempotency_key: Annotated[str, Depends(require_idempotency_key)],
 ) -> RunHandle:
-    run, command = await runs.create(
-        session,
-        tenant_id=scope.tenant_id,
-        project_id=scope.project_id,
-        strategy_version_id=body.strategy_version_id,
-        input_data=body.input,
-        idempotency_key=idempotency_key,
-    )
+    if body.spec is not None:
+        run, command = await runs.create_inline(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            raw_spec=body.spec,
+            input_data=body.input,
+            idempotency_key=idempotency_key,
+        )
+    else:
+        assert body.strategy_version_id is not None
+        run, command = await runs.create(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            strategy_version_id=body.strategy_version_id,
+            input_data=body.input,
+            idempotency_key=idempotency_key,
+        )
     return RunHandle(
         runId=run.id,
         status=run.status,
         commandId=command.id,
         commandStatus=command.status,
+        planHash=run.plan_hash,
     )
 
 
 @router.get("/projects/{project_id}/runs/{run_id}", response_model=RunSnapshot)
 async def get_run(run_id: UUID, scope: Scope, session: Session) -> RunSnapshot:
-    run = await session.scalar(
-        select(Run).where(Run.id == run_id, Run.tenant_id == scope.tenant_id)
-    )
-    if run is None or run.project_id != scope.project_id:
-        raise HTTPException(status_code=404, detail="run not found")
-    tasks = list(
-        await session.scalars(
-            select(RunTask).where(RunTask.run_id == run_id).order_by(RunTask.task_instance_key)
+    try:
+        snapshot = await run_queries.get_snapshot(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            run_id=run_id,
         )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return RunSnapshot.model_validate(snapshot)
+
+
+@router.get("/projects/{project_id}/runs/{run_id}/result", response_model=RunResult)
+async def get_run_result(run_id: UUID, scope: Scope, session: Session) -> RunResult:
+    return await run_results.get(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        run_id=run_id,
     )
-    task_events = list(
-        await session.scalars(
-            select(RunEvent).where(
-                RunEvent.run_id == run_id,
-                RunEvent.task_id.is_not(None),
-                RunEvent.type.in_(("task.failed", "task.completed")),
-            )
-        )
-    )
-    errors = {
-        item.task_id: item.payload.get("error")
-        for item in task_events
-        if item.type == "task.failed" and isinstance(item.payload.get("error"), dict)
-    }
-    outputs = {
-        item.task_id: item.payload.get("output")
-        for item in task_events
-        if item.type == "task.completed" and isinstance(item.payload.get("output"), dict)
-    }
-    return _run_snapshot(run, tasks, errors=errors, outputs=outputs)
 
 
 @router.get("/projects/{project_id}/runs", response_model=RunListResponse)
@@ -371,7 +380,7 @@ async def list_runs(
                 select(RunTask).where(RunTask.run_id == run.id).order_by(RunTask.task_instance_key)
             )
         )
-        snapshots.append(_run_snapshot(run, tasks))
+        snapshots.append(RunSnapshot.model_validate(render_run_snapshot(run, tasks)))
     return RunListResponse(items=snapshots, total=total)
 
 
@@ -860,59 +869,6 @@ def _check_cursor(run: Run, after: int) -> None:
         raise HTTPException(status_code=410, detail="CURSOR_EXPIRED")
 
 
-def _run_snapshot(
-    run: Run,
-    tasks: list[RunTask] | None = None,
-    *,
-    errors: dict[UUID | None, Any] | None = None,
-    outputs: dict[UUID | None, Any] | None = None,
-) -> RunSnapshot:
-    task_items = tasks or []
-    task_counts: dict[str, int] = {}
-    for task in task_items:
-        task_counts[task.status] = task_counts.get(task.status, 0) + 1
-    actions: list[str] = []
-    if run.status in {"QUEUED", "RUNNING", "WAITING_APPROVAL", "WAITING_INPUT"}:
-        actions.append("pause")
-    if run.status in {"PAUSING", "PAUSED"}:
-        actions.append("resume")
-    if run.status not in _TERMINAL_RUN_STATUSES | {"FAILED"}:
-        actions.append("cancel")
-    if run.status == "FAILED" and any(task.status == "FAILED" for task in task_items):
-        actions.append("retry_task")
-    return RunSnapshot(
-        runId=run.id,
-        status=run.status,
-        input=run.input,
-        output=run.output,
-        outputRef=run.output_ref,
-        snapshotSeq=run.next_event_seq - 1,
-        earliestAvailableSeq=run.earliest_available_seq,
-        planHash=run.plan_hash,
-        usage=run.usage,
-        taskCounts=task_counts,
-        allowedActions=actions,
-        startedAt=run.started_at,
-        completedAt=run.completed_at,
-        tasks=[
-            TaskSnapshot(
-                taskId=task.id,
-                nodeKey=task.node_key,
-                nodeType=task.node_type,
-                status=task.status,
-                dependencies=task.dependencies,
-                error=(errors or {}).get(task.id),
-                output=(outputs or {}).get(task.id),
-                retryGeneration=task.retry_generation,
-                allowedActions=["retry_task"]
-                if run.status == "FAILED" and task.status == "FAILED"
-                else [],
-            )
-            for task in task_items
-        ],
-    )
-
-
 def _event_envelope(event: RunEvent) -> dict[str, Any]:
     return {
         "id": str(event.id),
@@ -982,6 +938,7 @@ def _draft_snapshot(draft: StrategyDraft) -> DraftSnapshot:
         strategyId=draft.strategy_id,
         revision=draft.revision,
         spec=draft.raw_spec,
+        editorState=EditorState.model_validate(draft.editor_state),
         diagnostics=draft.diagnostics,
         updatedBy=draft.updated_by,
         updatedAt=draft.updated_at,

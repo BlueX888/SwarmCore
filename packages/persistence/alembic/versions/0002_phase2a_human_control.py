@@ -25,7 +25,7 @@ def upgrade() -> None:
     op.execute(
         """DO $$ BEGIN
         ALTER TABLE runs ADD CONSTRAINT uq_runs_scope_id UNIQUE (tenant_id, project_id, id);
-        EXCEPTION WHEN duplicate_object THEN NULL; END $$"""
+        EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL; END $$"""
     )
     for name in ("approval_requests", "external_input_requests"):
         Base.metadata.tables[name].create(bind=bind, checkfirst=True)

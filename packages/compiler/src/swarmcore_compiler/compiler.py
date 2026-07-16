@@ -20,7 +20,7 @@ COMPILER_VERSION = "1.0.0"
 RUNTIME_VERSION = "1.0.0"
 PLAN_VERSION = "swarmcore.io/plan/v1"
 _TASK_TEMPLATE = re.compile(r"tasks\.([a-z][a-z0-9_-]{0,62})\b")
-_PHASE1_NODE_TYPES = {"agent", "parallel", "join", "reducer"}
+_SUPPORTED_NODE_TYPES = {"agent", "parallel", "join", "reducer", "approval", "input"}
 
 
 class Diagnostic(BaseModel):
@@ -197,7 +197,7 @@ class Compiler:
 
         for key, node in sorted(nodes.items()):
             path = f"$.spec.graph.nodes.{key}"
-            if node.type not in _PHASE1_NODE_TYPES:
+            if node.type not in _SUPPORTED_NODE_TYPES:
                 diagnostics.append(
                     Diagnostic(
                         severity="error",

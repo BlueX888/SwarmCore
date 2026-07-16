@@ -7,6 +7,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
+from jsonschema import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
@@ -66,6 +67,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(ValidationError)
     async def validation_error(request: Request, exc: ValidationError) -> JSONResponse:
         return _problem(request, 422, "VALIDATION_ERROR", str(exc))
+
+    @app.exception_handler(JsonSchemaValidationError)
+    async def json_schema_validation_error(
+        request: Request, exc: JsonSchemaValidationError
+    ) -> JSONResponse:
+        return _problem(request, 422, "INPUT_SCHEMA_INVALID", exc.message)
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_error(

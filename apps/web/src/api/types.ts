@@ -6,6 +6,8 @@ export interface TaskSnapshot {
   dependencies: string[];
   error?: Record<string, unknown> | null;
   output?: Record<string, unknown> | null;
+  retryGeneration: number;
+  allowedActions: string[];
 }
 
 export interface Diagnostic { severity: "error" | "warning"; code: string; path: string; message: string; }
@@ -48,7 +50,23 @@ export interface RunSnapshot {
 }
 
 export interface RunListResponse { items: RunSnapshot[]; total: number; }
-export interface CommandHandle { commandId: string; requestId: string; commandSeq: number; status: string; }
+export interface CommandHandle {
+  commandId: string; requestId: string; commandSeq: number; status: string;
+  result?: Record<string, unknown> | null; error?: Record<string, unknown> | null;
+  createdAt?: string | null; appliedAt?: string | null; rejectedAt?: string | null;
+}
+export interface ApprovalRequest {
+  approvalId: string; runId: string; nodeKey: string; prompt: string;
+  inputSchema: Record<string, unknown>; status: string; allowedActions: string[];
+  requestedBy: string; handledBy: string | null; createdAt: string; handledAt: string | null;
+}
+export interface ApprovalListResponse { items: ApprovalRequest[]; total: number; }
+export interface ExternalInputRequest {
+  inputRequestId: string; runId: string; nodeKey: string; prompt: string;
+  inputSchema: Record<string, unknown>; status: string; allowedActions: string[];
+  requestedBy: string; handledBy: string | null; createdAt: string; handledAt: string | null;
+}
+export interface ExternalInputListResponse { items: ExternalInputRequest[]; total: number; }
 export interface RunEvent {
   id: string;
   seq: number;

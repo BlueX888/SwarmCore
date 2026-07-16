@@ -8,12 +8,15 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
+from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from swarmcore_compiler import CompileError
 from swarmcore_persistence import tenant_transaction
 from swarmcore_persistence.models import (
+    ApprovalRequest,
+    ExternalInputRequest,
     Run,
     RunCommand,
     RunEvent,
@@ -25,12 +28,17 @@ from swarmcore_persistence.models import (
 
 from .dependencies import RequestScope, db_session, request_scope, require_idempotency_key
 from .schemas import (
+    ApprovalListResponse,
+    ApprovalSnapshot,
     CommandHandle,
     CompileRequest,
     CompileResponse,
     CreateRunRequest,
     CreateStrategyRequest,
     DraftSnapshot,
+    ExternalInputListResponse,
+    ExternalInputSnapshot,
+    HumanResponseRequest,
     PublishRequest,
     RunHandle,
     RunListResponse,
@@ -377,23 +385,209 @@ async def cancel_run(
     scope: Scope,
     session: Session,
     idempotency_key: Annotated[str, Depends(require_idempotency_key)],
+    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
 ) -> CommandHandle:
-    await _get_scoped_run(session, scope, run_id)
-    request_id = uuid5(NAMESPACE_URL, f"{scope.tenant_id}:{run_id}:{idempotency_key}")
-    command = await runs.commands.append(
+    run = await _get_scoped_run(session, scope, run_id)
+    if run.status in _TERMINAL_RUN_STATUSES:
+        raise HTTPException(status_code=409, detail="run is already terminal")
+    return await _append_command(
+        session, scope, run_id, "cancel", idempotency_key, {}, actor=actor
+    )
+
+
+@router.post(
+    "/projects/{project_id}/runs/{run_id}:pause",
+    response_model=CommandHandle,
+    status_code=202,
+)
+async def pause_run(
+    run_id: UUID,
+    scope: Scope,
+    session: Session,
+    idempotency_key: Annotated[str, Depends(require_idempotency_key)],
+    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
+) -> CommandHandle:
+    run = await _get_scoped_run(session, scope, run_id)
+    if run.status not in {"QUEUED", "RUNNING", "WAITING_APPROVAL", "WAITING_INPUT"}:
+        raise HTTPException(status_code=409, detail=f"run cannot be paused from {run.status}")
+    return await _append_command(
+        session, scope, run_id, "pause", idempotency_key, {}, actor=actor
+    )
+
+
+@router.post(
+    "/projects/{project_id}/runs/{run_id}:resume",
+    response_model=CommandHandle,
+    status_code=202,
+)
+async def resume_run(
+    run_id: UUID,
+    scope: Scope,
+    session: Session,
+    idempotency_key: Annotated[str, Depends(require_idempotency_key)],
+    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
+) -> CommandHandle:
+    run = await _get_scoped_run(session, scope, run_id)
+    if run.status not in {"PAUSING", "PAUSED"}:
+        raise HTTPException(status_code=409, detail=f"run cannot be resumed from {run.status}")
+    return await _append_command(
+        session, scope, run_id, "resume", idempotency_key, {}, actor=actor
+    )
+
+
+@router.get("/projects/{project_id}/approvals", response_model=ApprovalListResponse)
+async def list_approvals(
+    scope: Scope,
+    session: Session,
+    run_id: Annotated[UUID | None, Query(alias="runId")] = None,
+) -> ApprovalListResponse:
+    query = select(ApprovalRequest).where(
+        ApprovalRequest.tenant_id == scope.tenant_id,
+        ApprovalRequest.project_id == scope.project_id,
+        ApprovalRequest.status == "PENDING",
+    )
+    if run_id is not None:
+        query = query.where(ApprovalRequest.run_id == run_id)
+    items = list(await session.scalars(query.order_by(ApprovalRequest.created_at)))
+    return ApprovalListResponse(
+        items=[_approval_snapshot(item) for item in items], total=len(items)
+    )
+
+
+@router.post(
+    "/projects/{project_id}/approvals/{approval_id}:approve",
+    response_model=CommandHandle,
+    status_code=202,
+)
+async def approve(
+    approval_id: UUID,
+    body: HumanResponseRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: Annotated[str, Depends(require_idempotency_key)],
+    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
+) -> CommandHandle:
+    request = await _get_approval(session, scope, approval_id)
+    Draft202012Validator(request.input_schema).validate(body.value)
+    _reject_secret_material(body.value)
+    return await _handle_approval(
+        session, scope, request, "approve", idempotency_key, body.value, actor
+    )
+
+
+@router.post(
+    "/projects/{project_id}/approvals/{approval_id}:reject",
+    response_model=CommandHandle,
+    status_code=202,
+)
+async def reject(
+    approval_id: UUID,
+    body: HumanResponseRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: Annotated[str, Depends(require_idempotency_key)],
+    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
+) -> CommandHandle:
+    request = await _get_approval(session, scope, approval_id)
+    return await _handle_approval(
+        session, scope, request, "reject", idempotency_key, body.value, actor
+    )
+
+
+@router.get("/projects/{project_id}/inputs", response_model=ExternalInputListResponse)
+async def list_inputs(
+    scope: Scope,
+    session: Session,
+    run_id: Annotated[UUID | None, Query(alias="runId")] = None,
+) -> ExternalInputListResponse:
+    query = select(ExternalInputRequest).where(
+        ExternalInputRequest.tenant_id == scope.tenant_id,
+        ExternalInputRequest.project_id == scope.project_id,
+        ExternalInputRequest.status == "PENDING",
+    )
+    if run_id is not None:
+        query = query.where(ExternalInputRequest.run_id == run_id)
+    items = list(await session.scalars(query.order_by(ExternalInputRequest.created_at)))
+    return ExternalInputListResponse(
+        items=[_input_snapshot(item) for item in items], total=len(items)
+    )
+
+
+@router.post(
+    "/projects/{project_id}/inputs/{input_request_id}:provide",
+    response_model=CommandHandle,
+    status_code=202,
+)
+async def provide_input(
+    input_request_id: UUID,
+    body: HumanResponseRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: Annotated[str, Depends(require_idempotency_key)],
+    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
+) -> CommandHandle:
+    request = await _get_input(session, scope, input_request_id)
+    if request.status != "PENDING":
+        raise HTTPException(status_code=410, detail="input request was already handled")
+    Draft202012Validator(request.input_schema).validate(body.value)
+    _reject_secret_material(body.value)
+    handle = await _append_command(
         session,
-        tenant_id=scope.tenant_id,
-        run_id=run_id,
-        command_type="cancel",
-        request_id=request_id,
-        payload={},
+        scope,
+        request.run_id,
+        "provide_input",
+        idempotency_key,
+        {
+            "requestId": str(request.id),
+            "nodeKey": request.node_key,
+            "value": body.value,
+            "actor": actor,
+        },
+        actor=actor,
     )
-    return CommandHandle(
-        commandId=command.id,
-        requestId=command.request_id,
-        commandSeq=command.command_seq,
-        status=command.status,
+    if request.handler_command_id not in {None, handle.command_id}:
+        raise HTTPException(status_code=409, detail="input request already has a pending command")
+    request.handler_command_id = handle.command_id
+    request.handled_by = actor
+    return handle
+
+
+@router.post(
+    "/projects/{project_id}/runs/{run_id}/tasks/{task_id}:retry",
+    response_model=CommandHandle,
+    status_code=202,
+)
+async def retry_task(
+    run_id: UUID,
+    task_id: UUID,
+    scope: Scope,
+    session: Session,
+    idempotency_key: Annotated[str, Depends(require_idempotency_key)],
+    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
+) -> CommandHandle:
+    run = await _get_scoped_run(session, scope, run_id)
+    task = await session.scalar(
+        select(RunTask).where(
+            RunTask.id == task_id,
+            RunTask.run_id == run.id,
+            RunTask.tenant_id == scope.tenant_id,
+        )
     )
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    if task.status != "FAILED" or run.status != "FAILED":
+        raise HTTPException(status_code=409, detail="task is not retryable")
+    handle = await _append_command(
+        session,
+        scope,
+        run_id,
+        "retry_task",
+        idempotency_key,
+        {"taskId": str(task.id), "nodeKey": task.node_key, "generation": task.retry_generation + 1},
+        actor=actor,
+    )
+    task.last_retry_command_id = handle.command_id
+    return handle
 
 
 @router.get("/projects/{project_id}/commands/{command_id}", response_model=CommandHandle)
@@ -414,6 +608,11 @@ async def get_command(command_id: UUID, scope: Scope, session: Session) -> Comma
         requestId=command.request_id,
         commandSeq=command.command_seq,
         status=command.status,
+        result=command.result,
+        error=command.error,
+        createdAt=command.created_at,
+        appliedAt=command.applied_at,
+        rejectedAt=command.rejected_at,
     )
 
 
@@ -502,6 +701,160 @@ async def _get_scoped_run(session: AsyncSession, scope: RequestScope, run_id: UU
     return run
 
 
+_TERMINAL_RUN_STATUSES = {"REJECTED", "CANCELLED", "SUCCEEDED", "TIMED_OUT"}
+
+
+async def _append_command(
+    session: AsyncSession,
+    scope: RequestScope,
+    run_id: UUID,
+    command_type: str,
+    idempotency_key: str,
+    payload: dict[str, Any],
+    *,
+    actor: str,
+) -> CommandHandle:
+    request_id = uuid5(
+        NAMESPACE_URL,
+        f"{scope.tenant_id}:{run_id}:{command_type}:{idempotency_key}",
+    )
+    command = await runs.commands.append(
+        session,
+        tenant_id=scope.tenant_id,
+        run_id=run_id,
+        command_type=command_type,
+        request_id=request_id,
+        payload=payload,
+        actor=actor,
+    )
+    return _command_handle(command)
+
+
+def _command_handle(command: RunCommand) -> CommandHandle:
+    return CommandHandle(
+        commandId=command.id,
+        requestId=command.request_id,
+        commandSeq=command.command_seq,
+        status=command.status,
+        result=command.result,
+        error=command.error,
+        createdAt=command.created_at,
+        appliedAt=command.applied_at,
+        rejectedAt=command.rejected_at,
+    )
+
+
+async def _get_approval(
+    session: AsyncSession, scope: RequestScope, approval_id: UUID
+) -> ApprovalRequest:
+    request = await session.scalar(
+        select(ApprovalRequest).where(
+            ApprovalRequest.id == approval_id,
+            ApprovalRequest.tenant_id == scope.tenant_id,
+            ApprovalRequest.project_id == scope.project_id,
+        )
+    )
+    if request is None:
+        raise HTTPException(status_code=404, detail="approval request not found")
+    return request
+
+
+async def _get_input(
+    session: AsyncSession, scope: RequestScope, input_request_id: UUID
+) -> ExternalInputRequest:
+    request = await session.scalar(
+        select(ExternalInputRequest).where(
+            ExternalInputRequest.id == input_request_id,
+            ExternalInputRequest.tenant_id == scope.tenant_id,
+            ExternalInputRequest.project_id == scope.project_id,
+        )
+    )
+    if request is None:
+        raise HTTPException(status_code=404, detail="external input request not found")
+    return request
+
+
+async def _handle_approval(
+    session: AsyncSession,
+    scope: RequestScope,
+    request: ApprovalRequest,
+    command_type: str,
+    idempotency_key: str,
+    value: dict[str, Any],
+    actor: str,
+) -> CommandHandle:
+    if request.status != "PENDING":
+        raise HTTPException(status_code=410, detail="approval request was already handled")
+    handle = await _append_command(
+        session,
+        scope,
+        request.run_id,
+        command_type,
+        idempotency_key,
+        {
+            "requestId": str(request.id),
+            "nodeKey": request.node_key,
+            "value": value,
+            "actor": actor,
+        },
+        actor=actor,
+    )
+    if request.handler_command_id not in {None, handle.command_id}:
+        raise HTTPException(
+            status_code=409, detail="approval request already has a pending command"
+        )
+    request.handler_command_id = handle.command_id
+    request.handled_by = actor
+    return handle
+
+
+def _approval_snapshot(request: ApprovalRequest) -> ApprovalSnapshot:
+    return ApprovalSnapshot(
+        approvalId=request.id,
+        runId=request.run_id,
+        nodeKey=request.node_key,
+        prompt=request.prompt,
+        inputSchema=request.input_schema,
+        status=request.status,
+        allowedActions=["approve", "reject"] if request.status == "PENDING" else [],
+        requestedBy=request.requested_by,
+        handledBy=request.handled_by,
+        createdAt=request.created_at,
+        handledAt=request.handled_at,
+    )
+
+
+def _input_snapshot(request: ExternalInputRequest) -> ExternalInputSnapshot:
+    return ExternalInputSnapshot(
+        inputRequestId=request.id,
+        runId=request.run_id,
+        nodeKey=request.node_key,
+        prompt=request.prompt,
+        inputSchema=request.input_schema,
+        status=request.status,
+        allowedActions=["provide_input"] if request.status == "PENDING" else [],
+        requestedBy=request.requested_by,
+        handledBy=request.handled_by,
+        createdAt=request.created_at,
+        handledAt=request.handled_at,
+    )
+
+
+def _reject_secret_material(value: Any, path: str = "$") -> None:
+    secret_names = {"secret", "password", "token", "api_key", "apikey", "private_key"}
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key.lower() in secret_names:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"plaintext secret material is not accepted at {path}.{key}",
+                )
+            _reject_secret_material(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _reject_secret_material(item, f"{path}[{index}]")
+
+
 def _check_cursor(run: Run, after: int) -> None:
     if after and after < run.earliest_available_seq - 1:
         raise HTTPException(status_code=410, detail="CURSOR_EXPIRED")
@@ -518,7 +871,15 @@ def _run_snapshot(
     task_counts: dict[str, int] = {}
     for task in task_items:
         task_counts[task.status] = task_counts.get(task.status, 0) + 1
-    terminal = {"REJECTED", "CANCELLED", "SUCCEEDED", "FAILED", "TIMED_OUT"}
+    actions: list[str] = []
+    if run.status in {"QUEUED", "RUNNING", "WAITING_APPROVAL", "WAITING_INPUT"}:
+        actions.append("pause")
+    if run.status in {"PAUSING", "PAUSED"}:
+        actions.append("resume")
+    if run.status not in _TERMINAL_RUN_STATUSES | {"FAILED"}:
+        actions.append("cancel")
+    if run.status == "FAILED" and any(task.status == "FAILED" for task in task_items):
+        actions.append("retry_task")
     return RunSnapshot(
         runId=run.id,
         status=run.status,
@@ -530,7 +891,7 @@ def _run_snapshot(
         planHash=run.plan_hash,
         usage=run.usage,
         taskCounts=task_counts,
-        allowedActions=[] if run.status in terminal else ["cancel"],
+        allowedActions=actions,
         startedAt=run.started_at,
         completedAt=run.completed_at,
         tasks=[
@@ -542,6 +903,10 @@ def _run_snapshot(
                 dependencies=task.dependencies,
                 error=(errors or {}).get(task.id),
                 output=(outputs or {}).get(task.id),
+                retryGeneration=task.retry_generation,
+                allowedActions=["retry_task"]
+                if run.status == "FAILED" and task.status == "FAILED"
+                else [],
             )
             for task in task_items
         ],

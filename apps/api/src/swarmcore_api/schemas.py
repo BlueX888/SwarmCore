@@ -120,6 +120,53 @@ class CommandHandle(ApiModel):
     request_id: UUID = Field(alias="requestId")
     command_seq: int = Field(alias="commandSeq")
     status: str
+    result: dict[str, Any] | None = None
+    error: dict[str, Any] | None = None
+    created_at: datetime | None = Field(default=None, alias="createdAt")
+    applied_at: datetime | None = Field(default=None, alias="appliedAt")
+    rejected_at: datetime | None = Field(default=None, alias="rejectedAt")
+
+
+class HumanResponseRequest(ApiModel):
+    value: dict[str, Any] = Field(default_factory=dict)
+
+
+class ApprovalSnapshot(ApiModel):
+    approval_id: UUID = Field(alias="approvalId")
+    run_id: UUID = Field(alias="runId")
+    node_key: str = Field(alias="nodeKey")
+    prompt: str
+    input_schema: dict[str, Any] = Field(alias="inputSchema")
+    status: str
+    allowed_actions: list[str] = Field(default_factory=list, alias="allowedActions")
+    requested_by: str = Field(alias="requestedBy")
+    handled_by: str | None = Field(default=None, alias="handledBy")
+    created_at: datetime = Field(alias="createdAt")
+    handled_at: datetime | None = Field(default=None, alias="handledAt")
+
+
+class ApprovalListResponse(ApiModel):
+    items: list[ApprovalSnapshot]
+    total: int
+
+
+class ExternalInputSnapshot(ApiModel):
+    input_request_id: UUID = Field(alias="inputRequestId")
+    run_id: UUID = Field(alias="runId")
+    node_key: str = Field(alias="nodeKey")
+    prompt: str
+    input_schema: dict[str, Any] = Field(alias="inputSchema")
+    status: str
+    allowed_actions: list[str] = Field(default_factory=list, alias="allowedActions")
+    requested_by: str = Field(alias="requestedBy")
+    handled_by: str | None = Field(default=None, alias="handledBy")
+    created_at: datetime = Field(alias="createdAt")
+    handled_at: datetime | None = Field(default=None, alias="handledAt")
+
+
+class ExternalInputListResponse(ApiModel):
+    items: list[ExternalInputSnapshot]
+    total: int
 
 
 class RunSnapshot(ApiModel):
@@ -147,6 +194,8 @@ class TaskSnapshot(ApiModel):
     dependencies: list[str]
     error: dict[str, Any] | None = None
     output: dict[str, Any] | None = None
+    retry_generation: int = Field(default=0, alias="retryGeneration")
+    allowed_actions: list[str] = Field(default_factory=list, alias="allowedActions")
 
 
 class RunListResponse(ApiModel):

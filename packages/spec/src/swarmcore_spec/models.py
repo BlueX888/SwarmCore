@@ -193,6 +193,14 @@ class ApprovalNode(NodeBase):
     )
 
 
+class ExternalInputNode(NodeBase):
+    type: Literal["input"]
+    prompt: str = Field(min_length=1)
+    input_schema: JsonSchema = Field(
+        default_factory=lambda: {"type": "object"}, alias="inputSchema"
+    )
+
+
 class ReducerNode(NodeBase):
     type: Literal["reducer"]
     reducer: Literal["merge_object", "concat", "first_success", "vote"]
@@ -219,6 +227,7 @@ Node = Annotated[
     | JoinNode
     | LoopNode
     | ApprovalNode
+    | ExternalInputNode
     | ReducerNode
     | SubflowNode
     | EmitNode,

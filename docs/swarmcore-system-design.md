@@ -1,17 +1,19 @@
-# SwarmCore 蜂群 Agent 执行运行时系统设计
+# SwarmCore 多 Agent 编排执行运行时系统设计
 
 | 属性 | 值 |
 |---|---|
 | 文档状态 | Baseline / 可实施 |
-| 版本 | 1.0 |
-| 日期 | 2026-07-15 |
+| 版本 | 1.1 |
+| 日期 | 2026-07-16 |
 | 目标版本 | SwarmCore v1 |
 | 维护者 | SwarmCore Team |
-| 适用范围 | API、MCP、配置驱动的多 Agent 编排与耐久执行 |
+| 适用范围 | DeepTalk 及其他调用方通过 API、MCP 或配置驱动的多 Agent 编排与耐久执行 |
 
 ## 1. 摘要
 
-SwarmCore 是一个面向多租户的蜂群 Agent 执行运行时。调用方通过 REST API、MCP 或 YAML/JSON 配置提交自定义编排策略，系统将策略规范化为 SwarmSpec，编译成不可变 ExecutionPlan，由 Temporal 耐久工作流解释执行。Agno 负责具体 Agent、Team、模型和工具调用；SwarmCore 负责实例生命周期、调度、状态、可靠性、安全、事件、结果和平台治理。
+SwarmCore 是一个协议无关的多 Agent 编排执行运行时。DeepTalk 根据用户目标自主选择 Agent、工具和编排方式，可通过 MCP 或 REST API 提交执行方案；其他系统也可通过 REST API 或配置/CLI 接入。所有入口共享同一套应用服务和 SwarmSpec 语义：系统将方案规范化为 SwarmSpec，编译成不可变 ExecutionPlan，由 Temporal 耐久工作流解释执行，并将结构化结果、Artifact 和执行状态返回调用方。Agno 负责具体 Agent、Team、模型和工具调用；SwarmCore 负责方案校验、实例生命周期、调度、状态、可靠性、安全、事件和结果交付。
+
+DeepTalk 是目标理解和编排决策方，SwarmCore 是受控执行方。REST API 是公开扩展与系统集成接口，MCP 是适合智能体调用的协议适配器，两者不存在主从关系；控制台是基于同一 REST API 的人工测试与观测客户端，不建立独立执行链路。多租户能力作为部署隔离和安全边界保留，不作为产品核心定位。
 
 本设计固定以下边界：
 
@@ -23,12 +25,14 @@ SwarmCore 是一个面向多租户的蜂群 Agent 执行运行时。调用方通
 6. 用户编排默认使用声明式 SwarmSpec、CEL 和受限模板，不允许上传任意 Python 作为策略。
 7. 不可信代码只能通过 Sandbox Manager 进入隔离运行环境。
 8. 前端采用 React 19 + Vite + TailAdmin × Radix 设计系统，不继续扩展现有 Next.js Agent UI 壳。
+9. REST、MCP、配置/CLI 和控制台不得形成不同执行语义，统一复用应用服务、权限、编译、命令和结果契约。
 
 ## 2. 目标与非目标
 
 ### 2.1 目标
 
-- 统一接收 API、MCP 和 YAML/JSON 三类编排输入。
+- 建立协议无关的编排执行内核，统一接收 REST API、MCP 和配置/CLI 输入。
+- 支持 DeepTalk 自主生成并提交 SwarmSpec，同时允许其他系统通过公开 API 扩展接入。
 - 支持顺序、并行、DAG、路由、循环、主管、评审、投票和子蜂群。
 - 支持长时间运行、进程重启恢复、暂停、继续、取消、超时、重试和人工审批。
 - 支持运行中动态派生任务，但所有动态操作必须经过权限、预算和结构校验。
@@ -45,7 +49,8 @@ SwarmCore 是一个面向多租户的蜂群 Agent 执行运行时。调用方通
 - v1 不支持调用方上传并在控制面进程内执行任意编排代码。
 - v1 不承诺外部副作用的 exactly-once；系统提供 at-least-once 执行、幂等键和补偿机制。
 - v1 不把 Kafka、Qdrant、Kata Containers 设为强制基础设施。
-- v1 不提供面向普通终端用户的通用聊天产品；控制台面向开发、运维和治理人员。
+- v1 不提供面向普通终端用户的通用聊天产品；终端用户交互由 DeepTalk 负责。
+- 控制台只面向人工测试、执行观测和问题诊断，不承载 DeepTalk 产品逻辑或独立执行语义。
 
 ## 3. 质量目标与默认限制
 
@@ -114,7 +119,7 @@ LLM Provider 自身延迟和外部工具延迟不计入控制面 API SLO，但�
 | AI Observability | Arize Phoenix | OpenInference Trace、评测和实验 |
 | Metrics | Prometheus + Grafana | 系统指标与告警 |
 | Logs | Python logging + Alloy + Loki | 结构化日志 |
-| Web | React 19 + TypeScript + Vite | 管理控制台 |
+| Web | React 19 + TypeScript + Vite | 测试与观测控制台 |
 | Router | React Router v7 Data Mode | 固定 v7 最新 minor |
 | Design System | shadcn/ui + Radix + Tailwind CSS v4 | 依赖 b-design-system-tailadmin-radix |
 | Graph | React Flow 12 | 策略编辑和运行拓扑 |
@@ -129,17 +134,28 @@ LLM Provider 自身延迟和外部工具延迟不计入控制面 API SLO，但�
 
 ~~~mermaid
 flowchart LR
-    Caller[API / MCP / YAML 调用方]
-    UI[SwarmCore Console]
+    DeepTalk[DeepTalk Agent]
+    External[其他系统 / 扩展调用方]
+    CLI[配置 / CLI]
+    UI[SwarmCore 测试控制台]
+    Rest[REST API Adapter]
+    MCPIn[MCP Server Adapter]
+    App[统一应用服务]
     IdP[OIDC Identity Provider]
     Models[Cloud LLM / vLLM]
     Tools[MCP / HTTP / Internal Tools]
     Store[S3 Artifact Store]
 
-    Caller --> API[SwarmCore API]
-    UI --> API
-    API --> IdP
-    API --> PG[(PostgreSQL)]
+    DeepTalk --> MCPIn
+    DeepTalk --> Rest
+    External --> Rest
+    CLI --> Rest
+    UI --> Rest
+    MCPIn --> App
+    Rest --> App
+    MCPIn --> IdP
+    Rest --> IdP
+    App --> PG[(PostgreSQL)]
     PG --> Dispatcher[Outbox Dispatcher]
     Dispatcher --> Temporal[Temporal Cluster]
     Temporal --> Worker[Swarm Workers]
@@ -154,8 +170,8 @@ flowchart LR
     PG --> Publisher[Event Outbox Publisher]
     Publisher --> NATS[NATS JetStream]
     NATS --> Events[Event Gateway]
-    Events --> UI
-    Events --> Caller
+    Events --> Rest
+    Events --> MCPIn
 ~~~
 
 ## 6. 逻辑架构
@@ -163,7 +179,10 @@ flowchart LR
 ~~~mermaid
 flowchart TB
     subgraph ControlPlane[控制面]
-        Gateway[API / MCP Gateway]
+        RestAdapter[REST API Adapter]
+        MCPAdapter[MCP Server Adapter]
+        ConfigAdapter[Config / CLI Adapter]
+        Application[统一应用服务]
         Strategy[Strategy Registry]
         Compiler[Spec Compiler]
         RunService[Run Command Service]
@@ -190,7 +209,7 @@ flowchart TB
         Agno[Agno Adapter]
         LiteLLM[LiteLLM Proxy]
         ProxyTool[Deferred GatewayProxyTool]
-        MCP[MCP Gateway]
+        OutboundMCP[Outbound MCP Connector]
         Sandbox[gVisor / Kata Sandbox]
     end
 
@@ -202,9 +221,15 @@ flowchart TB
         Vault[Vault]
     end
 
-    Gateway --> Strategy
+    RestAdapter --> Application
+    MCPAdapter --> Application
+    ConfigAdapter --> Application
+    Application --> Strategy
     Strategy --> Compiler
-    Gateway --> RunService
+    Application --> RunService
+    Application --> Query
+    Application --> Approval
+    Application --> EventGateway
     RunService --> PG
     PG --> Dispatcher
     Dispatcher --> Temporal
@@ -217,7 +242,7 @@ flowchart TB
     Agno --> LiteLLM
     Agno --> ProxyTool
     ProxyTool --> ControlWorker
-    ToolWorker --> MCP
+    ToolWorker --> OutboundMCP
     SandboxManager --> Sandbox
     AgentWorker --> Ingestor
     ToolWorker --> Ingestor
@@ -239,19 +264,19 @@ flowchart TB
 
 ## 7. 服务与组件
 
-### 7.1 API / MCP Gateway
+### 7.1 接口适配层与统一应用服务
 
 职责：
 
-- 验证 OIDC JWT、租户、项目和 Scope。
-- 接收 REST、MCP 和上传配置。
-- 分配 Idempotency-Key 和 Correlation ID。
-- 对请求执行速率限制、大小限制和 Schema 校验。
-- 将写命令交给 Run Command Service。
-- 将查询交给 Run Query Service。
-- 返回 202 Job Handle 或结构化错误。
+- REST API Adapter 提供公开扩展和系统集成接口，接收机器调用、控制台请求和 CLI 请求。
+- MCP Server Adapter 为 DeepTalk 等智能体调用方提供能力发现、方案提交、运行控制和结果读取。
+- Config / CLI Adapter 将 YAML/JSON 导入转换为与 REST 相同的资源和命令，不直接启动执行。
+- 统一应用服务验证 OIDC JWT、租户、项目和 Scope，并执行速率限制、大小限制和 Schema 校验。
+- 各适配器将写操作交给 Strategy Registry 或 Run Command Service，将查询交给 Run Query Service，并共享 Idempotency、Correlation ID、错误码和结果 DTO。
+- 控制台只调用 REST API，不直连 PostgreSQL、Temporal、NATS、Worker 或内部应用服务。
+- 创建和控制操作返回 202 RunHandle/CommandHandle 或结构化错误；协议适配器只负责协议映射，不复制业务规则。
 
-该服务无本地持久状态，可以水平扩展。API 不直接执行 Agent。
+接口适配层和应用服务无本地持久状态，可以水平扩展。任何入口都不直接执行 Agent。
 
 ### 7.2 Strategy Registry
 
@@ -724,19 +749,22 @@ RunTask 是 TaskInstance；同一 node_key 在 loop/fan-out 中可有多个 task
 
 ~~~mermaid
 sequenceDiagram
-    participant C as Caller
-    participant A as API
+    participant C as DeepTalk / Caller
+    participant I as REST / MCP Adapter
+    participant A as Unified Application Service
     participant DB as PostgreSQL
     participant D as Outbox Dispatcher
     participant T as Temporal
     participant W as Control Worker
     participant P as State Projector
 
-    C->>A: POST /v1/projects/{project}/runs
-    A->>A: Auth + Schema + Idempotency
+    C->>I: Submit plan / create run
+    I->>A: Canonical CreateRunCommand
+    A->>A: Auth + Schema + Policy + Idempotency
     A->>DB: TX insert run + start RunCommand(seq=1) + outbox
     DB-->>A: committed
-    A-->>C: 202 RunHandle
+    A-->>I: RunHandle
+    I-->>C: 202 / structured RunHandle
     D->>DB: claim start_run_requested
     D->>T: start SwarmRunWorkflow
     T-->>D: workflow accepted
@@ -746,7 +774,7 @@ sequenceDiagram
     P->>DB: TX state + run_event + event outbox
 ~~~
 
-如果 Temporal 暂时不可用，Run 保持 ACCEPTED，Outbox Dispatcher 继续退避重试，API 不丢失请求。
+REST 和 MCP 提交都映射为同一个 CreateRunCommand；控制台和 CLI 通过 REST 进入该链路。如果 Temporal 暂时不可用，Run 保持 ACCEPTED，Outbox Dispatcher 继续退避重试，系统不丢失已接受的请求。
 
 ### 10.6 人工审批时序
 
@@ -1072,6 +1100,8 @@ Subject 中只放 tenant_id 与 run_id，不放用户输入、Secret 或高基�
 
 ## 13. API 设计
 
+REST API 是 SwarmCore 的公开扩展与系统集成契约，能力覆盖方案校验、编译、执行、控制、查询和结果获取。它与 MCP 共享应用服务和领域契约，不是 MCP 的内部实现或附属接口；控制台、官方 CLI 和不使用 MCP 的 DeepTalk 集成都通过该 API 接入。
+
 ### 13.1 通用规则
 
 - 基础路径：/v1。
@@ -1161,7 +1191,7 @@ GET /runs/{run_id} 必须返回 snapshotSeq。控制 POST 统一返回 202 Comma
 | GET/POST | /projects/{project_id}/webhooks | swarm.webhook.admin | 查询/注册 WebhookRef |
 | PATCH/DELETE | /webhooks/{webhook_id} | swarm.webhook.admin | 轮换、禁用或删除 Endpoint |
 | GET | /projects/{project_id}/policy | swarm.policy.read | 当前 Bundle Revision、能力和 emergency deny |
-| GET | /projects/{project_id}/capabilities | swarm.project.read | 控制台页面和资源能力清单 |
+| GET | /projects/{project_id}/capabilities | swarm.project.read | Agent、Tool、Model、节点类型和调用方可用能力清单 |
 
 RunSnapshot 至少包含 run、snapshotSeq、earliestAvailableSeq、projectionUpdatedAt、stale、taskCounts、usage、pendingWaits、allowedActions 和链接。allowedActions 由当前身份 + OPA + Run 状态计算，前端不自行推导权限。列表页 v1 使用 5 s 可见/30 s 后台轮询，不为每行创建 SSE；只有 Run Detail 建立 per-Run stream。
 
@@ -1317,14 +1347,18 @@ CI/GitOps 使用最小权限 Service Account 和短期 Bearer Token。服务启�
 
 ### 14.1 MCP Server
 
+MCP Server 是面向 DeepTalk 等智能体调用方的可选入站适配器，用于能力发现、自主生成方案、提交执行和读取结果。REST API 保持等价且完整的接入能力；MCP Tool/Resource 只映射统一应用服务与稳定 DTO，不维护独立业务状态或执行语义。
+
 生产端固定 MCP 稳定协议 2025-11-25、JSON-RPC 2.0 与 Streamable HTTP，单端点为 POST/GET/DELETE /mcp。客户端通过初始化协商协议版本，后续携带 Mcp-Protocol-Version 和 Mcp-Session-Id。远程访问使用 OAuth 2.0 Bearer Token；stdio 只用于本地开发，不暴露为生产入口。截至本文档日期，2026-07-28 版本仍是 RC，不进入 v1 生产基线；最终发布并得到 SDK 支持后通过 Contract Test 升级。
 
 Tools：
 
+- swarm_get_capabilities
 - swarm_validate_strategy
 - swarm_compile_strategy
 - swarm_create_run
 - swarm_get_run
+- swarm_get_run_result
 - swarm_list_run_tasks
 - swarm_pause_run
 - swarm_resume_run
@@ -1334,9 +1368,11 @@ Tools：
 
 | Tool 组 | 必填输入 | outputSchema |
 |---|---|---|
+| get_capabilities | projectId | CapabilityCatalog |
 | validate/compile | projectId、spec、specSchemaVersion | ValidationResult / CompileResult |
 | create_run | projectId、strategyVersionId 或 inlineStrategy、input、idempotencyKey | RunHandle |
 | get_run/list_tasks | runId、可选 cursor/limit | RunSnapshot / TaskPage |
+| get_run_result | runId | RunResult；非终态返回 RUN_NOT_TERMINAL |
 | pause/resume/cancel | runId、expectedVersion、idempotencyKey | CommandHandle |
 | resolve_approval | approvalId、decision、approvalVersion、idempotencyKey | CommandHandle |
 | retry_run | runId、可选 retryFromTaskId、idempotencyKey | RunHandle |
@@ -1344,6 +1380,7 @@ Tools：
 Resources：
 
 - swarm://runs/{run_id}
+- swarm://runs/{run_id}/result
 - swarm://runs/{run_id}/events?after={seq}&limit={limit}
 - swarm://runs/{run_id}/artifacts/{artifact_id}（仅元数据和受控下载引用）
 - swarm://strategies/{strategy_id}/versions/{version}
@@ -1377,7 +1414,7 @@ RemoteAgent 必须注册：
 
 ### 14.3 AG-UI
 
-AG-UI 用于用户与 Agent 的对话、消息、Tool Call 和前端状态交互。运行拓扑、Task 状态、Attempt、成本、审批和治理事件继续使用 Swarm Event API。
+DeepTalk 负责面向终端用户的对话与交互，SwarmCore 不以 AG-UI 作为主要产品入口。AG-UI 仅作为可选测试适配器，供控制台验证交互式 Agent 节点的消息、Tool Call 和前端状态；运行拓扑、Task 状态、Attempt、成本、审批和治理事件继续使用 Swarm Event API。
 
 前端必须把 AG-UI Message State 与 Run Projection 分开，不能用聊天消息推导 Run 状态。
 
@@ -1647,7 +1684,9 @@ Prompt、模型输出和 Tool 参数默认不作为普通 Attribute；需要采�
 - Policy Deny。
 - 角色、预算和连接配置变更。
 
-## 19. 前端控制台设计
+## 19. 测试与观测控制台设计
+
+控制台是供开发和测试人员人工验证 SwarmCore 的参考客户端，核心用途是编辑或导入方案、发起测试运行、观察执行过程和诊断问题。控制台只使用公开 REST API、SSE 和可选 AG-UI，不直连内部组件；它不得实现 DeepTalk 的目标理解、自动编排或终端用户产品逻辑，也不得复制服务端编译、权限和状态迁移规则。生产部署可按需要关闭控制台，不影响 API、MCP 和执行运行时。
 
 ### 19.1 固定技术栈
 
@@ -1670,7 +1709,7 @@ Prompt、模型输出和 Tool 参数默认不作为普通 Attribute；需要采�
 
 | 路由 | 页面模式 | 功能 |
 |---|---|---|
-| /t/:tenantId/p/:projectId/overview | Dashboard | Run、成本、成功率、队列和告警 |
+| /t/:tenantId/p/:projectId/overview | Dashboard | 测试 Run、成本、成功率、队列和告警 |
 | /t/:tenantId/p/:projectId/strategies | Table List | 策略列表、状态和版本 |
 | /t/:tenantId/p/:projectId/strategies/new | Form Flow | 创建策略 |
 | /t/:tenantId/p/:projectId/strategies/:strategyId | Detail Page | 版本、用量和审计 |
@@ -1978,6 +2017,7 @@ Secret 不写入普通配置文件。所有配置在启动时验证，错误时�
 - Vault Lease 撤销。
 - S3 staging 和孤儿清理。
 - MCP Server/Client。
+- REST 与 MCP 对同一 SwarmSpec 的命令规范化、Plan Hash、错误码和 RunResult 契约一致性。
 - SSE 先订阅/高水位回放、gap、backpressure、410 和陈旧快照重放。
 - Webhook 签名和重试。
 - MCP 2025-11-25、A2A 1.0 和 AG-UI 录制流 Contract Test。
@@ -2051,7 +2091,7 @@ SwarmCore/
     adr/
 ~~~
 
-现有 agno 目录作为上游源码参考，不直接在其中开发 SwarmCore 业务代码。现有 agent-ui 用于参考 AgentOS API 和流式交互，新的控制台放入 apps/web。
+现有 agno 目录作为上游源码参考，不直接在其中开发 SwarmCore 业务代码。现有 agent-ui 仅用于参考 AgentOS API 和流式交互，新的测试与观测控制台放入 apps/web。
 
 ## 24. 实施阶段
 
@@ -2064,11 +2104,11 @@ SwarmCore/
 - Command Dispatcher、Event Outbox Publisher 和 Projection Reconciler。
 - Temporal SwarmRunWorkflow。
 - AgnoAdapter 和 Agent Worker。
-- Run REST API、SSE 和 MCP。
-- Run/Task/Event 基础控制台。
+- 统一应用服务、Run REST API、SSE 和 MCP 入站适配器。
+- Run/Task/Event 基础测试与观测控制台。
 - OpenTelemetry 和 Phoenix。
 
-验收：顺序、并行、DAG 和 Supervisor 可以提交、恢复、取消并返回结构化结果。
+验收：DeepTalk 或其他调用方可以通过 REST 或 MCP 提交顺序、并行、DAG 和 Supervisor 方案；两种入口均可恢复、取消并取得一致的结构化结果，关闭控制台不影响上述链路。
 
 ### Phase 2：交互和治理
 
@@ -2113,18 +2153,22 @@ SwarmCore/
 | ADR-005 | CEL 作为条件表达式，禁止 eval |
 | ADR-006 | Transactional Outbox 解决数据库与外部系统一致性 |
 | ADR-007 | NATS JetStream 作为生产事件分发 |
-| ADR-008 | MCP/A2A/AG-UI 分别承担工具、Agent、用户交互 |
+| ADR-008 | REST API 与 MCP 是统一应用服务的并列入站适配器；A2A 仅用于外部 RemoteAgent |
 | ADR-009 | 不可信代码使用 K8s Job + gVisor |
 | ADR-010 | 前端重建为 React 19 + Vite + TailAdmin × Radix |
 | ADR-011 | Command 按 Run command_seq 经 PostgreSQL Outbox 顺序交付 Temporal |
 | ADR-012 | Event Outbox Publisher 是 PostgreSQL 到 NATS 的唯一发布路径 |
 | ADR-013 | Agno 只通过 Deferred GatewayProxyTool 调用受控 Tool |
 | ADR-014 | StrategyDraft 可变、StrategyVersion 不可变 |
+| ADR-015 | 控制台仅作为基于公开接口的测试与观测客户端 |
 
 ## 26. 发布验收标准
 
 v1 发布前必须全部满足：
 
+- DeepTalk 可以通过 REST 或 MCP 查询可用能力、提交 inline SwarmSpec 并取得最终 RunResult。
+- 同一 SwarmSpec 经 REST 与 MCP 提交时使用相同的编译、权限、命令和结果语义。
+- 控制台只调用公开接口，关闭或未部署控制台时不影响 API、MCP 和执行运行时。
 - 同一 Idempotency-Key 不会创建两个 Run。
 - API 接受后即使 Temporal 不可用，请求也不会丢失。
 - Worker 在任意 Agent Task 中被杀死后，Run 能自动恢复。

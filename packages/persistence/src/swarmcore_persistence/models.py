@@ -135,6 +135,7 @@ class Run(Base, IdMixin, TenantMixin, TimestampMixin):
     __tablename__ = "runs"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_runs_tenant_id"),
+        UniqueConstraint("tenant_id", "project_id", "id", name="uq_runs_scope_id"),
         ForeignKeyConstraint(
             ["tenant_id", "project_id"], ["projects.tenant_id", "projects.id"], ondelete="RESTRICT"
         ),
@@ -200,6 +201,8 @@ class RunTask(Base, IdMixin, TenantMixin):
     dependencies: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
     output_ref: Mapped[str | None] = mapped_column(String(1024))
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    retry_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_retry_command_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
 
 
 class TaskExecution(Base, IdMixin, TenantMixin):
@@ -333,6 +336,7 @@ class RunCommand(Base, IdMixin, TenantMixin):
     command_seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
     type: Mapped[str] = mapped_column(String(32), nullable=False)
     request_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    actor: Mapped[str] = mapped_column(String(256), default="system", nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="ACCEPTED", nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
@@ -344,6 +348,65 @@ class RunCommand(Base, IdMixin, TenantMixin):
     delivering_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ApprovalRequest(Base, IdMixin, TenantMixin):
+    __tablename__ = "approval_requests"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_approval_requests_tenant_id"),
+        UniqueConstraint("run_id", "node_key", name="uq_approval_requests_run_node"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "run_id"],
+            ["runs.tenant_id", "runs.project_id", "runs.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_approval_requests_pending", "project_id", "status", "created_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    node_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    input_schema: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="PENDING", nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(256), default="workflow", nullable=False)
+    handled_by: Mapped[str | None] = mapped_column(String(256))
+    decision: Mapped[str | None] = mapped_column(String(32))
+    response: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    handler_command_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ExternalInputRequest(Base, IdMixin, TenantMixin):
+    __tablename__ = "external_input_requests"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_external_input_requests_tenant_id"),
+        UniqueConstraint("run_id", "node_key", name="uq_external_input_requests_run_node"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "run_id"],
+            ["runs.tenant_id", "runs.project_id", "runs.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_external_input_requests_pending", "project_id", "status", "created_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    node_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    input_schema: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="PENDING", nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(256), default="workflow", nullable=False)
+    handled_by: Mapped[str | None] = mapped_column(String(256))
+    value: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    handler_command_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class IdempotencyKey(Base):

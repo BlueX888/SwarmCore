@@ -9,7 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from swarmcore_domain import uuid7
 from swarmcore_persistence import EventRepository, tenant_transaction
-from swarmcore_persistence.models import Run, RunTask, StrategyVersion
+from swarmcore_persistence.models import (
+    ApprovalRequest,
+    ExternalInputRequest,
+    Run,
+    RunTask,
+    StrategyVersion,
+)
 
 
 class PostgresPlanStore:
@@ -48,6 +54,8 @@ class PostgresTransitionProjector:
         "task.failed": "FAILED",
         "task.skipped": "SKIPPED",
         "task.cancelled": "CANCELLED",
+        "task.retry_requested": "RETRYING",
+        "task.retry_started": "RUNNING",
     }
 
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
@@ -81,6 +89,15 @@ class PostgresTransitionProjector:
                 transition_id=UUID(str(transition["transitionId"])),
                 event_type=event_type,
                 payload=data,
+                occurred_at=occurred_at,
+            )
+            await self._project_human_request(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                run_id=run_id,
+                event_type=event_type,
+                data=data,
                 occurred_at=occurred_at,
             )
             if event_type == "run.completed":
@@ -133,6 +150,71 @@ class PostgresTransitionProjector:
         if target:
             task.status = target
             task.version += 1
+            if event_type == "task.retry_requested":
+                task.retry_generation += 1
             if event_type == "task.completed":
                 task.output_ref = f"inline:event:{data.get('nodeKey')}"
         return task.id
+
+    async def _project_human_request(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        run_id: UUID,
+        event_type: str,
+        data: dict[str, Any],
+        occurred_at: datetime,
+    ) -> None:
+        request_id_text = data.get("requestId")
+        if not isinstance(request_id_text, str):
+            return
+        request_id = UUID(request_id_text)
+        if event_type == "approval.requested":
+            if await session.get(ApprovalRequest, request_id) is None:
+                session.add(
+                    ApprovalRequest(
+                        id=request_id,
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        run_id=run_id,
+                        node_key=str(data["nodeKey"]),
+                        prompt=str(data["prompt"]),
+                        input_schema=dict(data.get("inputSchema", {"type": "object"})),
+                    )
+                )
+            return
+        if event_type == "input.requested":
+            if await session.get(ExternalInputRequest, request_id) is None:
+                session.add(
+                    ExternalInputRequest(
+                        id=request_id,
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        run_id=run_id,
+                        node_key=str(data["nodeKey"]),
+                        prompt=str(data["prompt"]),
+                        input_schema=dict(data.get("inputSchema", {"type": "object"})),
+                    )
+                )
+            return
+        if event_type in {"approval.approved", "approval.rejected"}:
+            approval_request = await session.get(
+                ApprovalRequest, request_id, with_for_update=True
+            )
+            if approval_request is not None and approval_request.status == "PENDING":
+                approval_request.status = (
+                    "APPROVED" if event_type.endswith("approved") else "REJECTED"
+                )
+                approval_request.decision = approval_request.status
+                approval_request.response = dict(data.get("value", {}))
+                approval_request.handled_at = occurred_at
+        elif event_type == "input.received":
+            input_request = await session.get(
+                ExternalInputRequest, request_id, with_for_update=True
+            )
+            if input_request is not None and input_request.status == "PENDING":
+                input_request.status = "RECEIVED"
+                input_request.value = dict(data.get("value", {}))
+                input_request.handled_at = occurred_at

@@ -6,7 +6,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from swarmcore_persistence.models import OutboxEvent, Run, RunCommand
-from swarmcore_persistence.repositories import pending_temporal_outbox_query
+from swarmcore_persistence.repositories import EventRepository, pending_temporal_outbox_query
 from swarmcore_runtime_temporal import SwarmRunWorkflow
 from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy
@@ -30,6 +30,7 @@ class CommandDispatcher:
         self._temporal = temporal
         self._worker_id = worker_id
         self._batch_size = batch_size
+        self._events = EventRepository()
 
     async def run_once(self) -> int:
         claimed = await self._claim()
@@ -101,7 +102,15 @@ class CommandDispatcher:
                 except WorkflowAlreadyStartedError:
                     temporal_run_id = None
                 result: dict[str, Any] = {"status": "APPLIED"}
-            elif command.type == "cancel":
+            elif command.type in {
+                "pause",
+                "resume",
+                "cancel",
+                "approve",
+                "reject",
+                "provide_input",
+                "retry_task",
+            }:
                 handle = self._temporal.get_workflow_handle(run.temporal_workflow_id)
                 result = await handle.execute_update(
                     "apply_command",
@@ -137,10 +146,32 @@ class CommandDispatcher:
             else:
                 command.status = "REJECTED"
                 command.rejected_at = now
-            if temporal_run_id:
-                run = await session.get(Run, command.run_id, with_for_update=True)
-                if run is not None:
-                    run.temporal_run_id = temporal_run_id
+            run = await session.get(Run, command.run_id, with_for_update=True)
+            if run is not None:
+                await self._events.append(
+                    session,
+                    tenant_id=run.tenant_id,
+                    project_id=run.project_id,
+                    run_id=run.id,
+                    transition_id=command.id,
+                    event_type=(
+                        "command.applied"
+                        if result.get("status") == "APPLIED"
+                        else "command.rejected"
+                    ),
+                    payload={
+                        "commandId": str(command.id),
+                        "requestId": str(command.request_id),
+                        "commandSeq": command.command_seq,
+                        "type": command.type,
+                        "status": command.status,
+                        "result": result,
+                    },
+                    occurred_at=now,
+                    causation_id=command.id,
+                )
+            if temporal_run_id and run is not None:
+                run.temporal_run_id = temporal_run_id
 
     async def _retry(self, outbox_id: UUID, error: str) -> None:
         async with self._sessions() as session, session.begin():
@@ -165,5 +196,5 @@ class CommandDispatcher:
             outbox.locked_until = None
             command = await session.get(RunCommand, outbox.source_id, with_for_update=True)
             if command is not None:
-                command.status = "DEAD"
+                command.status = "FAILED"
                 command.error = {"code": "PERMANENT_DELIVERY_ERROR", "detail": error}

@@ -1,6 +1,7 @@
 import type {
-  CommandHandle, CompileResponse, DraftSnapshot, EventHistory, RunHandle, RunListResponse,
-  RunSnapshot, StrategyHandle, StrategyListResponse, StrategyVersionDetail,
+  ApprovalListResponse, CommandHandle, CompileResponse, DraftSnapshot, EventHistory,
+  ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, StrategyHandle,
+  StrategyListResponse, StrategyVersionDetail,
   StrategyVersionListResponse,
 } from "./types";
 
@@ -48,6 +49,15 @@ export const api = {
   getRun: (tenantId: string, projectId: string, runId: string) => request<RunSnapshot>(`/v1/projects/${projectId}/runs/${runId}`, tenantId),
   history: (tenantId: string, projectId: string, runId: string, after: number) => request<EventHistory>(`/v1/projects/${projectId}/runs/${runId}/event-history?after=${after}&limit=1000`, tenantId),
   cancelRun: (tenantId: string, projectId: string, runId: string) => request<CommandHandle>(`/v1/projects/${projectId}/runs/${runId}:cancel`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
+  pauseRun: (tenantId: string, projectId: string, runId: string) => request<CommandHandle>(`/v1/projects/${projectId}/runs/${runId}:pause`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
+  resumeRun: (tenantId: string, projectId: string, runId: string) => request<CommandHandle>(`/v1/projects/${projectId}/runs/${runId}:resume`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
+  getCommand: (tenantId: string, projectId: string, commandId: string) => request<CommandHandle>(`/v1/projects/${projectId}/commands/${commandId}`, tenantId),
+  listApprovals: (tenantId: string, projectId: string, runId: string) => request<ApprovalListResponse>(`/v1/projects/${projectId}/approvals?runId=${runId}`, tenantId),
+  approve: (tenantId: string, projectId: string, approvalId: string, value: Record<string, unknown>) => request<CommandHandle>(`/v1/projects/${projectId}/approvals/${approvalId}:approve`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ value }) }),
+  reject: (tenantId: string, projectId: string, approvalId: string, value: Record<string, unknown>) => request<CommandHandle>(`/v1/projects/${projectId}/approvals/${approvalId}:reject`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ value }) }),
+  listInputs: (tenantId: string, projectId: string, runId: string) => request<ExternalInputListResponse>(`/v1/projects/${projectId}/inputs?runId=${runId}`, tenantId),
+  provideInput: (tenantId: string, projectId: string, inputRequestId: string, value: Record<string, unknown>) => request<CommandHandle>(`/v1/projects/${projectId}/inputs/${inputRequestId}:provide`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ value }) }),
+  retryTask: (tenantId: string, projectId: string, runId: string, taskId: string) => request<CommandHandle>(`/v1/projects/${projectId}/runs/${runId}/tasks/${taskId}:retry`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   eventUrl: (projectId: string, runId: string, after: number) => `${baseUrl}/v1/projects/${projectId}/runs/${runId}/events?after=${after}`,
   temporalUrl: (tenantId: string, runId: string) => `${typeof temporalUi === "string" ? temporalUi : "http://localhost:8088"}/namespaces/default/workflows/${encodeURIComponent(`swarm:${tenantId}:${runId}`)}`,
   phoenixUrl: typeof phoenixUi === "string" ? phoenixUi : "http://localhost:6006",

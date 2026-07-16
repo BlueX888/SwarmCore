@@ -66,10 +66,19 @@ _RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     RunStatus.WAITING_APPROVAL: frozenset(
         {RunStatus.RUNNING, RunStatus.PAUSING, RunStatus.CANCELLING}
     ),
-    RunStatus.PAUSING: frozenset({RunStatus.PAUSED, RunStatus.RUNNING, RunStatus.CANCELLING}),
+    RunStatus.PAUSING: frozenset(
+        {
+            RunStatus.PAUSED,
+            RunStatus.RUNNING,
+            RunStatus.WAITING_APPROVAL,
+            RunStatus.WAITING_INPUT,
+            RunStatus.CANCELLING,
+        }
+    ),
     RunStatus.PAUSED: frozenset({RunStatus.RUNNING, RunStatus.CANCELLING}),
     RunStatus.CANCELLING: frozenset({RunStatus.CANCELLED, RunStatus.COMPENSATING}),
     RunStatus.COMPENSATING: frozenset({RunStatus.CANCELLED, RunStatus.FAILED}),
+    RunStatus.FAILED: frozenset({RunStatus.CANCELLING}),
 }
 
 

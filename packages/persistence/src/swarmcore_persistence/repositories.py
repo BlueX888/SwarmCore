@@ -32,6 +32,7 @@ class RunCommandRepository:
         command_type: str,
         request_id: UUID,
         payload: dict[str, Any],
+        actor: str = "system",
     ) -> RunCommand:
         existing = await session.scalar(
             select(RunCommand).where(
@@ -61,6 +62,7 @@ class RunCommandRepository:
             type=command_type,
             request_id=request_id,
             payload=payload,
+            actor=actor,
         )
         session.add(command)
         await session.flush()
@@ -144,13 +146,21 @@ class EventRepository:
             raise LookupError("run not found")
         target = self._STATUS_BY_EVENT.get(event_type)
         if target is not None and target != RunStatus(run.status):
-            if not can_transition_run(RunStatus(run.status), target):
+            manual_retry = (
+                RunStatus(run.status) == RunStatus.FAILED
+                and target == RunStatus.RUNNING
+                and event_type == "run.resumed"
+                and payload.get("reason") == "task_retry"
+            )
+            if not manual_retry and not can_transition_run(RunStatus(run.status), target):
                 raise TransitionConflictError(f"illegal run transition {run.status} -> {target}")
             run.status = target.value
             run.version += 1
             run.projection_updated_at = occurred_at
             if event_type == "run.started" and run.started_at is None:
                 run.started_at = occurred_at
+            if manual_retry:
+                run.completed_at = None
             if target in {
                 RunStatus.REJECTED,
                 RunStatus.CANCELLED,
@@ -235,7 +245,7 @@ def pending_temporal_outbox_query(*, limit: int) -> Select[tuple[OutboxEvent]]:
         .where(
             earlier.run_id == current.run_id,
             earlier.command_seq < current.command_seq,
-            earlier.status.not_in(("APPLIED", "REJECTED", "DEAD")),
+            earlier.status.not_in(("APPLIED", "REJECTED", "FAILED", "DEAD")),
         )
         .exists()
     )

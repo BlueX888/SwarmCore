@@ -77,11 +77,20 @@ class Budget(StrictModel):
 
 
 class AgentSpec(StrictModel):
-    role: str = Field(min_length=1, max_length=128)
-    instructions: str = Field(min_length=1, max_length=100_000)
+    ref: str | None = None
+    role: str | None = Field(default=None, min_length=1, max_length=128)
+    instructions: str | None = Field(default=None, min_length=1, max_length=100_000)
     model: str | None = None
     tools: list[str] = Field(default_factory=list)
     output_schema_ref: str | None = Field(default=None, alias="outputSchemaRef")
+
+    @model_validator(mode="after")
+    def inline_or_registered(self) -> AgentSpec:
+        if self.ref is None and (self.role is None or self.instructions is None):
+            raise ValueError("inline agents require role and instructions")
+        if self.ref is not None and not self.ref.startswith("agent://"):
+            raise ValueError("ref must use an agent:// reference")
+        return self
 
     @field_validator("model")
     @classmethod
@@ -183,6 +192,13 @@ class LoopNode(NodeBase):
     body: list[str] = Field(min_length=1)
     until: str
     max_iterations: int = Field(alias="maxIterations", ge=1, le=20)
+
+    @field_validator("body")
+    @classmethod
+    def body_nodes_are_unique(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("loop body nodes must be unique")
+        return value
 
 
 class ApprovalNode(NodeBase):

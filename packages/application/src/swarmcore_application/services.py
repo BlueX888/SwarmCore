@@ -18,6 +18,7 @@ from swarmcore_persistence.models import (
     StrategyVersion,
 )
 from swarmcore_persistence.repositories import EventRepository, RunCommandRepository, canonical_hash
+from swarmcore_registry import builtin_registry
 from swarmcore_spec import SwarmStrategy
 
 
@@ -220,8 +221,8 @@ class RunService:
         raw_spec: dict[str, Any],
         input_data: dict[str, Any],
         idempotency_key: str,
-        registry_snapshot: str = "inline",
-        policy_revision: str = "phase2b",
+        registry_snapshot: str = builtin_registry().snapshot_id,
+        policy_revision: str = "m3",
     ) -> tuple[Run, Any]:
         request_hash = canonical_hash({"spec": raw_spec, "input": input_data})
         existing = await self._existing(

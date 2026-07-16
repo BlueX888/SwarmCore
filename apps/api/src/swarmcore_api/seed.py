@@ -7,6 +7,7 @@ from sqlalchemy import select, text
 from swarmcore_compiler import Compiler
 from swarmcore_persistence import Database
 from swarmcore_persistence.models import Project, Strategy, StrategyDraft, StrategyVersion, Tenant
+from swarmcore_registry import builtin_registry
 from swarmcore_spec import SwarmStrategy
 
 from .settings import Settings
@@ -92,8 +93,8 @@ async def seed() -> None:
                 spec = SwarmStrategy.model_validate(DEMO_SPEC)
                 plan = Compiler().compile(
                     spec,
-                    registry_snapshot="local-seed",
-                    policy_revision="phase1",
+                    registry_snapshot=builtin_registry().snapshot_id,
+                    policy_revision="m3",
                 )
                 session.add(
                     StrategyVersion(

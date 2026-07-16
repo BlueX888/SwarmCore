@@ -13,6 +13,8 @@ members = [
   "apps/worker-agent",
   "apps/event-publisher",
   "apps/projection-reconciler",
+  "apps/worker-tool",
+  "apps/tool-gateway",
   "packages/spec",
   "packages/compiler",
   "packages/domain",
@@ -20,6 +22,8 @@ members = [
   "packages/runtime-temporal",
   "packages/adapter-agno",
   "packages/observability",
+  "packages/registry",
+  "packages/tool-gateway",
 ]
 
 [dependency-groups]
@@ -50,7 +54,11 @@ pythonpath = [
   "apps/worker-agent/src",
   "apps/event-publisher/src",
   "apps/projection-reconciler/src",
+  "apps/worker-tool/src",
+  "apps/tool-gateway/src",
   "packages/observability/src",
+  "packages/registry/src",
+  "packages/tool-gateway/src",
 ]
 
 [tool.ruff]
@@ -77,7 +85,11 @@ packages = [
   "swarmcore_worker_agent",
   "swarmcore_event_publisher",
   "swarmcore_projection_reconciler",
+  "swarmcore_worker_tool",
+  "swarmcore_tool_gateway_api",
   "swarmcore_observability",
+  "swarmcore_registry",
+  "swarmcore_tool_gateway",
 ]
 mypy_path = [
   "packages/application/src",
@@ -93,5 +105,9 @@ mypy_path = [
   "apps/worker-agent/src",
   "apps/event-publisher/src",
   "apps/projection-reconciler/src",
+  "apps/worker-tool/src",
+  "apps/tool-gateway/src",
   "packages/observability/src",
+  "packages/registry/src",
+  "packages/tool-gateway/src",
 ]

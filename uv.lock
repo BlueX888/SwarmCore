@@ -15,10 +15,14 @@ members = [
     "swarmcore-observability",
     "swarmcore-persistence",
     "swarmcore-projection-reconciler",
+    "swarmcore-registry",
     "swarmcore-runtime-temporal",
     "swarmcore-spec",
+    "swarmcore-tool-gateway",
+    "swarmcore-tool-gateway-api",
     "swarmcore-worker-agent",
     "swarmcore-worker-control",
+    "swarmcore-worker-tool",
 ]
 
 [[package]]
@@ -1016,6 +1020,7 @@ dependencies = [
     { name = "swarmcore-domain" },
     { name = "swarmcore-observability" },
     { name = "swarmcore-persistence" },
+    { name = "swarmcore-registry" },
     { name = "swarmcore-spec" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1030,6 +1035,7 @@ requires-dist = [
     { name = "swarmcore-domain", editable = "packages/domain" },
     { name = "swarmcore-observability", editable = "packages/observability" },
     { name = "swarmcore-persistence", editable = "packages/persistence" },
+    { name = "swarmcore-registry", editable = "packages/registry" },
     { name = "swarmcore-spec", editable = "packages/spec" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
 ]
@@ -1044,6 +1050,7 @@ dependencies = [
     { name = "swarmcore-compiler" },
     { name = "swarmcore-domain" },
     { name = "swarmcore-persistence" },
+    { name = "swarmcore-registry" },
     { name = "swarmcore-spec" },
 ]
 
@@ -1054,6 +1061,7 @@ requires-dist = [
     { name = "swarmcore-compiler", editable = "packages/compiler" },
     { name = "swarmcore-domain", editable = "packages/domain" },
     { name = "swarmcore-persistence", editable = "packages/persistence" },
+    { name = "swarmcore-registry", editable = "packages/registry" },
     { name = "swarmcore-spec", editable = "packages/spec" },
 ]
 
@@ -1085,6 +1093,7 @@ source = { editable = "packages/compiler" }
 dependencies = [
     { name = "jsonschema" },
     { name = "pydantic" },
+    { name = "swarmcore-registry" },
     { name = "swarmcore-spec" },
 ]
 
@@ -1092,6 +1101,7 @@ dependencies = [
 requires-dist = [
     { name = "jsonschema", specifier = "==4.25.0" },
     { name = "pydantic", specifier = "==2.11.7" },
+    { name = "swarmcore-registry", editable = "packages/registry" },
     { name = "swarmcore-spec", editable = "packages/spec" },
 ]
 
@@ -1151,6 +1161,7 @@ dependencies = [
     { name = "asyncpg" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "swarmcore-domain" },
+    { name = "swarmcore-tool-gateway" },
 ]
 
 [package.metadata]
@@ -1159,6 +1170,7 @@ requires-dist = [
     { name = "asyncpg", specifier = "==0.30.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.41" },
     { name = "swarmcore-domain", editable = "packages/domain" },
+    { name = "swarmcore-tool-gateway", editable = "packages/tool-gateway" },
 ]
 
 [[package]]
@@ -1179,15 +1191,30 @@ requires-dist = [
 ]
 
 [[package]]
+name = "swarmcore-registry"
+version = "0.1.0"
+source = { editable = "packages/registry" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = "==2.11.7" }]
+
+[[package]]
 name = "swarmcore-runtime-temporal"
 version = "0.1.0"
 source = { editable = "packages/runtime-temporal" }
 dependencies = [
+    { name = "swarmcore-spec" },
     { name = "temporalio" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "temporalio", specifier = "==1.15.0" }]
+requires-dist = [
+    { name = "swarmcore-spec", editable = "packages/spec" },
+    { name = "temporalio", specifier = "==1.15.0" },
+]
 
 [[package]]
 name = "swarmcore-spec"
@@ -1205,23 +1232,69 @@ requires-dist = [
 ]
 
 [[package]]
+name = "swarmcore-tool-gateway"
+version = "0.1.0"
+source = { editable = "packages/tool-gateway" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "pydantic" },
+    { name = "swarmcore-registry" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jsonschema", specifier = "==4.25.0" },
+    { name = "pydantic", specifier = "==2.11.7" },
+    { name = "swarmcore-registry", editable = "packages/registry" },
+]
+
+[[package]]
+name = "swarmcore-tool-gateway-api"
+version = "0.1.0"
+source = { editable = "apps/tool-gateway" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "pydantic-settings" },
+    { name = "swarmcore-domain" },
+    { name = "swarmcore-persistence" },
+    { name = "swarmcore-registry" },
+    { name = "swarmcore-tool-gateway" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = "==0.116.1" },
+    { name = "pydantic-settings", specifier = "==2.14.2" },
+    { name = "swarmcore-domain", editable = "packages/domain" },
+    { name = "swarmcore-persistence", editable = "packages/persistence" },
+    { name = "swarmcore-registry", editable = "packages/registry" },
+    { name = "swarmcore-tool-gateway", editable = "packages/tool-gateway" },
+    { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
+]
+
+[[package]]
 name = "swarmcore-worker-agent"
 version = "0.1.0"
 source = { editable = "apps/worker-agent" }
 dependencies = [
     { name = "agno" },
+    { name = "httpx" },
     { name = "pydantic-settings" },
     { name = "swarmcore-adapter-agno" },
     { name = "swarmcore-observability" },
+    { name = "swarmcore-registry" },
     { name = "temporalio" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "agno", specifier = "==2.7.3" },
+    { name = "httpx", specifier = "==0.28.1" },
     { name = "pydantic-settings", specifier = "==2.14.2" },
     { name = "swarmcore-adapter-agno", editable = "packages/adapter-agno" },
     { name = "swarmcore-observability", editable = "packages/observability" },
+    { name = "swarmcore-registry", editable = "packages/registry" },
     { name = "temporalio", specifier = "==1.15.0" },
 ]
 
@@ -1235,6 +1308,7 @@ dependencies = [
     { name = "swarmcore-observability" },
     { name = "swarmcore-persistence" },
     { name = "swarmcore-runtime-temporal" },
+    { name = "swarmcore-tool-gateway" },
     { name = "temporalio" },
 ]
 
@@ -1245,6 +1319,32 @@ requires-dist = [
     { name = "swarmcore-observability", editable = "packages/observability" },
     { name = "swarmcore-persistence", editable = "packages/persistence" },
     { name = "swarmcore-runtime-temporal", editable = "packages/runtime-temporal" },
+    { name = "swarmcore-tool-gateway", editable = "packages/tool-gateway" },
+    { name = "temporalio", specifier = "==1.15.0" },
+]
+
+[[package]]
+name = "swarmcore-worker-tool"
+version = "0.1.0"
+source = { editable = "apps/worker-tool" }
+dependencies = [
+    { name = "pydantic-settings" },
+    { name = "swarmcore-domain" },
+    { name = "swarmcore-observability" },
+    { name = "swarmcore-persistence" },
+    { name = "swarmcore-registry" },
+    { name = "swarmcore-tool-gateway" },
+    { name = "temporalio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic-settings", specifier = "==2.14.2" },
+    { name = "swarmcore-domain", editable = "packages/domain" },
+    { name = "swarmcore-observability", editable = "packages/observability" },
+    { name = "swarmcore-persistence", editable = "packages/persistence" },
+    { name = "swarmcore-registry", editable = "packages/registry" },
+    { name = "swarmcore-tool-gateway", editable = "packages/tool-gateway" },
     { name = "temporalio", specifier = "==1.15.0" },
 ]
 

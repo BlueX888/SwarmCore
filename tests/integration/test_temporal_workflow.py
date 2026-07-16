@@ -7,39 +7,41 @@ from uuid import uuid4
 import pytest
 from conftest import TemporalTestEnvironment
 from swarmcore_compiler import Compiler, dag, parallel, sequential, supervisor
+from swarmcore_registry import builtin_registry
 from swarmcore_runtime_temporal import SwarmRunWorkflow
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
 PROJECTED: list[str] = []
+REGISTRY = builtin_registry().snapshot_id
 AGENT = {"role": "worker", "instructions": "Do the assigned work."}
 PLANS = {
     "sequential": Compiler()
     .compile(
         sequential("sequential", {"one": AGENT, "two": AGENT}),
-        registry_snapshot="r1",
+        registry_snapshot=REGISTRY,
         policy_revision="p1",
     )
     .model_dump(mode="json"),
     "parallel": Compiler()
     .compile(
         parallel("parallel", {"one": AGENT, "two": AGENT}),
-        registry_snapshot="r1",
+        registry_snapshot=REGISTRY,
         policy_revision="p1",
     )
     .model_dump(mode="json"),
     "dag": Compiler()
     .compile(
         dag("dag", {"one": AGENT, "two": AGENT}, {"two": ["one"]}),
-        registry_snapshot="r1",
+        registry_snapshot=REGISTRY,
         policy_revision="p1",
     )
     .model_dump(mode="json"),
     "supervisor": Compiler()
     .compile(
         supervisor("supervisor", AGENT, {"one": AGENT, "two": AGENT}),
-        registry_snapshot="r1",
+        registry_snapshot=REGISTRY,
         policy_revision="p1",
     )
     .model_dump(mode="json"),
@@ -160,7 +162,13 @@ async def test_phase_one_workflow_acceptance(
                 ),
                 timeout=5,
             )
-            result = await asyncio.wait_for(handle.result(), timeout=30)
+            try:
+                result = await asyncio.wait_for(handle.result(), timeout=30)
+            except TimeoutError as exc:
+                state = await asyncio.wait_for(
+                    handle.query("engine_state", result_type=dict[str, Any]), timeout=5
+                )
+                raise AssertionError(f"cancelled workflow did not finish: {state}") from exc
     assert update == {"status": "APPLIED"}
     assert result["status"] == "CANCELLED"
     assert PROJECTED[-2:] == ["run.cancelling", "run.cancelled"]

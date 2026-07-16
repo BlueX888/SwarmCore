@@ -18,11 +18,20 @@ class ModelResolver(Protocol):
     def resolve(self, reference: str) -> Model | str: ...
 
 
+class GatewayProxyFactory(Protocol):
+    def create(self, tool_ref: str, capability_token: str, context: Mapping[str, Any]) -> Any: ...
+
+
 class AgnoAdapter:
     """Narrow Agno boundary; raw external tools are never injected into an Agent."""
 
-    def __init__(self, model_resolver: ModelResolver) -> None:
+    def __init__(
+        self,
+        model_resolver: ModelResolver,
+        gateway_proxies: GatewayProxyFactory | None = None,
+    ) -> None:
         self._models = model_resolver
+        self._gateway_proxies = gateway_proxies
 
     async def execute(self, request: Mapping[str, Any]) -> dict[str, Any]:
         agent_spec = cast(dict[str, Any], request["agent"])
@@ -32,12 +41,21 @@ class AgnoAdapter:
         if not isinstance(model_ref, str):
             raise ValueError("agent has no resolved model reference")
 
+        tool_refs = [str(item) for item in agent_spec.get("tools", [])]
+        capability_tokens = cast(dict[str, str], request.get("toolCapabilities", {}))
+        if tool_refs and self._gateway_proxies is None:
+            raise ValueError("agent tools require the configured Tool Gateway proxy")
+        tools = [
+            self._gateway_proxies.create(tool_ref, capability_tokens[tool_ref], request)
+            for tool_ref in tool_refs
+            if self._gateway_proxies is not None
+        ]
         agent = Agent(
             id=f"{run['runId']}:{node['key']}",
             model=self._models.resolve(model_ref),
             role=str(agent_spec["role"]),
             instructions=str(agent_spec["instructions"]),
-            tools=[],
+            tools=tools,
             output_schema=agent_spec.get("outputSchema"),
         )
         output = await agent.arun(
@@ -101,9 +119,7 @@ class AgnoAdapter:
             return output.content, "content"
 
         reasoning = (
-            output.reasoning_content.strip()
-            if isinstance(output.reasoning_content, str)
-            else None
+            output.reasoning_content.strip() if isinstance(output.reasoning_content, str) else None
         )
         for message in reversed(output.messages or []):
             if str(message.role).lower() != "assistant":

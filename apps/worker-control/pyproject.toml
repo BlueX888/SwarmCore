@@ -8,6 +8,7 @@ dependencies = [
   "swarmcore-persistence",
   "swarmcore-observability",
   "swarmcore-runtime-temporal",
+  "swarmcore-tool-gateway",
   "temporalio==1.15.0",
 ]
 
@@ -19,6 +20,7 @@ swarmcore-domain = { workspace = true }
 swarmcore-persistence = { workspace = true }
 swarmcore-observability = { workspace = true }
 swarmcore-runtime-temporal = { workspace = true }
+swarmcore-tool-gateway = { workspace = true }
 
 [build-system]
 requires = ["hatchling==1.27.0"]

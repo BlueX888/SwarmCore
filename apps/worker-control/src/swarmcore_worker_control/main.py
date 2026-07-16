@@ -6,11 +6,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from swarmcore_observability import configure_telemetry
 from swarmcore_persistence import Database
 from swarmcore_runtime_temporal import ControlActivities, SwarmRunWorkflow
+from swarmcore_tool_gateway import CapabilityTokenIssuer
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
 
-from .adapters import PostgresPlanStore, PostgresTransitionProjector
+from .adapters import GatewayCapabilityIssuer, PostgresPlanStore, PostgresTransitionProjector
 
 
 class Settings(BaseSettings):
@@ -21,6 +22,7 @@ class Settings(BaseSettings):
     temporal_namespace: str = "default"
     otlp_endpoint: str = "http://localhost:4317"
     telemetry_enabled: bool = True
+    tool_capability_secret: str = "development-only-capability-secret-32-bytes"
 
 
 async def serve() -> None:
@@ -37,6 +39,7 @@ async def serve() -> None:
     activities = ControlActivities(
         PostgresPlanStore(database.sessions),
         PostgresTransitionProjector(database.sessions),
+        GatewayCapabilityIssuer(CapabilityTokenIssuer(settings.tool_capability_secret)),
     )
     worker = Worker(
         temporal,
@@ -45,6 +48,7 @@ async def serve() -> None:
         activities=[
             activities.load_execution_plan,
             activities.project_transition,
+            activities.issue_tool_capability,
             activities.execute_control_node,
         ],
     )

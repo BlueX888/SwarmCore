@@ -1,0 +1,27 @@
+[project]
+name = "swarmcore-worker-tool"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pydantic-settings==2.14.2",
+  "swarmcore-domain",
+  "swarmcore-observability",
+  "swarmcore-persistence",
+  "swarmcore-registry",
+  "swarmcore-tool-gateway",
+  "temporalio==1.15.0",
+]
+
+[project.scripts]
+swarmcore-worker-tool = "swarmcore_worker_tool.main:run"
+
+[tool.uv.sources]
+swarmcore-domain = { workspace = true }
+swarmcore-observability = { workspace = true }
+swarmcore-persistence = { workspace = true }
+swarmcore-registry = { workspace = true }
+swarmcore-tool-gateway = { workspace = true }
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"

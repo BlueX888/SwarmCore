@@ -121,3 +121,39 @@ def test_token_metrics_are_converted_and_cost_is_optional() -> None:
         "output_tokens": 2,
         "cost_usd": 0.004,
     }
+
+
+def test_agent_receives_only_gateway_proxy_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeAgent:
+        def __init__(self, **values: Any) -> None:
+            captured.update(values)
+
+        async def arun(self, *_: Any, **__: Any) -> RunOutput:
+            return RunOutput(run_id="run", content="done")
+
+    class ProxyFactory:
+        def create(self, tool_ref: str, capability_token: str, context: Any) -> str:
+            assert context["run"]["runId"] == "run"
+            return f"gateway:{tool_ref}:{capability_token}"
+
+    monkeypatch.setattr(adapter_module, "Agent", FakeAgent)
+    request = {
+        "agent": {
+            "role": "worker",
+            "instructions": "work",
+            "model": "model://general",
+            "tools": ["tool://search"],
+        },
+        "run": {"runId": "run", "input": {}},
+        "node": {"key": "node", "config": {}},
+        "taskExecutionId": "task",
+        "agentInstanceId": "agent",
+        "toolCapabilities": {"tool://search": "signed-token"},
+        "untrustedTools": ["must-not-be-used"],
+    }
+
+    asyncio.run(AgnoAdapter(Resolver(), ProxyFactory()).execute(request))
+
+    assert captured["tools"] == ["gateway:tool://search:signed-token"]

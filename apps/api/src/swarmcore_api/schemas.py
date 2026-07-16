@@ -5,6 +5,9 @@ from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from swarmcore_registry import builtin_registry
+
+_REGISTRY_SNAPSHOT = builtin_registry().snapshot_id
 
 
 class ApiModel(BaseModel):
@@ -13,8 +16,8 @@ class ApiModel(BaseModel):
 
 class CompileRequest(ApiModel):
     spec: dict[str, Any]
-    registry_snapshot: str = Field(default="inline", alias="registrySnapshot")
-    policy_revision: str = Field(default="phase2b", alias="policyRevision")
+    registry_snapshot: str = Field(default=_REGISTRY_SNAPSHOT, alias="registrySnapshot")
+    policy_revision: str = Field(default="m3", alias="policyRevision")
 
 
 class CompileResponse(ApiModel):
@@ -111,8 +114,8 @@ class UpdateDraftRequest(ApiModel):
 
 class PublishRequest(ApiModel):
     draft_id: UUID = Field(alias="draftId")
-    registry_snapshot: str = Field(default="phase1", alias="registrySnapshot")
-    policy_revision: str = Field(default="phase1", alias="policyRevision")
+    registry_snapshot: str = Field(default=_REGISTRY_SNAPSHOT, alias="registrySnapshot")
+    policy_revision: str = Field(default="m3", alias="policyRevision")
 
 
 class StrategyVersionHandle(ApiModel):

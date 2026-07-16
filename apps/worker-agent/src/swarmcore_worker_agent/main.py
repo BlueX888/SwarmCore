@@ -7,12 +7,14 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from swarmcore_adapter_agno import AgnoAdapter
 from swarmcore_observability import configure_telemetry
+from swarmcore_registry import builtin_registry
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
 
 from .activities import AgentActivities, StaticModelResolver
 from .fake import DeterministicFakeAgentAdapter
+from .gateway_proxy import HttpGatewayProxyFactory
 
 
 class Settings(BaseSettings):
@@ -26,6 +28,7 @@ class Settings(BaseSettings):
     otlp_endpoint: str = "http://localhost:4317"
     telemetry_enabled: bool = True
     use_fake_agent: bool = False
+    tool_gateway_url: str = "http://localhost:8090"
 
 
 async def serve() -> None:
@@ -41,7 +44,10 @@ async def serve() -> None:
     adapter = (
         DeterministicFakeAgentAdapter()
         if settings.use_fake_agent
-        else AgnoAdapter(StaticModelResolver(settings.models))
+        else AgnoAdapter(
+            StaticModelResolver(settings.models),
+            HttpGatewayProxyFactory(settings.tool_gateway_url, builtin_registry()),
+        )
     )
     activities = AgentActivities(adapter)
     worker = Worker(

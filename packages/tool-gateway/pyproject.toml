@@ -1,0 +1,16 @@
+[project]
+name = "swarmcore-tool-gateway"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "jsonschema==4.25.0",
+  "pydantic==2.11.7",
+  "swarmcore-registry",
+]
+
+[tool.uv.sources]
+swarmcore-registry = { workspace = true }
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"

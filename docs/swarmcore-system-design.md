@@ -388,6 +388,22 @@ Agent Worker 按模型或数据等级划分 Temporal Task Queue，避免一个 P
 - 实施域名、IP、方法、文件路径和数据等级限制。
 - 将高风险工具转为 ApprovalRequirement 或 Sandbox Job。
 
+M3 v1 的 Registry 是进程内不可变快照，Agent、Model、Tool 使用带版本的 canonical ref
+（例如 `tool://search@1`）；无版本别名只在编译期解析，ExecutionPlan 固定保存 snapshot ID、
+canonical 定义和价格版本。提交的 registrySnapshot 必须与编译器当前快照完全一致，不能只
+作为调用方自报的 provenance。
+
+Agent Worker 不加载 Provider Tool 或外部凭据，只把 Registry 声明转换为
+GatewayProxyTool。Proxy 携带绑定 tenant、project、run、node、tool、execution 和过期时间的
+短期 Capability Token 请求 Tool Gateway。M3 v1 只允许无副作用 Tool 作为 Agent 内 Tool；
+有副作用 Tool 必须展开为显式 `tool` 节点，以便 Workflow 固定 effect_id、执行审批并跨
+Activity 重试复用相同调用身份。
+
+Tool Gateway 以 tenant/project/tool/effect_id 为幂等作用域，canonical input hash 防止同一
+effect_id 被不同输入复用；已确认成功的结果直接从 effect journal 返回。外部 Provider
+Adapter 必须把 effect_id 继续作为下游 idempotency key。Gateway 只记录脱敏调用元数据，
+不把 Secret、Capability Token 或原始凭据写入 Run Event。
+
 ### 7.10 Sandbox Manager
 
 职责：
@@ -633,6 +649,15 @@ ExecutionPlan 至少包含：
 
 Run 始终引用不可变 ExecutionPlan，不在运行中读取 Strategy Draft。
 
+Router v1 按 routes 声明顺序选择首个成立条件，否则选择 default；条件语言只允许路径、
+JSON 标量和比较运算，不使用 Python `eval`。未选择的直接目标进入 SKIPPED，所有分支只能
+在同时依赖全部 route target 的节点汇合，避免未选择分支继续执行。
+
+Loop v1 的 body 是有序的 `agent`、`tool`、`reducer` 节点列表，maxIterations 范围为 1..20；
+每次迭代生成 `{node_key}#{iteration}` task_instance_key，until 在迭代输出上求值。条件未在
+上限内满足时以 `LOOP_MAX_ITERATIONS_EXCEEDED` 失败。Workflow 只依赖已写入 Temporal History
+的 Activity 结果，因此重放得到相同路由和迭代边界。
+
 ## 10. 执行设计
 
 ### 10.1 Workflow 类型
@@ -650,6 +675,7 @@ Run 始终引用不可变 ExecutionPlan，不在运行中读取 Strategy Draft�
 |---|---|---|
 | load_execution_plan | swarm-control | 读取不可变 Plan |
 | project_transition | swarm-control | 更新产品状态和事件 |
+| issue_tool_capability | swarm-control | 审批后签发短期 Tool Capability Token |
 | evaluate_policy | swarm-control | OPA 决策 |
 | execute_agent | agent-general | Agno Agent 执行 |
 | execute_team | agent-general | Agno Team 执行 |
@@ -661,7 +687,9 @@ Run 始终引用不可变 ExecutionPlan，不在运行中读取 Strategy Draft�
 | aggregate_result | swarm-control | 内置或 Agent Reducer |
 | publish_webhook | webhook | Webhook 交付 |
 
-Agno Tool/HITL 使用 Deferred Tool 协议，避免在 Activity 内等待 Workflow Update：
+有副作用 Agno Tool/HITL 使用 Deferred Tool 协议，避免在 Activity 内等待 Workflow Update；
+M3 v1 在完整 continuation 持久化前禁止把有副作用 Tool 注入 Agent，只允许通过 GatewayProxy
+调用无副作用 Tool。目标协议为：
 
 1. execute_agent 遇到 Tool Call 时先耐久保存 Agent continuation、canonical tool input 和稳定 tool_call_id。
 2. 无需审批时返回 AgentSuspended{continuationRef, toolCallId, toolRequestRef}；Workflow 调度 execute_tool。
@@ -904,6 +932,7 @@ Activity 启动先查 TaskExecution Journal；已有 SUCCEEDED result_ref 时直
 | outbox_events | id, tenant_id, aggregate_id, destination, partition_key, source_id, type, payload, status, attempts, available_at, locked_by, locked_until, delivered_at, last_error | destination + status + available_at |
 | run_commands | id, tenant_id, run_id, command_seq, type, request_id, payload, status, version, result, error, created_at, delivering_at, applied_at, rejected_at | run_id + request_id unique；run_id + command_seq unique；status + created_at |
 | idempotency_keys | tenant_id, project_id, operation, key, request_hash, response_ref, expires_at | composite primary key |
+| tool_effects | id, tenant_id, project_id, run_id, node_key, tool_ref, effect_id, request_hash, status, output, error, attempts, lease_expires_at | tenant_id + project_id + tool_ref + effect_id unique；run_id + status |
 | webhook_deliveries | id, tenant_id, run_id, endpoint_ref, event_id, status, attempt, next_attempt_at | endpoint_ref + event_id unique |
 | webhook_schedule_cursors | tenant_id, project_id, consumer, last_event_id, updated_at | project_id + consumer unique |
 | audit_logs | id, tenant_id, actor, action, resource, decision, metadata, occurred_at | tenant_id + occurred_at |
@@ -1459,7 +1488,7 @@ v1 只实现 AgnoAdapter。LangGraph、Microsoft Agent Framework、CrewAI 和 Py
 | AgentSpec | Agent |
 | TeamSpec | Team |
 | model_ref | Agno Model / LiteLLM endpoint |
-| tool_ref | Toolkit / Function / MCP Tool |
+| tool_ref | 仅 GatewayProxy Function；不注入 Provider Tool 或凭据 |
 | knowledge_ref | Knowledge |
 | session_ref | Session |
 | AgentResult | RunOutput / TeamRunOutput 规范化 |
@@ -1471,7 +1500,7 @@ Agno 自身的 Session 和 Checkpoint 可以作为 Agent 内部能力，但不�
 
 ### 16.1 模型逻辑名
 
-Spec 只能引用逻辑名，例如：
+Spec 可以引用逻辑别名，例如：
 
 - model://general
 - model://research
@@ -1490,6 +1519,8 @@ Spec 只能引用逻辑名，例如：
 - 允许的数据等级。
 
 运行时记录逻辑名、解析后的实际模型、Provider、参数、模型版本和价格版本。
+编译器将别名解析为带 `@version` 的 canonical ref，并把完整 ModelRegistration 固定到
+ExecutionPlan；运行时不重新读取可变 Registry。
 
 ### 16.2 预算
 

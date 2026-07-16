@@ -3,11 +3,11 @@
 | 属性 | 值 |
 |---|---|
 | 文档状态 | Living Document / 持续更新 |
-| 版本 | 1.5 |
+| 版本 | 1.8 |
 | 建立日期 | 2026-07-16 |
 | 最近更新 | 2026-07-16 |
-| 当前里程碑 | M2C：Strategy Canvas 可视化编排（VERIFIED） |
-| 当前基线提交 | M2B/M2C 集成提交（本文件所在版本） |
+| 当前里程碑 | M3：受控 Tool 与编排能力扩展（VERIFIED） |
+| 当前基线提交 | M3 复验基线（本文件所在提交） |
 | 关联设计 | [SwarmCore 系统设计](./swarmcore-system-design.md) |
 | 维护者 | SwarmCore Team |
 
@@ -37,6 +37,7 @@ DeepTalk / 其他调用方
 3. 控制台只用于人工测试、执行观测和问题诊断。
 4. 优先完成真实端到端闭环，再扩展节点数量、治理能力和部署规模。
 5. 每个里程碑必须具有可执行的验收场景，不以文件数量或代码量判断完成度。
+6. 凡开发、调试或验收需要 DeepTalk 参与时，由负责当前任务的开发 Agent 主动模拟 DeepTalk 请求 REST API 和 MCP，不等待真实客户端接入；模拟边界和证据要求见 9.5 节。
 
 ## 3. 状态定义
 
@@ -57,7 +58,7 @@ DeepTalk / 其他调用方
 | M2A | 人工控制与运行干预 | `VERIFIED` | 持续回归 |
 | M2B | DeepTalk Integration MVP | `IMPLEMENTED` | 远端 CI 运行并通过 Fake Agent E2E |
 | M2C | Strategy Canvas 可视化编排 | `VERIFIED` | 持续回归 |
-| M3 | 受控 Tool 与编排能力扩展 | `PLANNED` | Agent + Tool + Router/Loop 闭环 |
+| M3 | 受控 Tool 与编排能力扩展 | `VERIFIED` | 持续回归；下一步 M4 |
 | M4 | 治理、安全与生产能力 | `PLANNED` | 安全、审计、预算、Artifact 验收 |
 | M5 | 规模化与生态扩展 | `PLANNED` | 容量、灾备和扩展适配器验收 |
 
@@ -65,10 +66,12 @@ DeepTalk / 其他调用方
 
 ### 5.1 已提交能力
 
-当前仓库已有两个明确的功能基线：
+当前仓库已有四个明确的功能基线：
 
 - `230a089`：Phase 1 MVP。
 - `ea8a09b`：Phase 2A Human Control。
+- `0cbeb9a`：DeepTalk Integration 与 Strategy Canvas。
+- 本文件所在提交：M3 受控 Tool、Router、Loop 与稳定取消语义。
 
 已存在的主要模块：
 
@@ -264,7 +267,15 @@ DeepTalk 可以通过 REST API 或 MCP 查询能力、自主生成并提交 Swar
 6. DeepTalk 获得包含输出、用量、警告和 provenance 的 RunResult。
 7. 同一场景分别通过 REST 和 MCP 执行，契约保持一致。
 
-### 9.5 本里程碑不做
+### 9.5 DeepTalk 模拟约定
+
+当真实 DeepTalk 客户端未接入或不便参与当前开发流程时，由负责当前任务的开发 Agent 使用 `DeepTalkContractHarness` 模拟 DeepTalk，按 capabilities -> compile -> create -> status -> result 的顺序分别请求 REST API 和 MCP，并比较两种入口的 Plan Hash、诊断、状态和 RunResult。
+
+模拟应尽量使用真实 SwarmCore API、PostgreSQL、Temporal 和 Worker；模型调用可按验收目标选择确定性 Fake Agent 或真实受控模型。结果必须明确标记为“DeepTalk 模拟验收”，不得冒充真实 DeepTalk 联调；只有退出标准明确要求真实外部客户端时，才额外等待外部联调证据。
+
+2026-07-16 复验：开发 Agent 使用确定性 Fake Agent 模拟 DeepTalk，通过 REST API 和 MCP 完成能力查询、编译、Inline Run、状态查询和 RunResult 对比；Agent Worker 重启后运行恢复，`1 passed in 6.46s`。
+
+### 9.6 本里程碑不做
 
 - 不实现所有 SwarmSpec 节点类型。
 - 不扩展 A2A 生态适配器。
@@ -347,7 +358,7 @@ DeepTalk 可以通过 REST API 或 MCP 查询能力、自主生成并提交 Swar
 
 ## 11. M3：受控 Tool 与编排能力扩展
 
-状态：`PLANNED`
+状态：`VERIFIED`
 
 目标：让 Agent 在不直接持有外部凭据的情况下使用受控 Tool，并覆盖实际业务需要的动态编排。
 
@@ -360,13 +371,41 @@ DeepTalk 可以通过 REST API 或 MCP 查询能力、自主生成并提交 Swar
 - Tool 结果、Agent 输出和 Reducer 的类型衔接。
 - Tool 调用事件、成本和审计。
 
+固定实现决策：
+
+- Registry v1 使用内容寻址的不可变内置快照；无版本别名在编译期解析为 `@version` canonical ref，提交的 snapshot ID 必须匹配。
+- Agent Worker 只向 Agno 注入 GatewayProxyTool，不注入 Provider Tool 或 Secret；有副作用 Tool 必须是显式 `tool` 节点。
+- HIGH/CRITICAL Tool 在 Capability Token 签发前进入现有 Approval/RunCommand 耐久流程；Token 绑定 tenant/project/run/node/tool/execution/effect/expiry。
+- Tool Gateway 用 PostgreSQL `tool_effects` 记录 tenant/project/tool/effect 作用域、input hash 和已确认输出；Provider Adapter 必须继续传递 effect ID。
+- Router v1 按声明顺序选择首个匹配目标，未选直接目标为 SKIPPED，分支在依赖全部目标的节点汇合。
+- Loop v1 只允许有序 Agent/Tool/Reducer body，最多 20 次；task instance 使用 `node#iteration`，未满足 until 时明确失败；表达式不使用 `eval`。
+
+工作分解：
+
+- [x] M3-01：Agent/Model/Tool Registry Snapshot、版本解析、Capability Catalog 与 Plan 固定资源。
+- [x] M3-02：Tool Gateway 核心、HTTP Gateway、Agent Gateway Proxy 与 Capability Token。
+- [x] M3-03：Tool 输入/输出 Schema、风险规则、持久化 effect journal、RLS migration 与副作用幂等。
+- [x] M3-04：`tool` 节点 Compiler、Temporal Activity、审批、模板输入、结果/成本/事件衔接。
+- [x] M3-05：`router`、`loop` 编译约束和确定性 Runtime 语义。
+- [x] M3-06：单元、Temporal 重放边界和真实 API/PostgreSQL/Temporal/Worker 验收。
+
 退出标准：
 
-- [ ] Agent 只能通过 Tool Gateway 调用外部能力。
-- [ ] 高风险 Tool 必须通过 Approval 才能执行。
-- [ ] Activity 重试不会重复产生已确认的外部副作用。
-- [ ] Router 和 Loop 具有明确、有界且可回放的执行语义。
-- [ ] “并行 Agent -> Tool -> Reducer”真实业务场景通过验收。
+- [x] Agent 只能通过 Tool Gateway 调用外部能力。
+- [x] 高风险 Tool 必须通过 Approval 才能执行。
+- [x] Activity 重试不会重复产生已确认的外部副作用。
+- [x] Router 和 Loop 具有明确、有界且可回放的执行语义。
+- [x] “并行 Agent -> Tool -> Reducer”真实业务场景通过验收。
+
+验收证据（2026-07-16）：
+
+- `uv run pytest -q tests/unit`：69 项通过；覆盖 Registry snapshot 不匹配、Gateway token scope、Schema、审批约束、effect input 冲突和已确认结果去重。
+- `uv run mypy`：67 个 source file 通过 strict 类型检查。
+- `uv run ruff check .`：通过。
+- `./scripts/test-integration.ps1`：从零应用 `0001 -> 0005` migration，PostgreSQL 17.5、Temporal 1.28.0 下 10 项集成测试通过，耗时 70.48 s。
+- M3 真实验收通过 REST API 创建/发布 Strategy 和 Run，经 Outbox/Dispatcher 启动；两路 Fake Agent 并行完成后，HIGH `publish-report` Tool 进入 Approval，批准后由 Tool Worker 通过 Gateway 执行并由 Reducer 生成 RunResult；数据库仅有 1 条成功 effect，并有 `tool.completed` 事件。
+- 同一 Temporal 验收覆盖 Router 只执行选中分支，以及 Loop 在第 2 次迭代满足条件停止；迭代 task instance 和输出可回放。
+- M3 基线提交前复验：Ruff、Mypy strict、69 项单元测试通过；完整 PostgreSQL/Temporal 集成套件 10 项通过。复验同时修复 Cancel 在节点启动投影与业务 Activity 之间竞争时可能无法及时进入终态的问题，并连续 3 次通过针对性真实 Temporal 回归。
 
 ## 12. M4：治理、安全与生产能力
 
@@ -406,8 +445,8 @@ M5 只有在 M2B、M3 和 M4 的产品闭环稳定后启动，避免提前为尚
 | 已关闭 | 缺少 Capability Catalog、inline Run 和标准 RunResult | DeepTalk 无法独立完成闭环 | M2B-02 至 M2B-05 已实现 |
 | 已关闭 | 缺少真实模型凭据 | 无法完成 Agno smoke | 使用本机 Ollama `qwen3:0.6b` 完成受控 smoke |
 | 已关闭 | 集成测试环境不可重复 | M1/M2A 无法可靠验收 | M2B-08 已实现并通过从零复验 |
-| P1 | Agno Agent 尚未接入受控 Tool | 只能执行有限 Agent 场景 | M3 Tool Gateway |
-| P1 | Compiler 与 Runtime 支持节点有限 | 复杂编排无法落地 | M3 按业务优先级逐个扩展 |
+| 已关闭 | Agno Agent 尚未接入受控 Tool | 只能执行有限 Agent 场景 | M3 GatewayProxyTool、Capability Token 和 Tool Gateway 已验收 |
+| 已关闭 | Compiler 与 Runtime 支持节点有限 | 复杂编排无法落地 | M3 已支持 Tool、Router 和有界 Loop；其他节点按后续里程碑扩展 |
 | 已关闭 | 策略只能通过 JSON/YAML 编辑 | 人工编排门槛高，难以直观验证拓扑 | M2C Strategy Canvas 已通过验收 |
 | P2 | 前端主 Chunk 大于 500 KiB | 控制台加载性能风险 | M2B 后按路由拆包处理 |
 
@@ -440,3 +479,6 @@ M5 只有在 M2B、M3 和 M4 的产品闭环稳定后启动，避免提前为尚
 | 2026-07-16 | 1.3 | 使用本机 Ollama 完成真实 Agno Model smoke；修复 provider 依赖与结构化输入警告；M2B 仅待远端 CI Fake Agent E2E |
 | 2026-07-16 | 1.4 | 新增 M2C Strategy Canvas 可视化编排计划；固定 SwarmSpec 单一事实源、独立布局持久化、当前可执行节点范围与真实 Run 退出标准 |
 | 2026-07-16 | 1.5 | M2C-01 至 M2C-07 全部完成；画布、独立布局、三模式、Compile/Save/Publish、自动化与真实 API RunResult 验收通过，M2C 标记为 VERIFIED |
+| 2026-07-16 | 1.6 | 固化 DeepTalk 模拟原则：需要 DeepTalk 时由当前开发 Agent 主动请求 REST API 与 MCP，并记录模拟边界和验收证据 |
+| 2026-07-16 | 1.7 | 完成 Registry、GatewayProxyTool、Capability Token、Tool effect journal、Tool/Router/Loop Runtime 与真实跨服务验收；M3 标记为 VERIFIED |
+| 2026-07-16 | 1.8 | 提交前复验 M3；修复 Workflow Cancel 对节点 Task 与业务 Activity 取消边界不清导致的竞争，并通过 3 次针对性回归与 10 项完整集成测试 |

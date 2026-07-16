@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
+from swarmcore_registry import builtin_registry
 from swarmcore_spec.models import (
     AgentNode,
     AgentSpec,
@@ -10,9 +11,12 @@ from swarmcore_spec.models import (
     Budget,
     ExternalInputNode,
     JoinNode,
+    LoopNode,
     ParallelNode,
     ReducerNode,
+    RouterNode,
     SwarmStrategy,
+    ToolNode,
 )
 
 
@@ -64,12 +68,16 @@ class CapabilityCatalogService:
         "join": JoinNode,
         "parallel": ParallelNode,
         "reducer": ReducerNode,
+        "router": RouterNode,
+        "tool": ToolNode,
+        "loop": LoopNode,
     }
 
     def get(self) -> CapabilityCatalog:
+        registry = builtin_registry()
         return CapabilityCatalog(
             schemaVersion="swarmcore.io/capabilities/v1",
-            registrySnapshot="builtin:phase2b",
+            registrySnapshot=registry.snapshot_id,
             agents=[
                 AgentCapability(
                     id="inline/agno",
@@ -77,6 +85,15 @@ class CapabilityCatalogService:
                     environments=["development", "production"],
                     declarationSchema=AgentSpec.model_json_schema(by_alias=True),
                 ),
+                *[
+                    AgentCapability(
+                        id=item.ref,
+                        runtime="registry/agno",
+                        environments=["development", "production"],
+                        declarationSchema=AgentSpec.model_json_schema(by_alias=True),
+                    )
+                    for item in registry.agents
+                ],
                 AgentCapability(
                     id="inline/fake-deterministic",
                     runtime="fake-deterministic",
@@ -84,18 +101,22 @@ class CapabilityCatalogService:
                     declarationSchema=AgentSpec.model_json_schema(by_alias=True),
                 ),
             ],
-            tools=[],
+            tools=[
+                ToolCapability(
+                    ref=item.ref,
+                    risk=item.risk.value,
+                    inputSchema=item.input_schema,
+                    outputSchema=item.output_schema,
+                )
+                for item in registry.tools
+            ],
             models=[
                 ModelCapability(
-                    ref="model://general",
-                    runtime="agno",
-                    environments=["development", "production"],
-                ),
-                ModelCapability(
-                    ref="model://fake-deterministic",
-                    runtime="fake-deterministic",
-                    environments=["development", "test"],
-                ),
+                    ref=item.ref,
+                    runtime=item.runtime,
+                    environments=list(item.environments),
+                )
+                for item in registry.models
             ],
             nodeTypes=[
                 NodeCapability(type=name, schema=model.model_json_schema(by_alias=True))

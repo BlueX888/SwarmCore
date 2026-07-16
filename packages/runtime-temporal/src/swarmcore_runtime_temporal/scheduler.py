@@ -24,7 +24,10 @@ def ready_nodes(
         str(node["key"])
         for node in nodes
         if states[str(node["key"])] == NodeState.PENDING
-        and all(states[key] == NodeState.SUCCEEDED for key in node.get("dependencies", []))
+        and all(
+            states[key] in {NodeState.SUCCEEDED, NodeState.SKIPPED}
+            for key in node.get("dependencies", [])
+        )
     ]
     return tuple(sorted(ready)[:max_parallelism])
 
@@ -32,7 +35,7 @@ def ready_nodes(
 def blocked_by_failure(
     nodes: list[dict[str, Any]], states: dict[str, NodeState]
 ) -> tuple[str, ...]:
-    terminal_failure = {NodeState.FAILED, NodeState.CANCELLED, NodeState.SKIPPED}
+    terminal_failure = {NodeState.FAILED, NodeState.CANCELLED}
     blocked = [
         str(node["key"])
         for node in nodes

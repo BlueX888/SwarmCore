@@ -11,6 +11,7 @@ dependencies = [
   "swarmcore-domain",
   "swarmcore-observability",
   "swarmcore-persistence",
+  "swarmcore-registry",
   "swarmcore-spec",
   "uvicorn[standard]==0.35.0",
 ]
@@ -25,6 +26,7 @@ swarmcore-compiler = { workspace = true }
 swarmcore-domain = { workspace = true }
 swarmcore-observability = { workspace = true }
 swarmcore-persistence = { workspace = true }
+swarmcore-registry = { workspace = true }
 swarmcore-spec = { workspace = true }
 
 [build-system]

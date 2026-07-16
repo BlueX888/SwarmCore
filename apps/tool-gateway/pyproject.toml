@@ -1,0 +1,26 @@
+[project]
+name = "swarmcore-tool-gateway-api"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi==0.116.1",
+  "pydantic-settings==2.14.2",
+  "swarmcore-domain",
+  "swarmcore-persistence",
+  "swarmcore-registry",
+  "swarmcore-tool-gateway",
+  "uvicorn[standard]==0.35.0",
+]
+
+[project.scripts]
+swarmcore-tool-gateway-api = "swarmcore_tool_gateway_api.main:run"
+
+[tool.uv.sources]
+swarmcore-domain = { workspace = true }
+swarmcore-persistence = { workspace = true }
+swarmcore-registry = { workspace = true }
+swarmcore-tool-gateway = { workspace = true }
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"

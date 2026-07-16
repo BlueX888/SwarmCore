@@ -8,19 +8,32 @@ from typing import Any, Literal
 
 from jsonschema import Draft202012Validator, SchemaError
 from pydantic import BaseModel, ConfigDict, Field
+from swarmcore_registry import RegistrySnapshot, builtin_registry
+from swarmcore_spec import ExpressionError, validate_condition
 from swarmcore_spec.models import (
     AgentNode,
     LoopNode,
     ParallelNode,
     RouterNode,
     SwarmStrategy,
+    ToolNode,
 )
 
-COMPILER_VERSION = "1.0.0"
-RUNTIME_VERSION = "1.0.0"
+COMPILER_VERSION = "1.1.0"
+RUNTIME_VERSION = "1.1.0"
 PLAN_VERSION = "swarmcore.io/plan/v1"
 _TASK_TEMPLATE = re.compile(r"tasks\.([a-z][a-z0-9_-]{0,62})\b")
-_SUPPORTED_NODE_TYPES = {"agent", "parallel", "join", "reducer", "approval", "input"}
+_SUPPORTED_NODE_TYPES = {
+    "agent",
+    "tool",
+    "router",
+    "loop",
+    "parallel",
+    "join",
+    "reducer",
+    "approval",
+    "input",
+}
 
 
 class Diagnostic(BaseModel):
@@ -63,6 +76,8 @@ class ExecutionPlan(BaseModel):
     edges: tuple[PlanEdge, ...]
     resolved_resources: tuple[str, ...]
     resolved_agents: dict[str, dict[str, Any]]
+    resolved_models: dict[str, dict[str, Any]]
+    resolved_tools: dict[str, dict[str, Any]]
     defaults: dict[str, Any]
     budget: dict[str, Any]
     input_schema: dict[str, Any]
@@ -93,6 +108,9 @@ def _sha256(value: str) -> str:
 class Compiler:
     """Pure deterministic compiler from a validated SwarmSpec to an immutable plan."""
 
+    def __init__(self, registry: RegistrySnapshot | None = None) -> None:
+        self._registry = registry or builtin_registry()
+
     def compile(
         self,
         strategy: SwarmStrategy,
@@ -100,6 +118,20 @@ class Compiler:
         registry_snapshot: str,
         policy_revision: str,
     ) -> ExecutionPlan:
+        if registry_snapshot != self._registry.snapshot_id:
+            raise CompileError(
+                [
+                    Diagnostic(
+                        severity="error",
+                        code="REGISTRY_SNAPSHOT_MISMATCH",
+                        path="$.registrySnapshot",
+                        message=(
+                            f"requested {registry_snapshot!r}, available "
+                            f"{self._registry.snapshot_id!r}"
+                        ),
+                    )
+                ]
+            )
         diagnostics = self.validate(strategy)
         errors = [item for item in diagnostics if item.severity == "error"]
         if errors:
@@ -142,6 +174,8 @@ class Compiler:
             "resolved_agents": {
                 key: self._resolved_agent(strategy, key) for key in sorted(spec.agents)
             },
+            "resolved_models": self._resolved_models(strategy),
+            "resolved_tools": self._resolved_tools(strategy),
             "defaults": spec.defaults.model_dump(mode="json", by_alias=True, exclude_none=True),
             "budget": spec.budget.model_dump(mode="json", by_alias=True),
             "input_schema": spec.input_schema,
@@ -234,10 +268,74 @@ class Compiler:
                         message=f"agent {node.agent!r} is not declared",
                     )
                 )
+            if isinstance(node, ToolNode) and self._registry.resolve_tool(node.tool) is None:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="UNKNOWN_TOOL",
+                        path=f"{path}.tool",
+                        message=f"tool {node.tool!r} is not present in the registry snapshot",
+                    )
+                )
+            if isinstance(node, RouterNode):
+                for index, route in enumerate(node.routes):
+                    try:
+                        validate_condition(route.when)
+                    except ExpressionError as exc:
+                        diagnostics.append(
+                            Diagnostic(
+                                severity="error",
+                                code="INVALID_CONDITION",
+                                path=f"{path}.routes.{index}.when",
+                                message=str(exc),
+                            )
+                        )
+                targets = [route.target for route in node.routes]
+                if node.default:
+                    targets.append(node.default)
+                for target in targets:
+                    if target in nodes and key not in nodes[target].depends_on:
+                        diagnostics.append(
+                            Diagnostic(
+                                severity="error",
+                                code="ROUTE_TARGET_NOT_GATED",
+                                path=f"{path}.routes",
+                                message=f"route target {target!r} must depend on router {key!r}",
+                            )
+                        )
+                diagnostics.extend(self._validate_router_shape(key, targets, nodes))
+            if isinstance(node, LoopNode):
+                try:
+                    validate_condition(node.until)
+                except ExpressionError as exc:
+                    diagnostics.append(
+                        Diagnostic(
+                            severity="error",
+                            code="INVALID_CONDITION",
+                            path=f"{path}.until",
+                            message=str(exc),
+                        )
+                    )
+                diagnostics.extend(self._validate_loop(key, node, nodes))
             diagnostics.extend(self._validate_control_references(key, node, nodes))
             diagnostics.extend(self._validate_templates(key, node.input, nodes))
 
         diagnostics.extend(self._validate_templates("output", spec.graph.output, nodes))
+        body_owners: dict[str, list[str]] = {}
+        for loop_key, candidate in nodes.items():
+            if isinstance(candidate, LoopNode):
+                for body_key in candidate.body:
+                    body_owners.setdefault(body_key, []).append(loop_key)
+        for body_key, owners in body_owners.items():
+            if len(owners) > 1:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="LOOP_BODY_SHARED",
+                        path=f"$.spec.graph.nodes.{body_key}",
+                        message=f"loop body node is shared by: {', '.join(sorted(owners))}",
+                    )
+                )
         if not any(item.code in {"UNKNOWN_DEPENDENCY", "SELF_DEPENDENCY"} for item in diagnostics):
             try:
                 self._topological_order(strategy)
@@ -252,7 +350,27 @@ class Compiler:
                     message="declared agents exceed budget.maxAgents",
                 )
             )
+        if spec.defaults.model and self._registry.resolve_model(spec.defaults.model) is None:
+            diagnostics.append(
+                Diagnostic(
+                    severity="error",
+                    code="UNKNOWN_MODEL",
+                    path="$.spec.defaults.model",
+                    message=(
+                        f"model {spec.defaults.model!r} is not present in the registry snapshot"
+                    ),
+                )
+            )
         for key, agent in sorted(spec.agents.items()):
+            if agent.ref and self._registry.resolve_agent(agent.ref) is None:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="UNKNOWN_REGISTERED_AGENT",
+                        path=f"$.spec.agents.{key}.ref",
+                        message=f"agent {agent.ref!r} is not present in the registry snapshot",
+                    )
+                )
             if (
                 agent.output_schema_ref
                 and self._resolve_local_schema(strategy, agent.output_schema_ref) is None
@@ -265,7 +383,121 @@ class Compiler:
                         message=f"schema {agent.output_schema_ref!r} does not exist",
                     )
                 )
+            resolved = self._agent_values(strategy, key)
+            model_ref = resolved.get("model") or spec.defaults.model
+            if isinstance(model_ref, str) and self._registry.resolve_model(model_ref) is None:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="UNKNOWN_MODEL",
+                        path=f"$.spec.agents.{key}.model",
+                        message=f"model {model_ref!r} is not present in the registry snapshot",
+                    )
+                )
+            for tool_ref in resolved.get("tools", []):
+                registration = self._registry.resolve_tool(str(tool_ref))
+                if registration is None:
+                    diagnostics.append(
+                        Diagnostic(
+                            severity="error",
+                            code="UNKNOWN_TOOL",
+                            path=f"$.spec.agents.{key}.tools",
+                            message=f"tool {tool_ref!r} is not present in the registry snapshot",
+                        )
+                    )
+                elif registration.side_effecting:
+                    diagnostics.append(
+                        Diagnostic(
+                            severity="error",
+                            code="AGENT_SIDE_EFFECT_TOOL_REQUIRES_NODE",
+                            path=f"$.spec.agents.{key}.tools",
+                            message=(
+                                f"side-effecting tool {tool_ref!r} must be an explicit tool node"
+                            ),
+                        )
+                    )
         return sorted(diagnostics, key=lambda item: (item.path, item.code, item.message))
+
+    @staticmethod
+    def _validate_router_shape(
+        key: str, targets: list[str], nodes: dict[str, Any]
+    ) -> list[Diagnostic]:
+        target_set = set(targets)
+        diagnostics: list[Diagnostic] = []
+        for other_key, other in nodes.items():
+            dependencies = set(other.depends_on)
+            if other_key not in target_set and dependencies.intersection(target_set) and not (
+                target_set.issubset(dependencies)
+            ):
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="ROUTER_BRANCH_MUST_CONVERGE",
+                        path=f"$.spec.graph.nodes.{other_key}.dependsOn",
+                        message=(
+                            f"router {key!r} v1 branches must converge at a node depending "
+                            "on every route target"
+                        ),
+                    )
+                )
+        return diagnostics
+
+    @staticmethod
+    def _validate_loop(key: str, node: LoopNode, nodes: dict[str, Any]) -> list[Diagnostic]:
+        diagnostics: list[Diagnostic] = []
+        body = set(node.body)
+        position = {body_key: index for index, body_key in enumerate(node.body)}
+        allowed_types = {"agent", "tool", "reducer"}
+        for body_key in node.body:
+            if body_key not in nodes:
+                continue
+            body_node = nodes[body_key]
+            if body_node.type not in allowed_types:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="UNSUPPORTED_LOOP_BODY",
+                        path=f"$.spec.graph.nodes.{key}.body",
+                        message=(
+                            f"loop body node {body_key!r} has unsupported type {body_node.type!r}"
+                        ),
+                    )
+                )
+            external = set(body_node.depends_on) - body
+            if not external.issubset(node.depends_on):
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="LOOP_DEPENDENCY_NOT_GATED",
+                        path=f"$.spec.graph.nodes.{body_key}.dependsOn",
+                        message="loop body external dependencies must also be loop dependencies",
+                    )
+                )
+            out_of_order = [
+                dependency
+                for dependency in body_node.depends_on
+                if dependency in position and position[dependency] >= position[body_key]
+            ]
+            if out_of_order:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="LOOP_BODY_ORDER_INVALID",
+                        path=f"$.spec.graph.nodes.{body_key}.dependsOn",
+                        message="loop body dependencies must precede the dependent body node",
+                    )
+                )
+        for other_key, other in nodes.items():
+            if other_key not in body and other_key != key and body.intersection(other.depends_on):
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="LOOP_BODY_EXPOSED",
+                        path=f"$.spec.graph.nodes.{other_key}.dependsOn",
+                        message="nodes outside a loop must depend on the loop, not its body",
+                    )
+                )
+        return diagnostics
 
     def _validate_control_references(
         self, key: str, node: Any, nodes: dict[str, Any]
@@ -366,10 +598,11 @@ class Compiler:
         resources: set[str] = set()
         if strategy.spec.defaults.model:
             resources.add(strategy.spec.defaults.model)
-        for agent in strategy.spec.agents.values():
-            if agent.model:
-                resources.add(agent.model)
-            resources.update(agent.tools)
+        for key in strategy.spec.agents:
+            agent = self._agent_values(strategy, key)
+            if agent.get("model"):
+                resources.add(str(agent["model"]))
+            resources.update(str(item) for item in agent.get("tools", []))
         for node in strategy.spec.graph.nodes.root.values():
             if node.type == "tool":
                 resources.add(node.tool)
@@ -381,12 +614,61 @@ class Compiler:
 
     def _resolved_agent(self, strategy: SwarmStrategy, key: str) -> dict[str, Any]:
         agent = strategy.spec.agents[key]
-        resolved = agent.model_dump(mode="json", by_alias=True, exclude_none=True)
+        resolved = self._agent_values(strategy, key)
         if agent.output_schema_ref:
             schema = self._resolve_local_schema(strategy, agent.output_schema_ref)
             if schema is not None:
                 resolved["outputSchema"] = schema
         return resolved
+
+    def _agent_values(self, strategy: SwarmStrategy, key: str) -> dict[str, Any]:
+        agent = strategy.spec.agents[key]
+        values: dict[str, Any] = {}
+        if agent.ref:
+            registered = self._registry.resolve_agent(agent.ref)
+            if registered is not None:
+                values = registered.model_dump(mode="json", by_alias=True, exclude_none=True)
+                values["registryRef"] = values.pop("ref")
+        inline = agent.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+            exclude_unset=True,
+            exclude={"ref", "output_schema_ref"},
+        )
+        values.update(inline)
+        return values
+
+    def _resolved_models(self, strategy: SwarmStrategy) -> dict[str, dict[str, Any]]:
+        references: set[str] = set()
+        if strategy.spec.defaults.model:
+            references.add(strategy.spec.defaults.model)
+        for key in strategy.spec.agents:
+            model = self._agent_values(strategy, key).get("model")
+            if isinstance(model, str):
+                references.add(model)
+        return {
+            reference: registration.model_dump(mode="json", by_alias=True)
+            for reference in sorted(references)
+            if (registration := self._registry.resolve_model(reference)) is not None
+        }
+
+    def _resolved_tools(self, strategy: SwarmStrategy) -> dict[str, dict[str, Any]]:
+        references = {
+            reference
+            for values in (self._agent_values(strategy, key) for key in strategy.spec.agents)
+            for reference in values.get("tools", [])
+        }
+        references.update(
+            node.tool
+            for node in strategy.spec.graph.nodes.root.values()
+            if isinstance(node, ToolNode)
+        )
+        return {
+            reference: registration.model_dump(mode="json", by_alias=True)
+            for reference in sorted(references)
+            if (registration := self._registry.resolve_tool(reference)) is not None
+        }
 
     @staticmethod
     def _resolve_local_schema(strategy: SwarmStrategy, reference: str) -> dict[str, Any] | None:

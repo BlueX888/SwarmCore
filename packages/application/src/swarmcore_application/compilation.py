@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from swarmcore_compiler import CompileError
+from swarmcore_registry import builtin_registry
 
 from .services import StrategyService
 
@@ -25,8 +26,8 @@ class CompilationService:
         self,
         raw_spec: dict[str, Any],
         *,
-        registry_snapshot: str = "inline",
-        policy_revision: str = "phase2b",
+        registry_snapshot: str = builtin_registry().snapshot_id,
+        policy_revision: str = "m3",
     ) -> CompilationResult:
         try:
             spec, plan = self._strategies.compile(
@@ -36,9 +37,7 @@ class CompilationService:
             )
             return CompilationResult(
                 valid=True,
-                normalizedSpec=spec.model_dump(
-                    mode="json", by_alias=True, exclude_none=True
-                ),
+                normalizedSpec=spec.model_dump(mode="json", by_alias=True, exclude_none=True),
                 plan=plan.model_dump(mode="json", by_alias=True),
             )
         except CompileError as exc:

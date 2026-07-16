@@ -8,6 +8,9 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.workflow import ActivityCancellationType
 
+with workflow.unsafe.imports_passed_through():
+    from swarmcore_spec import evaluate_condition, render_templates
+
 from .scheduler import NodeState, blocked_by_failure, ready_nodes
 
 _CONTROL_QUEUE = "swarm-control"
@@ -24,6 +27,9 @@ class SwarmRunWorkflow:
         self._nodes: list[dict[str, Any]] = []
         self._states: dict[str, NodeState] = {}
         self._outputs: dict[str, Any] = {}
+        self._plan: dict[str, Any] = {}
+        self._loop_body_keys: set[str] = set()
+        self._current_iteration: int | None = None
         self._last_applied_command_seq = 0
         self._command_results: dict[int, dict[str, Any]] = {}
         self._request_results: dict[str, dict[str, Any]] = {}
@@ -33,6 +39,7 @@ class SwarmRunWorkflow:
         self._failure_wait = False
         self._human_requests: dict[str, dict[str, Any]] = {}
         self._in_flight: set[asyncio.Task[dict[str, Any]]] = set()
+        self._activity_handles: set[asyncio.Task[dict[str, Any]]] = set()
 
     @workflow.run
     async def run(self, run_input: dict[str, Any]) -> dict[str, Any]:
@@ -54,8 +61,17 @@ class SwarmRunWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=0),
             result_type=dict[str, Any],
         )
+        self._plan = plan
         self._nodes = list(plan["nodes"])
         self._states = {str(node["key"]): NodeState.PENDING for node in self._nodes}
+        self._loop_body_keys = {
+            str(body_key)
+            for node in self._nodes
+            if node["type"] == "loop"
+            for body_key in node["config"]["body"]
+        }
+        for body_key in self._loop_body_keys:
+            self._states[body_key] = NodeState.SKIPPED
         await self._project("run.validating", {})
         await self._project("run.queued", {})
         await self._project("run.started", {})
@@ -64,6 +80,7 @@ class SwarmRunWorkflow:
         while True:
             if self._cancel_requested:
                 await self._cancel_run()
+                await workflow.wait_condition(workflow.all_handlers_finished)
                 return {"status": "CANCELLED", "outputs": self._outputs}
             await self._pause_barrier()
             if self._cancel_requested:
@@ -102,6 +119,7 @@ class SwarmRunWorkflow:
                         by_key[key],
                         plan.get("resolved_agents", {}),
                         plan.get("defaults", {}).get("model"),
+                        plan.get("resolved_tools", {}),
                     )
                 )
                 for key in batch
@@ -120,6 +138,8 @@ class SwarmRunWorkflow:
                 else:
                     self._states[key] = NodeState.SUCCEEDED
                     self._outputs[key] = outcome
+                    if by_key[key]["type"] == "router":
+                        await self._apply_router_selection(by_key[key], outcome)
                     await self._project("task.completed", {"nodeKey": key, "output": outcome})
 
     @workflow.update(name="apply_command")
@@ -158,8 +178,8 @@ class SwarmRunWorkflow:
             for request in self._human_requests.values():
                 if request["status"] == "PENDING":
                     request["status"] = "CANCELLED"
-            for task in self._in_flight:
-                task.cancel()
+            for handle in self._activity_handles:
+                handle.cancel()
             return {"status": "APPLIED"}
         if self._cancel_requested:
             return {"status": "REJECTED", "code": "RUN_CANCELLING"}
@@ -260,33 +280,85 @@ class SwarmRunWorkflow:
         node: dict[str, Any],
         resolved_agents: dict[str, Any],
         default_model: str | None,
+        resolved_tools: dict[str, Any],
+        *,
+        task_instance_key: str | None = None,
+        iteration_no: int | None = None,
     ) -> dict[str, Any]:
         key = str(node["key"])
+        instance_key = task_instance_key or key
         self._states[key] = NodeState.RUNNING
         await self._project(
             "task.started",
             {
                 "nodeKey": key,
+                "taskInstanceKey": instance_key,
                 "nodeType": node["type"],
                 "dependencies": node.get("dependencies", []),
+                "iterationNo": iteration_no,
             },
         )
+        if self._cancel_requested:
+            raise asyncio.CancelledError
         if node["type"] in {"approval", "input"}:
-            return await self._wait_for_human(node)
+            return await self._wait_for_human(node, task_instance_key=instance_key)
+        if node["type"] == "router":
+            return self._route(node)
+        if node["type"] == "loop":
+            return await self._execute_loop(node, resolved_agents, default_model, resolved_tools)
         activity_name, queue = self._activity_for(str(node["type"]))
+        execution_id = str(workflow.uuid4())
+        rendered_node = self._render_node(node)
         payload: dict[str, Any] = {
             "run": self._run_input,
-            "node": node,
-            "taskExecutionId": str(workflow.uuid4()),
+            "node": rendered_node,
+            "taskExecutionId": execution_id,
             "agentInstanceId": str(workflow.uuid4()),
             "dependencyOutputs": {
-                dependency: self._outputs[dependency] for dependency in node.get("dependencies", [])
+                dependency: self._outputs[dependency]
+                for dependency in node.get("dependencies", [])
+                if dependency in self._outputs
             },
         }
         if node["type"] == "agent":
             payload["agent"] = resolved_agents[node["config"]["agent"]]
             payload["defaultModel"] = default_model
-        result = await workflow.execute_activity(
+            payload["toolCapabilities"] = await self._agent_tool_capabilities(
+                node, payload["agent"], execution_id, resolved_tools, instance_key
+            )
+        elif node["type"] == "tool":
+            tool_ref = str(node["config"]["tool"])
+            registration = resolved_tools[tool_ref]
+            approved = await self._approve_tool_if_required(registration, instance_key=instance_key)
+            effect_id = execution_id
+            payload["capabilityToken"] = await self._issue_tool_capability(
+                node_key=instance_key,
+                tool_ref=tool_ref,
+                execution_id=execution_id,
+                effect_id=effect_id,
+                approved=approved,
+            )
+            payload["effectId"] = effect_id
+            payload["input"] = rendered_node["config"].get("input", {})
+            await self._project(
+                "tool.requested",
+                {
+                    "nodeKey": key,
+                    "taskInstanceKey": instance_key,
+                    "toolRef": registration["ref"],
+                    "effectId": effect_id,
+                },
+            )
+            await self._project(
+                "tool.started",
+                {
+                    "nodeKey": key,
+                    "taskInstanceKey": instance_key,
+                    "toolRef": registration["ref"],
+                    "effectId": effect_id,
+                },
+            )
+        handle = workflow.start_activity(
             activity_name,
             payload,
             task_queue=queue,
@@ -301,14 +373,52 @@ class SwarmRunWorkflow:
             ),
             result_type=dict[str, Any],
         )
+        self._activity_handles.add(handle)
+        if self._cancel_requested:
+            handle.cancel()
+        try:
+            result = await handle
+        except BaseException as exc:
+            if node["type"] == "tool":
+                await self._project(
+                    "tool.failed",
+                    {
+                        "nodeKey": key,
+                        "taskInstanceKey": instance_key,
+                        "toolRef": node["config"]["tool"],
+                        "effectId": payload["effectId"],
+                        "error": self._safe_error(exc),
+                    },
+                )
+            raise
+        finally:
+            self._activity_handles.discard(handle)
+        if node["type"] == "tool":
+            await self._project(
+                "tool.completed",
+                {
+                    "nodeKey": key,
+                    "taskInstanceKey": instance_key,
+                    "toolRef": result.get("tool"),
+                    "effectId": result.get("effectId"),
+                    "metrics": result.get("metrics", {}),
+                },
+            )
         return cast(dict[str, Any], result)
 
-    async def _wait_for_human(self, node: dict[str, Any]) -> dict[str, Any]:
+    async def _wait_for_human(
+        self,
+        node: dict[str, Any],
+        *,
+        task_instance_key: str | None = None,
+        kind_override: str | None = None,
+    ) -> dict[str, Any]:
         request_id = str(workflow.uuid4())
-        kind = str(node["type"])
+        kind = kind_override or str(node["type"])
+        node_key = task_instance_key or str(node["key"])
         request = {
             "kind": kind,
-            "nodeKey": str(node["key"]),
+            "nodeKey": node_key,
             "schema": dict(node["config"].get("inputSchema", {"type": "object"})),
             "status": "PENDING",
             "value": {},
@@ -337,6 +447,167 @@ class SwarmRunWorkflow:
             raise asyncio.CancelledError
         await self._project("run.resumed", {"reason": f"{prefix}_resolved"})
         return cast(dict[str, Any], request["value"])
+
+    async def _approve_tool_if_required(
+        self, registration: dict[str, Any], *, instance_key: str
+    ) -> bool:
+        if registration["risk"] not in {"HIGH", "CRITICAL"}:
+            return False
+        approval_node = {
+            "key": instance_key,
+            "type": "approval",
+            "config": {
+                "prompt": f"Approve {registration['ref']} execution",
+                "inputSchema": {"type": "object"},
+            },
+        }
+        await self._wait_for_human(
+            approval_node, task_instance_key=instance_key, kind_override="approval"
+        )
+        return True
+
+    async def _issue_tool_capability(
+        self,
+        *,
+        node_key: str,
+        tool_ref: str,
+        execution_id: str,
+        effect_id: str | None,
+        approved: bool,
+    ) -> str:
+        result = await workflow.execute_activity(
+            "issue_tool_capability",
+            {
+                "run": self._run_input,
+                "nodeKey": node_key,
+                "toolRef": tool_ref,
+                "executionId": execution_id,
+                "effectId": effect_id,
+                "approved": approved,
+            },
+            task_queue=_CONTROL_QUEUE,
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+            result_type=str,
+        )
+        return str(result)
+
+    async def _agent_tool_capabilities(
+        self,
+        node: dict[str, Any],
+        agent: dict[str, Any],
+        execution_id: str,
+        resolved_tools: dict[str, Any],
+        instance_key: str,
+    ) -> dict[str, str]:
+        capabilities: dict[str, str] = {}
+        for tool_ref in agent.get("tools", []):
+            registration = resolved_tools[tool_ref]
+            approved = await self._approve_tool_if_required(
+                registration, instance_key=f"{instance_key}:{tool_ref}"
+            )
+            capabilities[tool_ref] = await self._issue_tool_capability(
+                node_key=str(node["key"]),
+                tool_ref=tool_ref,
+                execution_id=execution_id,
+                effect_id=None,
+                approved=approved,
+            )
+        return capabilities
+
+    def _route(self, node: dict[str, Any]) -> dict[str, Any]:
+        context = self._expression_context()
+        for route in node["config"]["routes"]:
+            if evaluate_condition(str(route["when"]), context):
+                return {"selected": str(route["target"])}
+        default = node["config"].get("default")
+        if default is None:
+            raise ValueError("router did not match and has no default")
+        return {"selected": str(default)}
+
+    async def _apply_router_selection(self, node: dict[str, Any], outcome: dict[str, Any]) -> None:
+        selected = str(outcome["selected"])
+        targets = {str(route["target"]) for route in node["config"]["routes"]}
+        default = node["config"].get("default")
+        if default:
+            targets.add(str(default))
+        for target in sorted(targets - {selected}):
+            if self._states.get(target) == NodeState.PENDING:
+                self._states[target] = NodeState.SKIPPED
+                await self._project("task.skipped", {"nodeKey": target, "route": node["key"]})
+
+    async def _execute_loop(
+        self,
+        node: dict[str, Any],
+        resolved_agents: dict[str, Any],
+        default_model: str | None,
+        resolved_tools: dict[str, Any],
+    ) -> dict[str, Any]:
+        by_key = {str(item["key"]): item for item in self._nodes}
+        iterations: list[dict[str, Any]] = []
+        for iteration in range(1, int(node["config"]["maxIterations"]) + 1):
+            self._current_iteration = iteration
+            current: dict[str, Any] = {}
+            for body_key in node["config"]["body"]:
+                body_node = by_key[str(body_key)]
+                instance_key = f"{body_key}#{iteration}"
+                try:
+                    output = await self._execute_node(
+                        body_node,
+                        resolved_agents,
+                        default_model,
+                        resolved_tools,
+                        task_instance_key=instance_key,
+                        iteration_no=iteration,
+                    )
+                except BaseException as exc:
+                    self._states[str(body_key)] = NodeState.FAILED
+                    await self._project(
+                        "task.failed",
+                        {
+                            "nodeKey": body_key,
+                            "taskInstanceKey": instance_key,
+                            "error": self._safe_error(exc),
+                        },
+                    )
+                    raise
+                self._states[str(body_key)] = NodeState.SUCCEEDED
+                self._outputs[str(body_key)] = output
+                current[str(body_key)] = output
+                await self._project(
+                    "task.completed",
+                    {
+                        "nodeKey": body_key,
+                        "taskInstanceKey": instance_key,
+                        "output": output,
+                    },
+                )
+            last = current[str(node["config"]["body"][-1])]
+            iterations.append(current)
+            context = self._expression_context()
+            context.update({"iteration": iteration, "output": last})
+            if evaluate_condition(str(node["config"]["until"]), context):
+                self._current_iteration = None
+                return {"iterations": iterations, "last": last}
+        self._current_iteration = None
+        raise ValueError("LOOP_MAX_ITERATIONS_EXCEEDED")
+
+    def _render_node(self, node: dict[str, Any]) -> dict[str, Any]:
+        rendered = dict(node)
+        rendered["config"] = dict(node["config"])
+        rendered["config"]["input"] = render_templates(
+            node["config"].get("input", {}), self._expression_context()
+        )
+        return rendered
+
+    def _expression_context(self) -> dict[str, Any]:
+        context = {
+            "input": self._run_input.get("input", {}),
+            "tasks": {key: {"output": value} for key, value in self._outputs.items()},
+        }
+        if self._current_iteration is not None:
+            context["iteration"] = self._current_iteration
+        return context
 
     async def _project(self, event_type: str, data: dict[str, Any]) -> None:
         await workflow.execute_activity(

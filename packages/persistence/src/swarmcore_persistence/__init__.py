@@ -9,6 +9,7 @@ from .repositories import (
     pending_outbox_query,
     pending_temporal_outbox_query,
 )
+from .tool_journal import PostgresEffectJournal
 
 __all__ = [
     "Base",
@@ -16,6 +17,7 @@ __all__ = [
     "EventRepository",
     "IdempotencyConflictError",
     "PersistenceConflictError",
+    "PostgresEffectJournal",
     "ProjectionReconciler",
     "ReconcileReport",
     "RunCommandRepository",

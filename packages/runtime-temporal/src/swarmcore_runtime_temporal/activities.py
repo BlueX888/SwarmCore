@@ -16,10 +16,20 @@ class TransitionProjector(Protocol):
     async def project(self, transition: Mapping[str, Any]) -> None: ...
 
 
+class ToolCapabilityIssuer(Protocol):
+    def issue(self, request: Mapping[str, Any]) -> str: ...
+
+
 class ControlActivities:
-    def __init__(self, plans: PlanStore, projector: TransitionProjector) -> None:
+    def __init__(
+        self,
+        plans: PlanStore,
+        projector: TransitionProjector,
+        capability_issuer: ToolCapabilityIssuer | None = None,
+    ) -> None:
         self._plans = plans
         self._projector = projector
+        self._capability_issuer = capability_issuer
 
     @activity.defn(name="load_execution_plan")
     async def load_execution_plan(self, run_input: dict[str, Any]) -> dict[str, Any]:
@@ -33,6 +43,12 @@ class ControlActivities:
     @activity.defn(name="project_transition")
     async def project_transition(self, transition: dict[str, Any]) -> None:
         await self._projector.project(transition)
+
+    @activity.defn(name="issue_tool_capability")
+    async def issue_tool_capability(self, request: dict[str, Any]) -> str:
+        if self._capability_issuer is None:
+            raise RuntimeError("Tool Gateway capability issuer is not configured")
+        return self._capability_issuer.issue(request)
 
     @activity.defn(name="execute_control_node")
     async def execute_control_node(self, request: dict[str, Any]) -> dict[str, Any]:

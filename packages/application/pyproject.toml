@@ -8,6 +8,7 @@ dependencies = [
   "swarmcore-compiler",
   "swarmcore-domain",
   "swarmcore-persistence",
+  "swarmcore-registry",
   "swarmcore-spec",
 ]
 
@@ -15,6 +16,7 @@ dependencies = [
 swarmcore-compiler = { workspace = true }
 swarmcore-domain = { workspace = true }
 swarmcore-persistence = { workspace = true }
+swarmcore-registry = { workspace = true }
 swarmcore-spec = { workspace = true }
 
 [build-system]

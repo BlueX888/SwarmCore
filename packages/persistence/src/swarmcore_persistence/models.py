@@ -425,3 +425,30 @@ class IdempotencyKey(Base):
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     response_ref: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ToolEffect(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "tool_effects"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "project_id", "tool_ref", "effect_id", name="uq_tool_effect_scope"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "run_id"],
+            ["runs.tenant_id", "runs.project_id", "runs.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_tool_effects_run_status", "run_id", "status"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    node_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    tool_ref: Mapped[str] = mapped_column(String(512), nullable=False)
+    effect_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="PENDING", nullable=False)
+    output: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

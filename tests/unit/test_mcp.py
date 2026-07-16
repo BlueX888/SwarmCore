@@ -72,10 +72,16 @@ def test_rest_and_mcp_return_the_same_capability_catalog() -> None:
         "approval",
         "input",
         "join",
+        "loop",
         "parallel",
         "reducer",
+        "router",
+        "tool",
     }
-    assert catalog["tools"] == []
+    assert {item["ref"] for item in catalog["tools"]} == {
+        "tool://publish-report@1",
+        "tool://search@1",
+    }
 
 
 def test_rest_and_mcp_compile_have_identical_plan_and_diagnostics() -> None:

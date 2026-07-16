@@ -7,10 +7,12 @@ dependencies = [
   "asyncpg==0.30.0",
   "sqlalchemy[asyncio]==2.0.41",
   "swarmcore-domain",
+  "swarmcore-tool-gateway",
 ]
 
 [tool.uv.sources]
 swarmcore-domain = { workspace = true }
+swarmcore-tool-gateway = { workspace = true }
 
 [build-system]
 requires = ["hatchling==1.27.0"]

@@ -2,7 +2,10 @@
 name = "swarmcore-runtime-temporal"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
-dependencies = ["temporalio==1.15.0"]
+dependencies = ["swarmcore-spec", "temporalio==1.15.0"]
+
+[tool.uv.sources]
+swarmcore-spec = { workspace = true }
 
 [build-system]
 requires = ["hatchling==1.27.0"]

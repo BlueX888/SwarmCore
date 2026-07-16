@@ -16,6 +16,25 @@ from swarmcore_persistence.models import (
     RunTask,
     StrategyVersion,
 )
+from swarmcore_tool_gateway import CapabilityTokenIssuer
+
+
+class GatewayCapabilityIssuer:
+    def __init__(self, tokens: CapabilityTokenIssuer) -> None:
+        self._tokens = tokens
+
+    def issue(self, request: Mapping[str, Any]) -> str:
+        run = request["run"]
+        return self._tokens.issue(
+            tenant_id=str(run["tenantId"]),
+            project_id=str(run["projectId"]),
+            run_id=str(run["runId"]),
+            node_key=str(request["nodeKey"]),
+            tool_ref=str(request["toolRef"]),
+            execution_id=str(request["executionId"]),
+            effect_id=(str(request["effectId"]) if request.get("effectId") else None),
+            approved=bool(request.get("approved", False)),
+        )
 
 
 class PostgresPlanStore:
@@ -128,10 +147,11 @@ class PostgresTransitionProjector:
         if not event_type.startswith("task."):
             return None
         node_key = str(data["nodeKey"])
+        task_instance_key = str(data.get("taskInstanceKey", node_key))
         task = await session.scalar(
             select(RunTask).where(
                 RunTask.run_id == run_id,
-                RunTask.task_instance_key == node_key,
+                RunTask.task_instance_key == task_instance_key,
             )
         )
         if task is None:
@@ -140,8 +160,11 @@ class PostgresTransitionProjector:
                 tenant_id=tenant_id,
                 run_id=run_id,
                 node_key=node_key,
-                task_instance_key=node_key,
+                task_instance_key=task_instance_key,
                 node_type=str(data.get("nodeType", "unknown")),
+                iteration_no=(
+                    int(data["iterationNo"]) if data.get("iterationNo") is not None else None
+                ),
                 dependencies=list(data.get("dependencies", [])),
             )
             session.add(task)
@@ -200,9 +223,7 @@ class PostgresTransitionProjector:
                 )
             return
         if event_type in {"approval.approved", "approval.rejected"}:
-            approval_request = await session.get(
-                ApprovalRequest, request_id, with_for_update=True
-            )
+            approval_request = await session.get(ApprovalRequest, request_id, with_for_update=True)
             if approval_request is not None and approval_request.status == "PENDING":
                 approval_request.status = (
                     "APPROVED" if event_type.endswith("approved") else "REJECTED"

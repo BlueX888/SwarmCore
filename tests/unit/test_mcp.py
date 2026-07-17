@@ -29,7 +29,7 @@ def test_mcp_lists_phase_one_run_tools() -> None:
             json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
         )
     names = {item["name"] for item in response.json()["result"]["tools"]}
-    assert {
+    assert names == {
         "swarm.capabilities.get",
         "swarm.strategy.validate",
         "swarm.strategy.compile",
@@ -37,10 +37,7 @@ def test_mcp_lists_phase_one_run_tools() -> None:
         "swarm.run.status",
         "swarm.run.result",
         "swarm.run.control",
-        "swarm.run.start",
-        "swarm.run.get",
-        "swarm.run.cancel",
-    } <= names
+    }
 
 
 def test_rest_and_mcp_return_the_same_capability_catalog() -> None:

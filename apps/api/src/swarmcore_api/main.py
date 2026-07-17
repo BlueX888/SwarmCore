@@ -11,9 +11,16 @@ from jsonschema import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
-from swarmcore_application import RunNotTerminalError
+from starlette.middleware.cors import CORSMiddleware
+from swarmcore_application import RunCommandConflictError, RunNotTerminalError
 from swarmcore_compiler import CompileError
-from swarmcore_observability import configure_telemetry, get_tracer
+from swarmcore_governance import OpaPolicyEngine, PolicyDenied, PolicyError, RolePolicyEngine
+from swarmcore_observability import (
+    SwarmMetrics,
+    configure_json_logging,
+    configure_telemetry,
+    get_tracer,
+)
 from swarmcore_persistence import Database
 from swarmcore_persistence.errors import PersistenceConflictError
 
@@ -30,11 +37,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.settings = resolved
         app.state.database = Database(resolved.database_url)
+        app.state.policy = (
+            OpaPolicyEngine(resolved.opa_decision_url)
+            if resolved.policy_mode == "opa"
+            else RolePolicyEngine()
+        )
         yield
         await app.state.database.dispose()
 
     app = FastAPI(title="SwarmCore API", version="0.1.0", lifespan=lifespan)
+    app.state.metrics = SwarmMetrics.create("api")
     app.state.settings = resolved
+    app.state.policy = (
+        OpaPolicyEngine(resolved.opa_decision_url)
+        if resolved.policy_mode == "opa"
+        else RolePolicyEngine()
+    )
+    if resolved.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(resolved.cors_origins),
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "Idempotency-Key",
+                "Last-Event-ID",
+                "Mcp-Protocol-Version",
+            ],
+        )
     app.include_router(router)
     app.include_router(mcp_router)
 
@@ -46,8 +78,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with tracer.start_as_current_span(
             f"HTTP {request.method}",
             attributes={"http.request.method": request.method, "url.path": request.url.path},
-        ):
-            return await call_next(request)
+        ) as span:
+            response = await call_next(request)
+            for state_name, attribute in (
+                ("tenant_id", "tenant.id"),
+                ("project_id", "project.id"),
+                ("run_id", "swarm.run.id"),
+            ):
+                value = getattr(request.state, state_name, None)
+                if value is not None:
+                    span.set_attribute(attribute, str(value))
+            span.set_attribute("http.response.status_code", response.status_code)
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+            )
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            return response
 
     @app.get("/health/live")
     async def live() -> dict[str, str]:
@@ -59,6 +107,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(PersistenceConflictError)
     async def conflict(request: Request, exc: PersistenceConflictError) -> JSONResponse:
+        return _problem(request, 409, "CONFLICT", str(exc))
+
+    @app.exception_handler(RunCommandConflictError)
+    async def command_conflict(request: Request, exc: RunCommandConflictError) -> JSONResponse:
         return _problem(request, 409, "CONFLICT", str(exc))
 
     @app.exception_handler(RunNotTerminalError)
@@ -102,6 +154,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return _problem(request, 409, "IDEMPOTENCY_KEY_REUSED", detail)
         return _problem(request, 422, "VALIDATION_ERROR", detail)
 
+    @app.exception_handler(PolicyError)
+    async def policy_error(request: Request, exc: PolicyError) -> JSONResponse:
+        return _problem(request, 503, "POLICY_UNAVAILABLE", str(exc))
+
+    @app.exception_handler(PolicyDenied)
+    async def policy_denied(request: Request, exc: PolicyDenied) -> JSONResponse:
+        return _problem(request, 403, "POLICY_DENIED", str(exc))
+
     return app
 
 
@@ -115,6 +175,7 @@ def _problem(request: Request, status: int, code: str, detail: str) -> JSONRespo
 
 
 def run() -> None:
+    configure_json_logging()
     settings = Settings()
     telemetry = configure_telemetry(
         "api", endpoint=settings.otlp_endpoint, enabled=settings.telemetry_enabled

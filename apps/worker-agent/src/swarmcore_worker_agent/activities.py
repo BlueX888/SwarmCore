@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Protocol
 
+from swarmcore_observability import SwarmMetrics, get_tracer
 from temporalio import activity
 
 from agno.models.base import Model
@@ -15,7 +17,8 @@ class StaticModelResolver:
     def __init__(self, models: dict[str, str]) -> None:
         self._models = models
 
-    def resolve(self, reference: str) -> Model | str:
+    def resolve(self, reference: str, context: dict[str, Any]) -> Model | str:
+        del context
         try:
             return self._models[reference]
         except KeyError as exc:
@@ -27,33 +30,75 @@ class AgentAdapter(Protocol):
 
 
 class AgentActivities:
-    def __init__(self, adapter: AgentAdapter) -> None:
+    def __init__(self, adapter: AgentAdapter, metrics: SwarmMetrics | None = None) -> None:
         self._adapter = adapter
+        self._metrics = metrics
 
     @activity.defn(name="execute_agent")
     async def execute_agent(self, request: dict[str, Any]) -> dict[str, Any]:
         node_key = str(request["node"]["key"])
         model_ref = request["agent"].get("model") or request.get("defaultModel")
+        run = request["run"]
+        info = activity.info()
+        started = time.monotonic()
+        if self._metrics is not None and info.attempt > 1:
+            self._metrics.activity_retries.add(1, {"category": "agent"})
         activity.heartbeat({"stage": "starting", "nodeKey": node_key})
         logger.info(
             "agent_execution_started %s",
             json.dumps({"nodeKey": node_key, "modelRef": model_ref}, sort_keys=True),
         )
-        try:
-            result = await self._adapter.execute(request)
-        except Exception as exc:
-            logger.exception(
-                "agent_execution_failed %s",
-                json.dumps(
-                    {
-                        "nodeKey": node_key,
-                        "modelRef": model_ref,
-                        "errorType": type(exc).__name__,
-                    },
-                    sort_keys=True,
-                ),
-            )
-            raise
+        with get_tracer("worker-agent").start_as_current_span(
+            "agent.invoke",
+            attributes={
+                "tenant.id": str(run["tenantId"]),
+                "project.id": str(run["projectId"]),
+                "swarm.run.id": str(run["runId"]),
+                "swarm.task.id": str(request["taskExecutionId"]),
+                "swarm.attempt.id": info.activity_id,
+                "swarm.strategy.version": str(run.get("strategyVersionId", "unknown")),
+                "agent.definition": str(request["node"]["config"].get("agent", "unknown")),
+                "model.logical_name": str(model_ref),
+                "retry.attempt": info.attempt,
+            },
+        ) as span:
+            try:
+                result = await self._adapter.execute(request)
+            except Exception as exc:
+                span.set_attribute("error.type", type(exc).__name__)
+                logger.exception(
+                    "agent_execution_failed %s",
+                    json.dumps(
+                        {
+                            "nodeKey": node_key,
+                            "modelRef": model_ref,
+                            "errorType": type(exc).__name__,
+                        },
+                        sort_keys=True,
+                    ),
+                )
+                raise
+            finally:
+                if self._metrics is not None:
+                    self._metrics.task_duration.record(
+                        time.monotonic() - started, {"node_type": "agent"}
+                    )
+            usage = result.get("metrics", {})
+            if isinstance(usage, dict):
+                input_tokens = usage.get("input_tokens", usage.get("inputTokens", 0))
+                output_tokens = usage.get("output_tokens", usage.get("outputTokens", 0))
+                cost_usd = usage.get("cost_usd", usage.get("costUsd", 0))
+                span.set_attribute(
+                    "token.input", int(input_tokens) if isinstance(input_tokens, int | float) else 0
+                )
+                span.set_attribute(
+                    "token.output",
+                    int(output_tokens) if isinstance(output_tokens, int | float) else 0,
+                )
+                span.set_attribute(
+                    "budget.cost_usd",
+                    float(cost_usd) if isinstance(cost_usd, int | float) else 0.0,
+                )
         activity.heartbeat({"stage": "completed", "nodeKey": node_key})
         logger.info(
             "agent_execution_completed %s",

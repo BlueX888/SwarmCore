@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from swarmcore_observability import configure_telemetry
+from swarmcore_governance import OpaPolicyEngine, RolePolicyEngine, VaultSecretProvider
+from swarmcore_observability import configure_json_logging, configure_telemetry
 from swarmcore_persistence import Database, PostgresEffectJournal
 from swarmcore_registry import builtin_registry
 from swarmcore_tool_gateway import CapabilityTokenIssuer, ToolGateway, builtin_executors
@@ -23,6 +24,13 @@ class Settings(BaseSettings):
     tool_capability_secret: str = "development-only-capability-secret-32-bytes"
     otlp_endpoint: str = "http://localhost:4317"
     telemetry_enabled: bool = True
+    vault_address: str = "http://localhost:8200"
+    vault_token: str = ""
+    vault_kubernetes_role: str = ""
+    vault_kubernetes_jwt_path: str = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    vault_kubernetes_auth_mount: str = "kubernetes"
+    policy_mode: str = "local"
+    opa_decision_url: str = "http://localhost:8181/v1/data/swarmcore/decision"
 
 
 async def serve() -> None:
@@ -41,12 +49,28 @@ async def serve() -> None:
         CapabilityTokenIssuer(settings.tool_capability_secret),
         PostgresEffectJournal(database.sessions),
         builtin_executors(),
+        secrets=(
+            VaultSecretProvider(
+                settings.vault_address,
+                settings.vault_token,
+                kubernetes_role=settings.vault_kubernetes_role,
+                kubernetes_jwt_path=settings.vault_kubernetes_jwt_path,
+                kubernetes_auth_mount=settings.vault_kubernetes_auth_mount,
+            )
+            if settings.vault_token or settings.vault_kubernetes_role
+            else None
+        ),
+        policy=(
+            OpaPolicyEngine(settings.opa_decision_url)
+            if settings.policy_mode == "opa"
+            else RolePolicyEngine()
+        ),
     )
     activities = ToolActivities(gateway)
     worker = Worker(
         temporal,
         task_queue="tool-trusted",
-        activities=[activities.execute_tool],
+        activities=[activities.execute_tool, activities.compensate_tool],
     )
     try:
         await worker.run()
@@ -56,4 +80,5 @@ async def serve() -> None:
 
 
 def run() -> None:
+    configure_json_logging()
     asyncio.run(serve())

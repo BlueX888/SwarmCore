@@ -61,6 +61,9 @@ class Budget(StrictModel):
     max_cost_usd: float = Field(default=25, alias="maxCostUsd", gt=0, le=25)
     max_agents: int = Field(default=32, alias="maxAgents", ge=1, le=32)
     max_parallelism: int = Field(default=8, alias="maxParallelism", ge=1, le=8)
+    on_exhausted: Literal[
+        "fail", "partial_result", "wait_for_budget_approval"
+    ] = Field(default="fail", alias="onExhausted")
 
     @field_validator("max_duration")
     @classmethod

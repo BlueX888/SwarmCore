@@ -49,6 +49,7 @@ REGISTRY = RegistrySnapshot.create(
             },
             idempotent=True,
             sideEffecting=False,
+            recoveryPolicy="idempotent",
         ),
     ),
 )
@@ -63,9 +64,7 @@ def compile_plan(nodes: dict[str, Any], *, input_schema: dict[str, Any]) -> dict
             "inputSchema": input_schema,
             "outputSchema": {"type": "object"},
             "defaults": {"model": "model://fake-deterministic"},
-            "agents": {
-                "worker": {"role": "worker", "instructions": "Produce one report."}
-            },
+            "agents": {"worker": {"role": "worker", "instructions": "Produce one report."}},
             "graph": {
                 "entrypoint": next(iter(nodes)),
                 "nodes": nodes,
@@ -157,6 +156,22 @@ PLANS = {
         },
         input_schema={"type": "object"},
     ),
+    "compensation": compile_plan(
+        {
+            "publish": {
+                "type": "tool",
+                "tool": "tool://publish-report",
+                "input": {"reports": {"summary": "durable side effect"}},
+            },
+            "hold": {
+                "type": "approval",
+                "dependsOn": ["publish"],
+                "prompt": "Keep the published report?",
+                "inputSchema": {"type": "object"},
+            },
+        },
+        input_schema={"type": "object"},
+    ),
 }
 
 
@@ -182,6 +197,9 @@ async def issue_tool_capability(request: dict[str, Any]) -> str:
         execution_id=str(request["executionId"]),
         effect_id=str(request["effectId"]) if request.get("effectId") else None,
         approved=bool(request["approved"]),
+        canonical_input_hash=request.get("canonicalInputHash"),
+        policy_revision=request.get("policyRevision"),
+        action=str(request.get("action", "tool.execute")),
     )
 
 
@@ -237,9 +255,7 @@ async def test_m3_tool_router_loop_acceptance(
         ],
     )
     async with control_worker:
-        agent_worker = Worker(
-            client, task_queue="agent-general", activities=[execute_agent]
-        )
+        agent_worker = Worker(client, task_queue="agent-general", activities=[execute_agent])
         tool_worker = Worker(
             client, task_queue="tool-trusted", activities=[tool_activities.execute_tool]
         )
@@ -293,6 +309,87 @@ async def test_m3_tool_router_loop_acceptance(
     assert router["result"]["items"][0]["title"] == "left"
     assert len(loop["result"]["iterations"]) == 2
     assert loop["result"]["last"]["content"]["done"] is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_compensates_completed_side_effect_in_real_temporal(
+    temporal_environment: TemporalTestEnvironment,
+) -> None:
+    compensated: list[str] = []
+
+    async def unpublish(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
+        del input_value
+        compensated.append(effect_id)
+        return {"compensatedEffectId": effect_id}
+
+    executors = {
+        **builtin_executors(),
+        "builtin.unpublish_report": unpublish,
+    }
+    gateway = ToolGateway(
+        REGISTRY,
+        ISSUER,
+        InMemoryEffectJournal(),
+        executors,
+    )
+    tool_activities = ToolActivities(gateway)
+    control_worker = Worker(
+        temporal_environment.client,
+        task_queue="swarm-control",
+        workflows=[SwarmRunWorkflow],
+        activities=[
+            load_execution_plan,
+            project_transition,
+            issue_tool_capability,
+            execute_control_node,
+        ],
+    )
+    tool_worker = Worker(
+        temporal_environment.client,
+        task_queue="tool-trusted",
+        activities=[tool_activities.execute_tool, tool_activities.compensate_tool],
+    )
+    async with control_worker, tool_worker:
+        handle = await temporal_environment.client.start_workflow(
+            SwarmRunWorkflow.run,
+            run_input("compensation"),
+            id=f"swarm:m4-compensation:{uuid4()}",
+            task_queue="swarm-control",
+        )
+        publish_request = await _wait_for_pending_request(handle, node_key="publish")
+        approved = await handle.execute_update(
+            "apply_command",
+            {
+                "commandSeq": 2,
+                "type": "approve",
+                "data": {"requestId": publish_request, "value": {}},
+            },
+            id=str(uuid4()),
+            result_type=dict[str, Any],
+        )
+        assert approved["status"] == "APPLIED"
+        await _wait_for_pending_request(handle, node_key="hold")
+        cancelled = await handle.execute_update(
+            "apply_command",
+            {"commandSeq": 3, "type": "cancel", "data": {}},
+            id=str(uuid4()),
+            result_type=dict[str, Any],
+        )
+        result = await handle.result()
+
+    assert cancelled == {"status": "APPLIED"}
+    assert result["status"] == "CANCELLED"
+    assert len(compensated) == 1
+
+
+async def _wait_for_pending_request(handle: Any, *, node_key: str) -> str:
+    for _ in range(200):
+        state = await handle.query("engine_state", result_type=dict[str, Any])
+        for request_id, request in state["humanRequests"].items():
+            if request["status"] == "PENDING" and request["nodeKey"] == node_key:
+                return str(request_id)
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"pending request was not created for {node_key}")
 
 
 def run_input(fixture: str, input_value: dict[str, Any] | None = None) -> dict[str, Any]:

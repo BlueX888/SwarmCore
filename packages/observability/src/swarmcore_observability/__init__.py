@@ -1,3 +1,19 @@
-from .telemetry import Telemetry, configure_telemetry, get_tracer
+from .telemetry import (
+    JsonRedactingFormatter,
+    SwarmMetrics,
+    Telemetry,
+    configure_json_logging,
+    configure_telemetry,
+    get_meter,
+    get_tracer,
+)
 
-__all__ = ["Telemetry", "configure_telemetry", "get_tracer"]
+__all__ = [
+    "JsonRedactingFormatter",
+    "SwarmMetrics",
+    "Telemetry",
+    "configure_json_logging",
+    "configure_telemetry",
+    "get_meter",
+    "get_tracer",
+]

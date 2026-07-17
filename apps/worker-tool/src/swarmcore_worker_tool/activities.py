@@ -3,7 +3,12 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
-from swarmcore_tool_gateway import EffectInProgress, ToolGateway, ToolInvocation
+from swarmcore_tool_gateway import (
+    CompensationInvocation,
+    EffectInProgress,
+    ToolGateway,
+    ToolInvocation,
+)
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -29,3 +34,14 @@ class ToolActivities:
                 type="TOOL_EFFECT_IN_PROGRESS",
                 next_retry_delay=timedelta(seconds=45),
             ) from exc
+
+    @activity.defn(name="compensate_tool")
+    async def compensate_tool(self, request: dict[str, Any]) -> dict[str, Any]:
+        activity.heartbeat({"stage": "compensating", "effectId": request["effectId"]})
+        return await self._gateway.compensate(
+            CompensationInvocation(
+                token=str(request["capabilityToken"]),
+                effectId=str(request["effectId"]),
+                input=dict(request.get("input", {})),
+            )
+        )

@@ -121,7 +121,7 @@ LLM Provider 自身延迟和外部工具延迟不计入控制面 API SLO，但�
 | Logs | Python logging + Alloy + Loki | 结构化日志 |
 | Web | React 19 + TypeScript + Vite | 测试与观测控制台 |
 | Router | React Router v7 Data Mode | 固定 v7 最新 minor |
-| Design System | shadcn/ui + Radix + Tailwind CSS v4 | 依赖 b-design-system-tailadmin-radix |
+| Design System | shadcn/ui + Radix + Tailwind CSS v4 | 项目级规范见 `docs/swarmcore-ui-guidelines.md` |
 | Graph | React Flow 12 | 策略编辑和运行拓扑 |
 | Server State | TanStack Query v5 | API 查询与 Mutation |
 | Client State | Zustand 5 | 画布、选择、草稿和偏好 |
@@ -392,6 +392,11 @@ M3 v1 的 Registry 是进程内不可变快照，Agent、Model、Tool 使用带�
 （例如 `tool://search@1`）；无版本别名只在编译期解析，ExecutionPlan 固定保存 snapshot ID、
 canonical 定义和价格版本。提交的 registrySnapshot 必须与编译器当前快照完全一致，不能只
 作为调用方自报的 provenance。
+
+控制台保存的智能体、工具和模型配置是 tenant/project 隔离的 `ProjectConfiguration` 实例，
+只引用上述 canonical ref 并保存可复用参数，不向不可变 Registry 回写。创建和删除配置均写入
+审计日志；更新保留配置 ID 并递增 revision。名称在同一项目和配置类型内唯一，数据库通过
+tenant + project RLS 强制隔离。
 
 Agent Worker 不加载 Provider Tool 或外部凭据，只把 Registry 声明转换为
 GatewayProxyTool。Proxy 携带绑定 tenant、project、run、node、tool、execution 和过期时间的
@@ -1061,6 +1066,10 @@ Run：
 - run.pausing
 - run.compensating
 
+初始生命周期事件必须携带可诊断且不包含 Run 输入内容的元数据：`run.validating`
+记录计划哈希、策略版本、计划/策略/注册表版本；`run.queued` 记录 Temporal Task Queue、
+入口节点、节点数和最大并行度；`run.started` 记录 Runtime 版本、节点数和最大并行度。
+
 Command：
 
 - command.accepted
@@ -1221,6 +1230,9 @@ GET /runs/{run_id} 必须返回 snapshotSeq。控制 POST 统一返回 202 Comma
 | PATCH/DELETE | /webhooks/{webhook_id} | swarm.webhook.admin | 轮换、禁用或删除 Endpoint |
 | GET | /projects/{project_id}/policy | swarm.policy.read | 当前 Bundle Revision、能力和 emergency deny |
 | GET | /projects/{project_id}/capabilities | swarm.project.read | Agent、Tool、Model、节点类型和调用方可用能力清单 |
+| GET/POST | /projects/{project_id}/configurations/{agent\|tool\|model} | swarm.strategy.read/write | 查询或保存项目级可复用配置；来源必须存在于当前 Registry 快照 |
+| PUT | /projects/{project_id}/configurations/{agent\|tool\|model}/{configuration_id} | swarm.strategy.write | 更新项目级配置、递增 revision 并记录审计事件 |
+| DELETE | /projects/{project_id}/configurations/{agent\|tool\|model}/{configuration_id} | swarm.strategy.write | 删除项目级配置并记录审计事件 |
 
 RunSnapshot 至少包含 run、snapshotSeq、earliestAvailableSeq、projectionUpdatedAt、stale、taskCounts、usage、pendingWaits、allowedActions 和链接。allowedActions 由当前身份 + OPA + Run 状态计算，前端不自行推导权限。列表页 v1 使用 5 s 可见/30 s 后台轮询，不为每行创建 SSE；只有 Run Detail 建立 per-Run stream。
 
@@ -1382,29 +1394,22 @@ MCP Server 是面向 DeepTalk 等智能体调用方的可选入站适配器，�
 
 Tools：
 
-- swarm_get_capabilities
-- swarm_validate_strategy
-- swarm_compile_strategy
-- swarm_create_run
-- swarm_get_run
-- swarm_get_run_result
-- swarm_list_run_tasks
-- swarm_pause_run
-- swarm_resume_run
-- swarm_cancel_run
-- swarm_resolve_approval
-- swarm_retry_run
+- swarm.capabilities.get
+- swarm.strategy.validate
+- swarm.strategy.compile
+- swarm.run.create
+- swarm.run.status
+- swarm.run.result
+- swarm.run.control
 
 | Tool 组 | 必填输入 | outputSchema |
 |---|---|---|
-| get_capabilities | projectId | CapabilityCatalog |
-| validate/compile | projectId、spec、specSchemaVersion | ValidationResult / CompileResult |
-| create_run | projectId、strategyVersionId 或 inlineStrategy、input、idempotencyKey | RunHandle |
-| get_run/list_tasks | runId、可选 cursor/limit | RunSnapshot / TaskPage |
-| get_run_result | runId | RunResult；非终态返回 RUN_NOT_TERMINAL |
-| pause/resume/cancel | runId、expectedVersion、idempotencyKey | CommandHandle |
-| resolve_approval | approvalId、decision、approvalVersion、idempotencyKey | CommandHandle |
-| retry_run | runId、可选 retryFromTaskId、idempotencyKey | RunHandle |
+| capabilities.get | projectId | CapabilityCatalog |
+| strategy.validate/compile | projectId、spec | ValidationResult / CompileResult |
+| run.create | projectId、strategyVersionId 或 spec、input、idempotencyKey | RunHandle |
+| run.status | projectId、runId | RunSnapshot |
+| run.result | projectId、runId | RunResult；非终态返回 RUN_NOT_TERMINAL |
+| run.control | projectId、runId、action、data、idempotencyKey | CommandHandle |
 
 Resources：
 
@@ -1416,7 +1421,7 @@ Resources：
 
 MCP 创建任务默认异步返回 RunHandle。同步等待参数 wait_seconds 最大 30 秒，超时后仍返回 RunHandle，不取消 Run。
 
-每个 Tool 使用 JSON Schema 2020-12 inputSchema/outputSchema，并返回 structuredContent。所有变更型 Tool 的输入必须显式包含 projectId 和 idempotencyKey，不能依赖 MCP Host 能否透传 HTTP Header。鉴权 Scope 与 REST 一一对应，例如 swarm.run.create、swarm.run.control、swarm.approval.resolve；Tool 错误使用 isError=true，并在 structuredContent 中返回与 REST 相同的稳定 code、detail 和 traceId。
+每个 Tool 使用 JSON Schema 2020-12 inputSchema/outputSchema，并返回 structuredContent。所有变更型 Tool 的输入必须显式包含 projectId 和 idempotencyKey，不能依赖 MCP Host 能否透传 HTTP Header。`swarm.run.control` 与 REST Command API 统一调用 `RunCommandService`，相同租户、Run、action 和 idempotencyKey 必须返回同一 CommandHandle。Tool 错误使用 isError=true，并在 structuredContent 中返回与 REST 相同的稳定 code、detail 和 traceId。
 
 Resource 只返回调用方可见且已脱敏的快照/分页内容，不把 NATS 或数据库连接暴露给 Host。MCP Session 不是 Run 生命周期；Session 结束不取消已创建 Run。
 
@@ -1748,9 +1753,9 @@ Prompt、模型输出和 Tool 参数默认不作为普通 Attribute；需要采�
 | /t/:tenantId/p/:projectId/runs | Master-Detail Ops | 实时 Run 列表和摘要 |
 | /t/:tenantId/p/:projectId/runs/:runId | Detail Page | 拓扑、时间线、日志、消息、Artifact、成本 |
 | /t/:tenantId/p/:projectId/approvals | Master-Detail Ops | 待审批列表和风险详情 |
-| /t/:tenantId/p/:projectId/agents | Table List | Agent Registry |
-| /t/:tenantId/p/:projectId/tools | Table List | Tool/MCP Registry |
-| /t/:tenantId/p/:projectId/models | Table List | 模型逻辑名和 Provider |
+| /t/:tenantId/p/:projectId/agents | Master-Detail Config | 浏览、创建和修改项目级智能体节点声明 |
+| /t/:tenantId/p/:projectId/tools | Master-Detail Config | 浏览、创建和修改项目级工具节点参数 |
+| /t/:tenantId/p/:projectId/models | Master-Detail Config | 浏览、创建和修改项目级逻辑模型引用 |
 | /t/:tenantId/p/:projectId/artifacts | Table List | Artifact 查询和保留 |
 | /t/:tenantId/p/:projectId/audit | Table List | 审计日志 |
 | /t/:tenantId/p/:projectId/settings/* | Hub Tabs | 项目、预算、Webhook、Policy |
@@ -1868,7 +1873,7 @@ Agent Message、Tool 输出和 Markdown 均是不可信内容：禁止 raw HTML�
 - 所有视觉变体使用 cva，类名组合只使用 cn()；禁止 Base UI 和手写 Modal/Popover/Dropdown。
 - 截图矩阵必须检查大面积空白、内容列过窄、裁切、重叠、framing 和对比度，而不仅是像素 Diff。
 - 专测 SSE reconnect/backpressure/gap/410、partial/retry/stale、Command pending/rejected、Draft conflict/merge/offline。
-- 新组件同步 .agent/skills/b-design-system-tailadmin-radix 的 component-index 和可运行 examples。
+- 新组件同步 `docs/swarmcore-ui-guidelines.md`、组件实现和相邻测试。
 - CI 执行 tsc --noEmit、ESLint、Vitest、Playwright、设计系统校验脚本，以及硬编码颜色和手写浮层静态扫描。
 
 ## 20. 部署设计
@@ -2229,4 +2234,4 @@ v1 发布前必须全部满足：
 - OpenTelemetry Python：https://opentelemetry.io/docs/languages/python/
 - Arize Phoenix：https://arize.com/docs/phoenix
 - React Flow：https://reactflow.dev/
-- 本地设计系统：../.agent/skills/b-design-system-tailadmin-radix/SKILL.md
+- SwarmCore UI 规范：swarmcore-ui-guidelines.md

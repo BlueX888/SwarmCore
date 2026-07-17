@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 import asyncio
-import logging
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from swarmcore_adapter_agno import AgnoAdapter
-from swarmcore_observability import configure_telemetry
+from swarmcore_governance import ModelCapabilityIssuer, WorkloadTls
+from swarmcore_observability import SwarmMetrics, configure_json_logging, configure_telemetry
 from swarmcore_registry import builtin_registry
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
 
-from .activities import AgentActivities, StaticModelResolver
+from .activities import AgentActivities
 from .fake import DeterministicFakeAgentAdapter
 from .gateway_proxy import HttpGatewayProxyFactory
+from .model_gateway import GatewayModelResolver
 
 
 class Settings(BaseSettings):
@@ -29,10 +31,36 @@ class Settings(BaseSettings):
     telemetry_enabled: bool = True
     use_fake_agent: bool = False
     tool_gateway_url: str = "http://localhost:8090"
+    model_gateway_url: str = "http://localhost:8093"
+    model_capability_secret: str = "development-model-capability-secret-32-bytes"
+    deployment_mode: Literal["local", "production"] = "local"
+    workload_tls_ca_file: str = ""
+    workload_tls_cert_file: str = ""
+    workload_tls_key_file: str = ""
+
+    def workload_tls(self) -> WorkloadTls:
+        return WorkloadTls(
+            self.workload_tls_ca_file,
+            self.workload_tls_cert_file,
+            self.workload_tls_key_file,
+        )
+
+    @model_validator(mode="after")
+    def validate_production_boundary(self) -> Settings:
+        self.workload_tls().validate(required=self.deployment_mode == "production")
+        if self.deployment_mode == "production":
+            if self.model_capability_secret.startswith("development-"):
+                raise ValueError("production Agent Worker requires a managed capability secret")
+            if not self.tool_gateway_url.startswith("https://"):
+                raise ValueError("production Agent Worker requires HTTPS Tool Gateway")
+            if not self.model_gateway_url.startswith("https://"):
+                raise ValueError("production Agent Worker requires HTTPS Model Gateway")
+        return self
 
 
 async def serve() -> None:
     settings = Settings()
+    workload_tls = settings.workload_tls()
     telemetry = configure_telemetry(
         "worker-agent", endpoint=settings.otlp_endpoint, enabled=settings.telemetry_enabled
     )
@@ -45,11 +73,20 @@ async def serve() -> None:
         DeterministicFakeAgentAdapter()
         if settings.use_fake_agent
         else AgnoAdapter(
-            StaticModelResolver(settings.models),
-            HttpGatewayProxyFactory(settings.tool_gateway_url, builtin_registry()),
+            GatewayModelResolver(
+                settings.model_gateway_url,
+                ModelCapabilityIssuer(settings.model_capability_secret.encode()),
+                frozenset(settings.models),
+                workload_tls,
+            ),
+            HttpGatewayProxyFactory(
+                settings.tool_gateway_url,
+                builtin_registry(),
+                workload_tls=workload_tls,
+            ),
         )
     )
-    activities = AgentActivities(adapter)
+    activities = AgentActivities(adapter, SwarmMetrics.create("worker-agent"))
     worker = Worker(
         temporal,
         task_queue="agent-general",
@@ -62,8 +99,5 @@ async def serve() -> None:
 
 
 def run() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_json_logging()
     asyncio.run(serve())

@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -11,7 +12,8 @@ from agno.run.agent import RunOutput
 
 
 class Resolver:
-    def resolve(self, reference: str) -> str:
+    def resolve(self, reference: str, context: Mapping[str, Any]) -> str:
+        del context
         assert reference == "model://general"
         return "openai:gpt-4o-mini"
 

@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import secrets
 from collections.abc import AsyncIterator
-from typing import Annotated, Any
-from uuid import NAMESPACE_URL, UUID, uuid5
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Annotated, Any, Literal, cast
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request as UrlRequest
+from urllib.request import urlopen
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
@@ -14,7 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from swarmcore_application import (
     CapabilityCatalog,
     CapabilityCatalogService,
+    CommandHandle,
     CompilationService,
+    ConfigurationKind,
+    ProjectConfigurationService,
+    RunCommandService,
     RunQueryService,
     RunResult,
     RunResultService,
@@ -22,33 +34,57 @@ from swarmcore_application import (
     StrategyService,
     render_run_snapshot,
 )
-from swarmcore_persistence import tenant_transaction
+from swarmcore_governance import (
+    ArtifactCapabilityIssuer,
+    WorkloadTls,
+    validate_secret_ref,
+    validate_webhook_target,
+)
+from swarmcore_persistence import AuditRepository, tenant_transaction
 from swarmcore_persistence.models import (
     ApprovalRequest,
+    Artifact,
+    ArtifactDownloadGrant,
+    AuditLog,
     ExternalInputRequest,
+    ProjectConfiguration,
     Run,
-    RunCommand,
     RunEvent,
     RunTask,
     Strategy,
     StrategyDraft,
     StrategyVersion,
+    WebhookEndpoint,
 )
 
-from .dependencies import RequestScope, db_session, request_scope, require_idempotency_key
+from .dependencies import (
+    RequestScope,
+    authorize_rest,
+    db_session,
+    request_scope,
+    require_idempotency_key,
+)
 from .schemas import (
     ApprovalListResponse,
     ApprovalSnapshot,
-    CommandHandle,
+    ArtifactDownloadGrantResponse,
+    ArtifactListResponse,
+    ArtifactSnapshot,
+    AuditListResponse,
+    AuditSnapshot,
     CompileRequest,
     CompileResponse,
+    CreateProjectConfigurationRequest,
     CreateRunRequest,
     CreateStrategyRequest,
+    CreateWebhookRequest,
     DraftSnapshot,
     EditorState,
     ExternalInputListResponse,
     ExternalInputSnapshot,
     HumanResponseRequest,
+    ProjectConfigurationListResponse,
+    ProjectConfigurationSnapshot,
     PublishRequest,
     RunHandle,
     RunListResponse,
@@ -62,14 +98,18 @@ from .schemas import (
     StrategyVersionListResponse,
     StrategyVersionSummary,
     UpdateDraftRequest,
+    WebhookListResponse,
+    WebhookSnapshot,
 )
 
-router = APIRouter(prefix="/v1")
+router = APIRouter(prefix="/v1", dependencies=[Depends(authorize_rest)])
 strategies = StrategyService()
 runs = RunService()
+commands = RunCommandService()
 run_queries = RunQueryService()
 run_results = RunResultService()
 capabilities = CapabilityCatalogService()
+project_configurations = ProjectConfigurationService()
 compilation = CompilationService(strategies)
 
 Scope = Annotated[RequestScope, Depends(request_scope)]
@@ -80,6 +120,101 @@ Session = Annotated[AsyncSession, Depends(db_session)]
 async def get_capabilities(scope: Scope) -> CapabilityCatalog:
     del scope
     return capabilities.get()
+
+
+@router.get(
+    "/projects/{project_id}/configurations/{configuration_kind}",
+    response_model=ProjectConfigurationListResponse,
+)
+async def list_project_configurations(
+    configuration_kind: ConfigurationKind,
+    scope: Scope,
+    session: Session,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> ProjectConfigurationListResponse:
+    items, total = await project_configurations.list(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        kind=configuration_kind,
+        limit=limit,
+        offset=offset,
+    )
+    return ProjectConfigurationListResponse(
+        items=[_project_configuration_snapshot(item) for item in items],
+        total=total,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/configurations/{configuration_kind}",
+    response_model=ProjectConfigurationSnapshot,
+    status_code=201,
+)
+async def create_project_configuration(
+    configuration_kind: ConfigurationKind,
+    body: CreateProjectConfigurationRequest,
+    scope: Scope,
+    session: Session,
+) -> ProjectConfigurationSnapshot:
+    saved = await project_configurations.create(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        kind=configuration_kind,
+        name=body.name,
+        source_ref=body.source_ref,
+        configuration=body.configuration,
+        actor=scope.actor_id,
+    )
+    return _project_configuration_snapshot(saved)
+
+
+@router.put(
+    "/projects/{project_id}/configurations/{configuration_kind}/{configuration_id}",
+    response_model=ProjectConfigurationSnapshot,
+)
+async def update_project_configuration(
+    configuration_kind: ConfigurationKind,
+    configuration_id: UUID,
+    body: CreateProjectConfigurationRequest,
+    scope: Scope,
+    session: Session,
+) -> ProjectConfigurationSnapshot:
+    saved = await project_configurations.update(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        kind=configuration_kind,
+        configuration_id=configuration_id,
+        name=body.name,
+        source_ref=body.source_ref,
+        configuration=body.configuration,
+        actor=scope.actor_id,
+    )
+    return _project_configuration_snapshot(saved)
+
+
+@router.delete(
+    "/projects/{project_id}/configurations/{configuration_kind}/{configuration_id}",
+    status_code=204,
+)
+async def delete_project_configuration(
+    configuration_kind: ConfigurationKind,
+    configuration_id: UUID,
+    scope: Scope,
+    session: Session,
+) -> Response:
+    await project_configurations.delete(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        kind=configuration_kind,
+        configuration_id=configuration_id,
+        actor=scope.actor_id,
+    )
+    return Response(status_code=204)
 
 
 @router.post(
@@ -109,7 +244,6 @@ async def create_strategy(
     body: CreateStrategyRequest,
     scope: Scope,
     session: Session,
-    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
 ) -> StrategyHandle:
     strategy, draft = await strategies.create_draft(
         session,
@@ -118,7 +252,7 @@ async def create_strategy(
         name=body.name,
         raw_spec=body.spec,
         editor_state=body.editor_state.model_dump(mode="json"),
-        actor=actor,
+        actor=scope.actor_id,
     )
     return StrategyHandle(strategyId=strategy.id, draftId=draft.id, revision=draft.revision)
 
@@ -140,7 +274,9 @@ async def list_strategies(
     items = list(await session.scalars(query))
     summaries = [await _strategy_summary(session, item) for item in items]
     total = await session.scalar(
-        select(func.count()).select_from(Strategy).where(
+        select(func.count())
+        .select_from(Strategy)
+        .where(
             Strategy.tenant_id == scope.tenant_id,
             Strategy.project_id == scope.project_id,
         )
@@ -240,7 +376,6 @@ async def update_strategy_draft(
     session: Session,
     response: Response,
     if_match: Annotated[str, Header(alias="If-Match")],
-    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
 ) -> DraftSnapshot:
     try:
         expected_revision = int(if_match.strip('W/"'))
@@ -258,7 +393,7 @@ async def update_strategy_draft(
         editor_state=(
             body.editor_state.model_dump(mode="json") if body.editor_state is not None else None
         ),
-        actor=actor,
+        actor=scope.actor_id,
     )
     response.headers["ETag"] = f'"{draft.revision}"'
     return _draft_snapshot(draft)
@@ -281,6 +416,7 @@ async def publish_strategy(
         draft_id=body.draft_id,
         registry_snapshot=body.registry_snapshot,
         policy_revision=body.policy_revision,
+        actor=scope.actor_id,
     )
     return StrategyVersionHandle(
         strategyId=strategy_id,
@@ -305,6 +441,9 @@ async def create_run(
             raw_spec=body.spec,
             input_data=body.input,
             idempotency_key=idempotency_key,
+            initiated_by=scope.actor_id,
+            submitted_scopes=scope.scopes,
+            auth_context_hash=scope.auth_context_hash,
         )
     else:
         assert body.strategy_version_id is not None
@@ -315,6 +454,9 @@ async def create_run(
             strategy_version_id=body.strategy_version_id,
             input_data=body.input,
             idempotency_key=idempotency_key,
+            initiated_by=scope.actor_id,
+            submitted_scopes=scope.scopes,
+            auth_context_hash=scope.auth_context_hash,
         )
     return RunHandle(
         runId=run.id,
@@ -366,7 +508,9 @@ async def list_runs(
     items = list(await session.scalars(query))
     total = (
         await session.scalar(
-            select(func.count()).select_from(Run).where(
+            select(func.count())
+            .select_from(Run)
+            .where(
                 Run.tenant_id == scope.tenant_id,
                 Run.project_id == scope.project_id,
             )
@@ -394,13 +538,9 @@ async def cancel_run(
     scope: Scope,
     session: Session,
     idempotency_key: Annotated[str, Depends(require_idempotency_key)],
-    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
 ) -> CommandHandle:
-    run = await _get_scoped_run(session, scope, run_id)
-    if run.status in _TERMINAL_RUN_STATUSES:
-        raise HTTPException(status_code=409, detail="run is already terminal")
     return await _append_command(
-        session, scope, run_id, "cancel", idempotency_key, {}, actor=actor
+        session, scope, run_id, "cancel", idempotency_key, {}, actor=scope.actor_id
     )
 
 
@@ -414,13 +554,9 @@ async def pause_run(
     scope: Scope,
     session: Session,
     idempotency_key: Annotated[str, Depends(require_idempotency_key)],
-    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
 ) -> CommandHandle:
-    run = await _get_scoped_run(session, scope, run_id)
-    if run.status not in {"QUEUED", "RUNNING", "WAITING_APPROVAL", "WAITING_INPUT"}:
-        raise HTTPException(status_code=409, detail=f"run cannot be paused from {run.status}")
     return await _append_command(
-        session, scope, run_id, "pause", idempotency_key, {}, actor=actor
+        session, scope, run_id, "pause", idempotency_key, {}, actor=scope.actor_id
     )
 
 
@@ -434,13 +570,9 @@ async def resume_run(
     scope: Scope,
     session: Session,
     idempotency_key: Annotated[str, Depends(require_idempotency_key)],
-    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
 ) -> CommandHandle:
-    run = await _get_scoped_run(session, scope, run_id)
-    if run.status not in {"PAUSING", "PAUSED"}:
-        raise HTTPException(status_code=409, detail=f"run cannot be resumed from {run.status}")
     return await _append_command(
-        session, scope, run_id, "resume", idempotency_key, {}, actor=actor
+        session, scope, run_id, "resume", idempotency_key, {}, actor=scope.actor_id
     )
 
 
@@ -474,13 +606,12 @@ async def approve(
     scope: Scope,
     session: Session,
     idempotency_key: Annotated[str, Depends(require_idempotency_key)],
-    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
 ) -> CommandHandle:
     request = await _get_approval(session, scope, approval_id)
     Draft202012Validator(request.input_schema).validate(body.value)
     _reject_secret_material(body.value)
     return await _handle_approval(
-        session, scope, request, "approve", idempotency_key, body.value, actor
+        session, scope, request, "approve", idempotency_key, body.value, scope.actor_id
     )
 
 
@@ -495,11 +626,10 @@ async def reject(
     scope: Scope,
     session: Session,
     idempotency_key: Annotated[str, Depends(require_idempotency_key)],
-    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
 ) -> CommandHandle:
     request = await _get_approval(session, scope, approval_id)
     return await _handle_approval(
-        session, scope, request, "reject", idempotency_key, body.value, actor
+        session, scope, request, "reject", idempotency_key, body.value, scope.actor_id
     )
 
 
@@ -533,7 +663,6 @@ async def provide_input(
     scope: Scope,
     session: Session,
     idempotency_key: Annotated[str, Depends(require_idempotency_key)],
-    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
 ) -> CommandHandle:
     request = await _get_input(session, scope, input_request_id)
     if request.status != "PENDING":
@@ -550,14 +679,14 @@ async def provide_input(
             "requestId": str(request.id),
             "nodeKey": request.node_key,
             "value": body.value,
-            "actor": actor,
+            "actor": scope.actor_id,
         },
-        actor=actor,
+        actor=scope.actor_id,
     )
     if request.handler_command_id not in {None, handle.command_id}:
         raise HTTPException(status_code=409, detail="input request already has a pending command")
     request.handler_command_id = handle.command_id
-    request.handled_by = actor
+    request.handled_by = scope.actor_id
     return handle
 
 
@@ -572,7 +701,6 @@ async def retry_task(
     scope: Scope,
     session: Session,
     idempotency_key: Annotated[str, Depends(require_idempotency_key)],
-    actor: Annotated[str, Header(alias="X-Actor-ID")] = "local-user",
 ) -> CommandHandle:
     run = await _get_scoped_run(session, scope, run_id)
     task = await session.scalar(
@@ -593,7 +721,7 @@ async def retry_task(
         "retry_task",
         idempotency_key,
         {"taskId": str(task.id), "nodeKey": task.node_key, "generation": task.retry_generation + 1},
-        actor=actor,
+        actor=scope.actor_id,
     )
     task.last_retry_command_id = handle.command_id
     return handle
@@ -601,27 +729,11 @@ async def retry_task(
 
 @router.get("/projects/{project_id}/commands/{command_id}", response_model=CommandHandle)
 async def get_command(command_id: UUID, scope: Scope, session: Session) -> CommandHandle:
-    command = await session.scalar(
-        select(RunCommand)
-        .join(Run, Run.id == RunCommand.run_id)
-        .where(
-            RunCommand.id == command_id,
-            RunCommand.tenant_id == scope.tenant_id,
-            Run.project_id == scope.project_id,
-        )
-    )
-    if command is None:
-        raise HTTPException(status_code=404, detail="command not found")
-    return CommandHandle(
-        commandId=command.id,
-        requestId=command.request_id,
-        commandSeq=command.command_seq,
-        status=command.status,
-        result=command.result,
-        error=command.error,
-        createdAt=command.created_at,
-        appliedAt=command.applied_at,
-        rejectedAt=command.rejected_at,
+    return await commands.get(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        command_id=command_id,
     )
 
 
@@ -670,34 +782,312 @@ async def stream_events(
 
     async def generate() -> AsyncIterator[str]:
         current = cursor
-        while not await request.is_disconnected():
-            async with tenant_transaction(
-                database.sessions,
-                tenant_id=scope.tenant_id,
-                project_id=scope.project_id,
-            ) as event_session:
-                upper_bound = high_water if current < high_water else None
-                query = select(RunEvent).where(
-                    RunEvent.run_id == run_id,
-                    RunEvent.event_seq > current,
-                )
-                if upper_bound is not None:
-                    query = query.where(RunEvent.event_seq <= upper_bound)
-                items = list(
-                    await event_session.scalars(query.order_by(RunEvent.event_seq).limit(100))
-                )
-            if items:
-                for item in items:
-                    current = item.event_seq
-                    yield format_sse(item)
-                continue
-            yield ": heartbeat\n\n"
-            await asyncio.sleep(poll_interval)
+        metrics = request.app.state.metrics
+        metrics.sse_connections.add(1)
+        try:
+            while not await request.is_disconnected():
+                async with tenant_transaction(
+                    database.sessions,
+                    tenant_id=scope.tenant_id,
+                    project_id=scope.project_id,
+                ) as event_session:
+                    upper_bound = high_water if current < high_water else None
+                    query = select(RunEvent).where(
+                        RunEvent.run_id == run_id,
+                        RunEvent.event_seq > current,
+                    )
+                    if upper_bound is not None:
+                        query = query.where(RunEvent.event_seq <= upper_bound)
+                    items = list(
+                        await event_session.scalars(query.order_by(RunEvent.event_seq).limit(100))
+                    )
+                if items:
+                    for item in items:
+                        current = item.event_seq
+                        metrics.projection_lag.record(
+                            max(0.0, (datetime.now(UTC) - item.occurred_at).total_seconds())
+                        )
+                        yield format_sse(item)
+                    continue
+                yield ": heartbeat\n\n"
+                await asyncio.sleep(poll_interval)
+        finally:
+            metrics.sse_connections.add(-1)
 
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get(
+    "/projects/{project_id}/runs/{run_id}/artifacts",
+    response_model=ArtifactListResponse,
+)
+async def list_artifacts(run_id: UUID, scope: Scope, session: Session) -> ArtifactListResponse:
+    await _get_scoped_run(session, scope, run_id)
+    artifacts = list(
+        await session.scalars(
+            select(Artifact).where(
+                Artifact.tenant_id == scope.tenant_id,
+                Artifact.project_id == scope.project_id,
+                Artifact.run_id == run_id,
+            )
+        )
+    )
+    return ArtifactListResponse(
+        items=[_artifact_snapshot(item) for item in artifacts], total=len(artifacts)
+    )
+
+
+@router.post(
+    "/projects/{project_id}/artifacts/{artifact_id}:download",
+    response_model=ArtifactDownloadGrantResponse,
+)
+async def issue_artifact_download(
+    artifact_id: UUID,
+    scope: Scope,
+    session: Session,
+) -> ArtifactDownloadGrantResponse:
+    artifact = await session.scalar(
+        select(Artifact).where(
+            Artifact.id == artifact_id,
+            Artifact.tenant_id == scope.tenant_id,
+            Artifact.project_id == scope.project_id,
+        )
+    )
+    if artifact is None or artifact.status != "AVAILABLE":
+        raise HTTPException(status_code=404, detail="artifact not found")
+    if artifact.retention_until is not None and artifact.retention_until <= datetime.now(UTC):
+        raise HTTPException(status_code=410, detail="artifact retention period expired")
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(UTC) + timedelta(minutes=5)
+    grant = ArtifactDownloadGrant(
+        tenant_id=scope.tenant_id,
+        artifact_id=artifact.id,
+        token_hash=hashlib.sha256(token.encode()).hexdigest(),
+        issued_to=scope.actor_id,
+        expires_at=expires_at,
+    )
+    session.add(grant)
+    await AuditRepository().append(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        actor_id=scope.actor_id,
+        action="artifact.download.issue",
+        resource_type="artifact",
+        resource_id=str(artifact.id),
+        run_id=artifact.run_id,
+    )
+    return ArtifactDownloadGrantResponse(
+        artifactId=artifact.id,
+        downloadRef=(
+            f"/v1/projects/{scope.project_id}/artifacts/{artifact.id}/content?grant={token}"
+        ),
+        expiresAt=expires_at,
+    )
+
+
+@router.get("/projects/{project_id}/artifacts/{artifact_id}/content")
+async def download_artifact(
+    artifact_id: UUID,
+    grant: str,
+    request: Request,
+    scope: Scope,
+    session: Session,
+) -> Response:
+    token_hash = hashlib.sha256(grant.encode()).hexdigest()
+    download_grant = await session.scalar(
+        select(ArtifactDownloadGrant)
+        .where(
+            ArtifactDownloadGrant.tenant_id == scope.tenant_id,
+            ArtifactDownloadGrant.artifact_id == artifact_id,
+            ArtifactDownloadGrant.token_hash == token_hash,
+        )
+        .with_for_update()
+    )
+    now = datetime.now(UTC)
+    if (
+        download_grant is None
+        or download_grant.consumed_at is not None
+        or download_grant.expires_at <= now
+        or download_grant.issued_to != scope.actor_id
+    ):
+        raise HTTPException(status_code=410, detail="artifact download grant is invalid")
+    artifact = await session.scalar(
+        select(Artifact).where(
+            Artifact.id == artifact_id,
+            Artifact.tenant_id == scope.tenant_id,
+            Artifact.project_id == scope.project_id,
+            Artifact.status == "AVAILABLE",
+        )
+    )
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    if artifact.retention_until is not None and artifact.retention_until <= now:
+        raise HTTPException(status_code=410, detail="artifact retention period expired")
+    settings = request.app.state.settings
+    if settings.artifact_gateway_url:
+        capability = ArtifactCapabilityIssuer(settings.artifact_capability_secret.encode()).issue(
+            action="artifact.read",
+            tenant_id=str(scope.tenant_id),
+            project_id=str(scope.project_id),
+            run_id=str(artifact.run_id),
+            subject_id=scope.actor_id,
+            artifact_id=str(artifact.id),
+        )
+        content = await asyncio.to_thread(
+            _read_from_artifact_gateway,
+            settings.artifact_gateway_url,
+            artifact.id,
+            capability,
+            settings.workload_tls(),
+        )
+    else:
+        root = Path(settings.artifact_root).resolve()
+        target = (root / artifact.object_key).resolve()
+        if not target.is_relative_to(root):
+            raise HTTPException(status_code=500, detail="artifact object key is invalid")
+        try:
+            content = await asyncio.to_thread(target.read_bytes)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="artifact bytes not found") from exc
+    if hashlib.sha256(content).hexdigest() != artifact.sha256:
+        raise HTTPException(status_code=500, detail="artifact integrity check failed")
+    download_grant.consumed_at = now
+    await AuditRepository().append(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        actor_id=scope.actor_id,
+        action="artifact.read",
+        resource_type="artifact",
+        resource_id=str(artifact.id),
+        run_id=artifact.run_id,
+    )
+    return Response(
+        content=content,
+        media_type=artifact.media_type,
+        headers={"Content-Disposition": f'attachment; filename="{artifact.filename}"'},
+    )
+
+
+def _read_from_artifact_gateway(
+    gateway_url: str,
+    artifact_id: UUID,
+    capability_token: str,
+    workload_tls: WorkloadTls,
+) -> bytes:
+    query = urlencode({"capability_token": capability_token})
+    request = UrlRequest(
+        f"{gateway_url.rstrip('/')}/internal/v1/artifacts/{artifact_id}:read?{query}",
+        data=b"",
+        method="POST",
+    )
+    try:
+        options: dict[str, Any] = {"timeout": 30}
+        context = workload_tls.client_context()
+        if context is not None:
+            options["context"] = context
+        with urlopen(request, **options) as response:
+            return cast(bytes, response.read(100 * 1024 * 1024 + 1))
+    except HTTPError as exc:
+        raise HTTPException(status_code=exc.code, detail="Artifact Gateway rejected read") from exc
+    except (URLError, TimeoutError) as exc:
+        raise HTTPException(status_code=503, detail="Artifact Gateway unavailable") from exc
+
+
+@router.get("/projects/{project_id}/audit-logs", response_model=AuditListResponse)
+async def list_audit_logs(
+    scope: Scope,
+    session: Session,
+    run_id: Annotated[UUID | None, Query(alias="runId")] = None,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+) -> AuditListResponse:
+    items = list(
+        await session.scalars(
+            AuditRepository.query(
+                tenant_id=scope.tenant_id,
+                project_id=scope.project_id,
+                run_id=run_id,
+            ).limit(limit)
+        )
+    )
+    return AuditListResponse(items=[_audit_snapshot(item) for item in items], total=len(items))
+
+
+@router.post("/projects/{project_id}/audit-logs:export")
+async def export_audit_logs(scope: Scope, session: Session) -> Response:
+    items = list(
+        await session.scalars(
+            AuditRepository.query(tenant_id=scope.tenant_id, project_id=scope.project_id)
+        )
+    )
+    content = "\n".join(
+        json.dumps(
+            _audit_snapshot(item).model_dump(mode="json", by_alias=True),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        for item in items
+    )
+    return Response(
+        content=content + ("\n" if content else ""),
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": "attachment; filename=audit.ndjson"},
+    )
+
+
+@router.post(
+    "/projects/{project_id}/webhooks",
+    response_model=WebhookSnapshot,
+    status_code=201,
+)
+async def create_webhook(
+    body: CreateWebhookRequest,
+    request: Request,
+    scope: Scope,
+    session: Session,
+) -> WebhookSnapshot:
+    validate_secret_ref(body.secret_ref)
+    validate_webhook_target(body.url, request.app.state.settings.webhook_allowed_hosts)
+    endpoint = WebhookEndpoint(
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        url=body.url,
+        secret_ref=body.secret_ref,
+        event_types=sorted(set(body.event_types)),
+    )
+    session.add(endpoint)
+    await session.flush()
+    await AuditRepository().append(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        actor_id=scope.actor_id,
+        action="webhook.create",
+        resource_type="webhook_endpoint",
+        resource_id=str(endpoint.id),
+        metadata={"urlHost": body.url.split("/", 3)[2]},
+    )
+    return _webhook_snapshot(endpoint)
+
+
+@router.get("/projects/{project_id}/webhooks", response_model=WebhookListResponse)
+async def list_webhooks(scope: Scope, session: Session) -> WebhookListResponse:
+    endpoints = list(
+        await session.scalars(
+            select(WebhookEndpoint).where(
+                WebhookEndpoint.tenant_id == scope.tenant_id,
+                WebhookEndpoint.project_id == scope.project_id,
+            )
+        )
+    )
+    return WebhookListResponse(
+        items=[_webhook_snapshot(endpoint) for endpoint in endpoints],
+        total=len(endpoints),
     )
 
 
@@ -710,9 +1100,6 @@ async def _get_scoped_run(session: AsyncSession, scope: RequestScope, run_id: UU
     return run
 
 
-_TERMINAL_RUN_STATUSES = {"REJECTED", "CANCELLED", "SUCCEEDED", "TIMED_OUT"}
-
-
 async def _append_command(
     session: AsyncSession,
     scope: RequestScope,
@@ -723,33 +1110,15 @@ async def _append_command(
     *,
     actor: str,
 ) -> CommandHandle:
-    request_id = uuid5(
-        NAMESPACE_URL,
-        f"{scope.tenant_id}:{run_id}:{command_type}:{idempotency_key}",
-    )
-    command = await runs.commands.append(
+    return await commands.append(
         session,
         tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
         run_id=run_id,
         command_type=command_type,
-        request_id=request_id,
+        idempotency_key=idempotency_key,
         payload=payload,
         actor=actor,
-    )
-    return _command_handle(command)
-
-
-def _command_handle(command: RunCommand) -> CommandHandle:
-    return CommandHandle(
-        commandId=command.id,
-        requestId=command.request_id,
-        commandSeq=command.command_seq,
-        status=command.status,
-        result=command.result,
-        error=command.error,
-        createdAt=command.created_at,
-        appliedAt=command.applied_at,
-        rejectedAt=command.rejected_at,
     )
 
 
@@ -794,6 +1163,10 @@ async def _handle_approval(
 ) -> CommandHandle:
     if request.status != "PENDING":
         raise HTTPException(status_code=410, detail="approval request was already handled")
+    if request.expires_at is not None and request.expires_at <= datetime.now(UTC):
+        raise HTTPException(status_code=410, detail="approval request expired")
+    if request.requires_distinct_approver and actor == request.requested_by:
+        raise HTTPException(status_code=403, detail="critical approval requires maker-checker")
     handle = await _append_command(
         session,
         scope,
@@ -889,6 +1262,48 @@ def _event_envelope(event: RunEvent) -> dict[str, Any]:
     }
 
 
+def _artifact_snapshot(artifact: Artifact) -> ArtifactSnapshot:
+    return ArtifactSnapshot(
+        artifactId=artifact.id,
+        runId=artifact.run_id,
+        kind=artifact.kind,
+        filename=artifact.filename,
+        mediaType=artifact.media_type,
+        sizeBytes=artifact.size_bytes,
+        sha256=artifact.sha256,
+        status=artifact.status,
+        version=artifact.version,
+        retentionUntil=artifact.retention_until,
+    )
+
+
+def _audit_snapshot(item: AuditLog) -> AuditSnapshot:
+    return AuditSnapshot(
+        auditId=item.id,
+        actorId=item.actor_id,
+        action=item.action,
+        resourceType=item.resource_type,
+        resourceId=item.resource_id,
+        outcome=item.outcome,
+        policyRevision=item.policy_revision,
+        runId=item.run_id,
+        metadata=item.metadata_json,
+        occurredAt=item.occurred_at,
+    )
+
+
+def _webhook_snapshot(endpoint: WebhookEndpoint) -> WebhookSnapshot:
+    return WebhookSnapshot(
+        endpointId=endpoint.id,
+        url=endpoint.url,
+        secretRef=endpoint.secret_ref,
+        eventTypes=endpoint.event_types,
+        status=endpoint.status,
+        failureCount=endpoint.failure_count,
+        createdAt=endpoint.created_at,
+    )
+
+
 async def _get_scoped_strategy(
     session: AsyncSession, scope: RequestScope, strategy_id: UUID
 ) -> Strategy:
@@ -942,6 +1357,23 @@ def _draft_snapshot(draft: StrategyDraft) -> DraftSnapshot:
         diagnostics=draft.diagnostics,
         updatedBy=draft.updated_by,
         updatedAt=draft.updated_at,
+    )
+
+
+def _project_configuration_snapshot(
+    item: ProjectConfiguration,
+) -> ProjectConfigurationSnapshot:
+    return ProjectConfigurationSnapshot(
+        configurationId=item.id,
+        kind=cast(Literal["agent", "tool", "model"], item.kind),
+        name=item.name,
+        sourceRef=item.source_ref,
+        configuration=item.configuration,
+        revision=item.revision,
+        createdBy=item.created_by,
+        updatedBy=item.updated_by,
+        createdAt=item.created_at,
+        updatedAt=item.updated_at,
     )
 
 

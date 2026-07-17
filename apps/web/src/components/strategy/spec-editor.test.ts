@@ -10,6 +10,6 @@ describe("strategy spec formats", () => {
   });
 
   it("rejects non-object documents", () => {
-    expect(() => parseSpec("[]", "json")).toThrow("must be an object");
+    expect(() => parseSpec("[]", "json")).toThrow("策略文档必须是对象");
   });
 });

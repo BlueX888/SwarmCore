@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from datetime import timedelta
 from typing import Any, cast
 
@@ -16,6 +18,7 @@ from .scheduler import NodeState, blocked_by_failure, ready_nodes
 _CONTROL_QUEUE = "swarm-control"
 _AGENT_QUEUE = "agent-general"
 _TOOL_QUEUE = "tool-trusted"
+_INITIAL_RUN_EVENT_TYPES = ("run.validating", "run.queued", "run.started")
 
 
 @workflow.defn(name="SwarmRunWorkflow")
@@ -40,6 +43,10 @@ class SwarmRunWorkflow:
         self._human_requests: dict[str, dict[str, Any]] = {}
         self._in_flight: set[asyncio.Task[dict[str, Any]]] = set()
         self._activity_handles: set[asyncio.Task[dict[str, Any]]] = set()
+        self._used_tokens = 0
+        self._used_cost_usd = 0.0
+        self._budget_warned = False
+        self._compensation_stack: list[dict[str, Any]] = []
 
     @workflow.run
     async def run(self, run_input: dict[str, Any]) -> dict[str, Any]:
@@ -72,9 +79,13 @@ class SwarmRunWorkflow:
         }
         for body_key in self._loop_body_keys:
             self._states[body_key] = NodeState.SKIPPED
-        await self._project("run.validating", {})
-        await self._project("run.queued", {})
-        await self._project("run.started", {})
+        initial_events = (
+            self._initial_run_event_payloads(run_input, plan)
+            if workflow.patched("initial-run-event-metadata-v1")
+            else {event_type: {} for event_type in _INITIAL_RUN_EVENT_TYPES}
+        )
+        for event_type, data in initial_events.items():
+            await self._project(event_type, data)
 
         max_parallelism = int(plan["budget"]["maxParallelism"])
         while True:
@@ -85,6 +96,11 @@ class SwarmRunWorkflow:
             await self._pause_barrier()
             if self._cancel_requested:
                 continue
+            if self._budget_exhausted():
+                terminal = await self._handle_budget_exhaustion()
+                if terminal is not None:
+                    await workflow.wait_condition(workflow.all_handlers_finished)
+                    return terminal
 
             for key in blocked_by_failure(self._nodes, self._states):
                 self._states[key] = NodeState.SKIPPED
@@ -108,6 +124,7 @@ class SwarmRunWorkflow:
 
             batch = ready_nodes(self._nodes, self._states, max_parallelism=max_parallelism)
             if not batch:
+                await self._compensate_effects()
                 await self._project("run.failed", {"code": "GRAPH_DEADLOCK"})
                 await workflow.wait_condition(workflow.all_handlers_finished)
                 return {"status": "FAILED", "code": "GRAPH_DEADLOCK"}
@@ -138,9 +155,95 @@ class SwarmRunWorkflow:
                 else:
                     self._states[key] = NodeState.SUCCEEDED
                     self._outputs[key] = outcome
+                    await self._record_usage(outcome)
                     if by_key[key]["type"] == "router":
                         await self._apply_router_selection(by_key[key], outcome)
                     await self._project("task.completed", {"nodeKey": key, "output": outcome})
+
+    async def _record_usage(self, outcome: dict[str, Any]) -> None:
+        metrics = outcome.get("metrics")
+        if not isinstance(metrics, dict):
+            return
+        input_tokens = metrics.get("input_tokens", metrics.get("inputTokens", 0))
+        output_tokens = metrics.get("output_tokens", metrics.get("outputTokens", 0))
+        cost = metrics.get("cost_usd", metrics.get("costUsd", 0))
+        if isinstance(input_tokens, int) and not isinstance(input_tokens, bool):
+            self._used_tokens += max(0, input_tokens)
+        if isinstance(output_tokens, int) and not isinstance(output_tokens, bool):
+            self._used_tokens += max(0, output_tokens)
+        if isinstance(cost, int | float) and not isinstance(cost, bool):
+            self._used_cost_usd += max(0.0, float(cost))
+        budget = self._plan["budget"]
+        ratio = max(
+            self._used_tokens / int(budget["maxTokens"]),
+            self._used_cost_usd / float(budget["maxCostUsd"]),
+        )
+        usage = {"tokens": self._used_tokens, "costUsd": self._used_cost_usd}
+        if ratio >= 1:
+            await self._project("budget.exhausted", usage)
+        elif ratio >= 0.8 and not self._budget_warned:
+            self._budget_warned = True
+            await self._project("budget.warning", usage)
+
+    def _budget_exhausted(self) -> bool:
+        budget = self._plan.get("budget", {})
+        return self._used_tokens >= int(budget.get("maxTokens", 1_000_000)) or (
+            self._used_cost_usd >= float(budget.get("maxCostUsd", 25))
+        )
+
+    async def _handle_budget_exhaustion(self) -> dict[str, Any] | None:
+        budget = self._plan["budget"]
+        behavior = str(budget.get("onExhausted", "fail"))
+        if behavior == "partial_result":
+            result = {"partial": True, "outputs": self._outputs}
+            await self._project("run.completed", {"result": result, "reason": "budget"})
+            return {"status": "SUCCEEDED", "result": result, "outputs": self._outputs}
+        if behavior == "wait_for_budget_approval":
+            approval = {
+                "key": "budget",
+                "type": "approval",
+                "config": {
+                    "prompt": "Approve a Run budget increase",
+                    "inputSchema": {
+                        "type": "object",
+                        "required": ["maxTokens", "maxCostUsd"],
+                        "properties": {
+                            "maxTokens": {"type": "integer", "minimum": self._used_tokens + 1},
+                            "maxCostUsd": {
+                                "type": "number",
+                                "exclusiveMinimum": self._used_cost_usd,
+                            },
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+            }
+            value = await self._wait_for_human(
+                approval,
+                task_instance_key="budget",
+                kind_override="approval",
+                governance={
+                    "policyRevision": self._plan["policy_revision"],
+                    "requestedBy": self._run_input.get("initiatedBy", "workflow"),
+                },
+            )
+            budget["maxTokens"] = int(value["maxTokens"])
+            budget["maxCostUsd"] = float(value["maxCostUsd"])
+            await self._project(
+                "budget.increased",
+                {"maxTokens": budget["maxTokens"], "maxCostUsd": budget["maxCostUsd"]},
+            )
+            return None
+        await self._project(
+            "run.failed",
+            {
+                "code": "BUDGET_EXCEEDED",
+                "tokens": self._used_tokens,
+                "costUsd": self._used_cost_usd,
+            },
+        )
+        await self._compensate_effects()
+        return {"status": "FAILED", "code": "BUDGET_EXCEEDED", "outputs": self._outputs}
 
     @workflow.update(name="apply_command")
     async def apply_command(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -306,6 +409,31 @@ class SwarmRunWorkflow:
             return self._route(node)
         if node["type"] == "loop":
             return await self._execute_loop(node, resolved_agents, default_model, resolved_tools)
+        activity_name, queue, payload = await self._prepare_activity(
+            node,
+            resolved_agents,
+            default_model,
+            resolved_tools,
+            instance_key=instance_key,
+        )
+        return await self._run_activity(
+            node,
+            activity_name,
+            queue,
+            payload,
+            instance_key=instance_key,
+        )
+
+    async def _prepare_activity(
+        self,
+        node: dict[str, Any],
+        resolved_agents: dict[str, Any],
+        default_model: str | None,
+        resolved_tools: dict[str, Any],
+        *,
+        instance_key: str,
+    ) -> tuple[str, str, dict[str, Any]]:
+        key = str(node["key"])
         activity_name, queue = self._activity_for(str(node["type"]))
         execution_id = str(workflow.uuid4())
         rendered_node = self._render_node(node)
@@ -323,23 +451,35 @@ class SwarmRunWorkflow:
         if node["type"] == "agent":
             payload["agent"] = resolved_agents[node["config"]["agent"]]
             payload["defaultModel"] = default_model
+            model_ref = payload["agent"].get("model") or default_model
+            payload["modelRegistration"] = self._plan.get("resolved_models", {}).get(
+                model_ref, {}
+            )
             payload["toolCapabilities"] = await self._agent_tool_capabilities(
                 node, payload["agent"], execution_id, resolved_tools, instance_key
             )
         elif node["type"] == "tool":
             tool_ref = str(node["config"]["tool"])
             registration = resolved_tools[tool_ref]
-            approved = await self._approve_tool_if_required(registration, instance_key=instance_key)
             effect_id = execution_id
+            tool_input = dict(rendered_node["config"].get("input", {}))
+            input_hash = self._canonical_hash(tool_input)
+            approved = await self._approve_tool_if_required(
+                registration,
+                instance_key=instance_key,
+                tool_input_hash=input_hash,
+                execution_id=execution_id,
+            )
             payload["capabilityToken"] = await self._issue_tool_capability(
                 node_key=instance_key,
                 tool_ref=tool_ref,
                 execution_id=execution_id,
                 effect_id=effect_id,
                 approved=approved,
+                canonical_input_hash=input_hash if approved else None,
             )
             payload["effectId"] = effect_id
-            payload["input"] = rendered_node["config"].get("input", {})
+            payload["input"] = tool_input
             await self._project(
                 "tool.requested",
                 {
@@ -358,6 +498,18 @@ class SwarmRunWorkflow:
                     "effectId": effect_id,
                 },
             )
+        return activity_name, queue, payload
+
+    async def _run_activity(
+        self,
+        node: dict[str, Any],
+        activity_name: str,
+        queue: str,
+        payload: dict[str, Any],
+        *,
+        instance_key: str,
+    ) -> dict[str, Any]:
+        key = str(node["key"])
         handle = workflow.start_activity(
             activity_name,
             payload,
@@ -404,6 +556,34 @@ class SwarmRunWorkflow:
                     "metrics": result.get("metrics", {}),
                 },
             )
+            registration = self._plan.get("resolved_tools", {}).get(
+                node["config"]["tool"], {}
+            )
+            if registration.get("sideEffecting"):
+                self._compensation_stack.append(
+                    {
+                        "nodeKey": instance_key,
+                        "toolRef": registration["ref"],
+                        "effectId": result.get("effectId"),
+                        "input": payload.get("input", {}),
+                        "recoveryPolicy": registration["recoveryPolicy"],
+                    }
+                )
+        elif node["type"] == "agent":
+            registration = payload.get("modelRegistration", {})
+            await self._project(
+                "model.usage",
+                {
+                    "nodeKey": key,
+                    "taskInstanceKey": instance_key,
+                    "requestId": result.get("runId") or payload["taskExecutionId"],
+                    "logicalModel": payload["agent"].get("model")
+                    or payload.get("defaultModel"),
+                    "providerModel": registration.get("providerModel", result.get("model")),
+                    "modelVersion": registration.get("version", "unknown"),
+                    "metrics": result.get("metrics", {}),
+                },
+            )
         return cast(dict[str, Any], result)
 
     async def _wait_for_human(
@@ -412,6 +592,7 @@ class SwarmRunWorkflow:
         *,
         task_instance_key: str | None = None,
         kind_override: str | None = None,
+        governance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         request_id = str(workflow.uuid4())
         kind = kind_override or str(node["type"])
@@ -432,6 +613,7 @@ class SwarmRunWorkflow:
                 "nodeKey": request["nodeKey"],
                 "prompt": node["config"]["prompt"],
                 "inputSchema": request["schema"],
+                **(governance or {}),
             },
         )
         await self._project(
@@ -449,7 +631,12 @@ class SwarmRunWorkflow:
         return cast(dict[str, Any], request["value"])
 
     async def _approve_tool_if_required(
-        self, registration: dict[str, Any], *, instance_key: str
+        self,
+        registration: dict[str, Any],
+        *,
+        instance_key: str,
+        tool_input_hash: str | None,
+        execution_id: str,
     ) -> bool:
         if registration["risk"] not in {"HIGH", "CRITICAL"}:
             return False
@@ -462,7 +649,19 @@ class SwarmRunWorkflow:
             },
         }
         await self._wait_for_human(
-            approval_node, task_instance_key=instance_key, kind_override="approval"
+            approval_node,
+            task_instance_key=instance_key,
+            kind_override="approval",
+            governance={
+                "taskExecutionId": execution_id,
+                "toolRef": registration["ref"],
+                "toolVersion": registration["version"],
+                "canonicalInputHash": tool_input_hash,
+                "policyRevision": self._plan["policy_revision"],
+                "expiresAt": (workflow.now() + timedelta(minutes=15)).isoformat(),
+                "requiresDistinctApprover": registration["risk"] == "CRITICAL",
+                "requestedBy": self._run_input.get("initiatedBy", "workflow"),
+            },
         )
         return True
 
@@ -474,6 +673,8 @@ class SwarmRunWorkflow:
         execution_id: str,
         effect_id: str | None,
         approved: bool,
+        canonical_input_hash: str | None = None,
+        action: str = "tool.execute",
     ) -> str:
         result = await workflow.execute_activity(
             "issue_tool_capability",
@@ -484,6 +685,9 @@ class SwarmRunWorkflow:
                 "executionId": execution_id,
                 "effectId": effect_id,
                 "approved": approved,
+                "canonicalInputHash": canonical_input_hash,
+                "policyRevision": self._plan["policy_revision"],
+                "action": action,
             },
             task_queue=_CONTROL_QUEUE,
             start_to_close_timeout=timedelta(seconds=30),
@@ -503,9 +707,11 @@ class SwarmRunWorkflow:
         capabilities: dict[str, str] = {}
         for tool_ref in agent.get("tools", []):
             registration = resolved_tools[tool_ref]
-            approved = await self._approve_tool_if_required(
-                registration, instance_key=f"{instance_key}:{tool_ref}"
-            )
+            if registration["risk"] in {"HIGH", "CRITICAL"}:
+                raise ValueError(
+                    "high-risk Agent tools require a separately bound Tool node"
+                )
+            approved = False
             capabilities[tool_ref] = await self._issue_tool_capability(
                 node_key=str(node["key"]),
                 tool_ref=tool_ref,
@@ -514,6 +720,13 @@ class SwarmRunWorkflow:
                 approved=approved,
             )
         return capabilities
+
+    @staticmethod
+    def _canonical_hash(value: dict[str, Any]) -> str:
+        encoded = json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode()
+        return hashlib.sha256(encoded).hexdigest()
 
     def _route(self, node: dict[str, Any]) -> dict[str, Any]:
         context = self._expression_context()
@@ -623,13 +836,91 @@ class SwarmRunWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=0),
         )
 
+    @staticmethod
+    def _initial_run_event_payloads(
+        run_input: dict[str, Any], plan: dict[str, Any]
+    ) -> dict[str, dict[str, Any]]:
+        budget = plan["budget"]
+        validating: dict[str, Any] = {"planHash": str(run_input["planHash"])}
+        optional_validation_fields = {
+            "strategyVersionId": run_input.get("strategyVersionId"),
+            "planVersion": plan.get("plan_version"),
+            "policyRevision": run_input.get("policyRevision") or plan.get("policy_revision"),
+            "registrySnapshot": plan.get("registry_snapshot"),
+        }
+        validating.update(
+            {key: value for key, value in optional_validation_fields.items() if value is not None}
+        )
+
+        queued: dict[str, Any] = {
+            "taskQueue": _CONTROL_QUEUE,
+            "nodeCount": len(plan["nodes"]),
+            "maxParallelism": int(budget["maxParallelism"]),
+        }
+        if plan.get("entrypoint") is not None:
+            queued["entrypoint"] = plan["entrypoint"]
+
+        started: dict[str, Any] = {
+            "nodeCount": len(plan["nodes"]),
+            "maxParallelism": int(budget["maxParallelism"]),
+        }
+        if plan.get("runtime_version") is not None:
+            started["runtimeVersion"] = plan["runtime_version"]
+
+        return {
+            "run.validating": validating,
+            "run.queued": queued,
+            "run.started": started,
+        }
+
     async def _cancel_run(self) -> None:
         for key, state in self._states.items():
             if state in {NodeState.PENDING, NodeState.RUNNING}:
                 self._states[key] = NodeState.CANCELLED
                 await self._project("task.cancelled", {"nodeKey": key})
         await self._project("run.cancelling", {})
+        await self._compensate_effects()
         await self._project("run.cancelled", {})
+
+    async def _compensate_effects(self) -> None:
+        while self._compensation_stack:
+            entry = self._compensation_stack.pop()
+            if entry["recoveryPolicy"] == "idempotent":
+                continue
+            if entry["recoveryPolicy"] == "manual":
+                await self._project("compensation.manual_required", entry)
+                continue
+            token = await self._issue_tool_capability(
+                node_key=str(entry["nodeKey"]),
+                tool_ref=str(entry["toolRef"]),
+                execution_id=str(workflow.uuid4()),
+                effect_id=str(entry["effectId"]),
+                approved=True,
+                action="tool.compensate",
+            )
+            try:
+                result = await workflow.execute_activity(
+                    "compensate_tool",
+                    {
+                        "capabilityToken": token,
+                        "effectId": entry["effectId"],
+                        "input": entry["input"],
+                    },
+                    task_queue=_TOOL_QUEUE,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    result_type=dict[str, Any],
+                )
+            except BaseException as exc:
+                await self._project(
+                    "compensation.failed",
+                    {**entry, "error": self._safe_error(exc)},
+                )
+            else:
+                await self._project(
+                    "compensation.completed",
+                    {**entry, "result": result},
+                )
 
     def _all_terminal(self) -> bool:
         terminal = {

@@ -4,7 +4,7 @@ import asyncio
 import socket
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from swarmcore_observability import configure_telemetry
+from swarmcore_observability import SwarmMetrics, configure_json_logging, configure_telemetry
 from swarmcore_persistence import Database
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
@@ -38,6 +38,7 @@ async def serve() -> None:
         database.sessions,
         temporal,
         worker_id=socket.gethostname(),
+        metrics=SwarmMetrics.create("command-dispatcher"),
     )
     try:
         while True:
@@ -50,4 +51,5 @@ async def serve() -> None:
 
 
 def run() -> None:
+    configure_json_logging()
     asyncio.run(serve())

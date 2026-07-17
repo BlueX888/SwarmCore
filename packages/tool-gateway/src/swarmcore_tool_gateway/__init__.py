@@ -1,6 +1,7 @@
 from .builtins import builtin_executors
 from .gateway import (
     AuditEvent,
+    CompensationInvocation,
     EffectConflict,
     EffectInProgress,
     EffectJournal,
@@ -18,6 +19,7 @@ __all__ = [
     "AuditEvent",
     "CapabilityClaims",
     "CapabilityTokenIssuer",
+    "CompensationInvocation",
     "EffectConflict",
     "EffectInProgress",
     "EffectJournal",

@@ -37,11 +37,11 @@ describe("Strategy Editor model", () => {
     let state = structuredClone(EMPTY_EDITOR_STATE);
     const first = addNode(spec, "agent", undefined, state); spec = first.spec; state = first.editorState;
     const second = addNode(spec, "approval", undefined, state); spec = second.spec;
-    expect(connectNodes(spec, first.nodeKey, first.nodeKey).error).toMatch(/itself/);
+    expect(connectNodes(spec, first.nodeKey, first.nodeKey).error).toContain("自身");
     spec = connectNodes(spec, first.nodeKey, second.nodeKey).spec;
-    expect(connectNodes(spec, first.nodeKey, second.nodeKey).error).toMatch(/already/);
+    expect(connectNodes(spec, first.nodeKey, second.nodeKey).error).toContain("已存在");
     expect(wouldCreateCycle(spec, second.nodeKey, first.nodeKey)).toBe(true);
-    expect(connectNodes(spec, second.nodeKey, first.nodeKey).error).toMatch(/cycle/);
+    expect(connectNodes(spec, second.nodeKey, first.nodeKey).error).toContain("循环");
   });
 
   it("removes dependencies and layout while preserving declarations by default", () => {

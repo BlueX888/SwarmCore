@@ -17,6 +17,7 @@ import { AlertTriangle, Braces, GitBranch, Play, Plus, Trash2 } from "lucide-rea
 import * as React from "react";
 import type { Diagnostic } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { nodeTypeLabel } from "@/lib/display-text";
 import {
   SUPPORTED_NODE_TYPES,
   addNode,
@@ -110,7 +111,7 @@ function StrategyCanvasInner({
   const edges: Edge[] = listEdges(spec).map((edge) => ({
     ...edge,
     type: "smoothstep",
-    label: edge.branch ? "branch" : undefined,
+    label: edge.branch ? "分支" : undefined,
     animated: edge.branch,
     style: edge.branch ? { stroke: "var(--color-brand-500)", strokeWidth: 2 } : undefined,
   }));
@@ -135,7 +136,7 @@ function StrategyCanvasInner({
           (candidate) => candidate.type === "agent" && candidate["agent"] === agentKey,
         ).length;
         if (references === 1 && nextSpec.spec.agents?.[agentKey]) {
-          removeAgent = window.confirm(`Also remove the unused agent declaration "${agentKey}"?`);
+          removeAgent = window.confirm(`是否同时删除未使用的智能体声明“${agentKey}”？`);
         }
       }
       const result = deleteNode(nextSpec, nextEditorState, nodeKey, removeAgent);
@@ -165,8 +166,8 @@ function StrategyCanvasInner({
 
   const selectedNode = selected ? graphNodes[selected] : undefined;
   return <div className="grid min-w-0 gap-4 xl:grid-cols-[170px_minmax(0,1fr)_300px]">
-    <aside className="rounded-xl border border-gray-200 p-3 dark:border-gray-800" aria-label="Node library">
-      <p className="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-200">Node library</p>
+    <aside className="rounded-xl border border-gray-200 p-3 dark:border-gray-800" aria-label="节点库">
+      <p className="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-200">节点库</p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-1">
         {availableTypes.map((type) => <button
           key={type}
@@ -175,9 +176,9 @@ function StrategyCanvasInner({
           onDragStart={(event) => { event.dataTransfer.setData("application/swarmcore-node", type); event.dataTransfer.effectAllowed = "move"; }}
           onClick={() => addAt(type)}
           className="flex min-h-10 items-center gap-2 rounded-lg border border-gray-200 px-3 text-left text-sm capitalize hover:border-brand-400 hover:bg-brand-50 dark:border-gray-700 dark:hover:bg-brand-500/10"
-        ><Plus className="size-4" />{nodeLabel(type)}</button>)}
+        ><Plus className="size-4" />{nodeTypeLabel(type)}</button>)}
       </div>
-      <p className="mt-3 text-xs text-gray-500">Drag to place, or click to add.</p>
+      <p className="mt-3 text-xs text-gray-500">可拖放到画布，或单击添加。</p>
     </aside>
     <div
       className="h-[620px] min-h-[420px] overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-950"
@@ -236,9 +237,9 @@ function StrategyFlowNode({ data, selected }: NodeProps<CanvasNode>) {
       <strong className="text-sm text-gray-900 dark:text-white">{data.label}</strong>
     </div>
     <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-gray-500">
-      <span>{nodeLabel(data.nodeType)}</span>
-      {data.entrypoint ? <span className="inline-flex items-center gap-1 text-success-600"><Play className="size-3" />entry</span> : null}
-      {data.readonly ? <span className="text-warning-600">read-only</span> : null}
+      <span>{nodeTypeLabel(data.nodeType)}</span>
+      {data.entrypoint ? <span className="inline-flex items-center gap-1 text-success-600"><Play className="size-3" />入口</span> : null}
+      {data.readonly ? <span className="text-warning-600">只读</span> : null}
       {data.diagnosticCount ? <span className="inline-flex items-center gap-1 text-error-600"><AlertTriangle className="size-3" />{data.diagnosticCount}</span> : null}
     </div>
     <Handle type="source" position={Position.Right} isConnectable={!data.readonly} />
@@ -254,28 +255,28 @@ function PropertyPanel({ nodeKey, node, spec, readonly, onSpecChange, onDelete, 
   onDelete: (nodeKey: string) => void;
   onError: (message: string) => void;
 }) {
-  if (!nodeKey || !node) return <aside className="rounded-xl border border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-800">Select a node to edit its properties.</aside>;
+  if (!nodeKey || !node) return <aside className="rounded-xl border border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-800">请选择节点以编辑属性。</aside>;
   if (readonly) return <aside className="min-w-0 rounded-xl border border-warning-300 bg-warning-50/50 p-4 dark:border-warning-500/30 dark:bg-warning-500/10">
-    <p className="font-semibold">{nodeKey}</p><p className="mt-1 text-sm text-warning-700 dark:text-warning-300">Unsupported node type “{node.type}” is preserved read-only.</p>
+    <p className="font-semibold">{nodeKey}</p><p className="mt-1 text-sm text-warning-700 dark:text-warning-300">不支持的节点类型“{node.type}”将以只读方式保留。</p>
     <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(node, null, 2)}</pre>
   </aside>;
   const setNode = (patch: Record<string, unknown>) => onSpecChange(updateNode(spec, nodeKey, patch));
   const fieldClass = "mt-1 h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm dark:border-gray-700";
   const agentKey = node.type === "agent" && typeof node["agent"] === "string" ? node["agent"] : "";
   const agent = agentKey ? spec.spec.agents?.[agentKey] : undefined;
-  return <aside className="min-w-0 space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800" aria-label="Node properties">
-    <div className="flex items-center justify-between gap-2"><div><p className="font-semibold">{nodeKey}</p><p className="text-xs capitalize text-gray-500">{nodeLabel(node.type)}</p></div><Button size="sm" variant="ghost" aria-label="Delete node" onClick={() => onDelete(nodeKey)}><Trash2 /></Button></div>
-    <Button className="w-full" size="sm" variant={spec.spec.graph.entrypoint === nodeKey ? "primary" : "outline"} onClick={() => onSpecChange(setEntrypoint(spec, nodeKey))}><Play />{spec.spec.graph.entrypoint === nodeKey ? "Entrypoint" : "Set as entrypoint"}</Button>
+  return <aside className="min-w-0 space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800" aria-label="节点属性">
+    <div className="flex items-center justify-between gap-2"><div><p className="font-semibold">{nodeKey}</p><p className="text-xs capitalize text-gray-500">{nodeTypeLabel(node.type)}</p></div><Button size="sm" variant="ghost" aria-label="删除节点" onClick={() => onDelete(nodeKey)}><Trash2 /></Button></div>
+    <Button className="w-full" size="sm" variant={spec.spec.graph.entrypoint === nodeKey ? "primary" : "outline"} onClick={() => onSpecChange(setEntrypoint(spec, nodeKey))}><Play />{spec.spec.graph.entrypoint === nodeKey ? "当前入口" : "设为入口"}</Button>
     {node.type === "agent" ? <>
-      <Field label="Agent declaration"><select className={fieldClass} value={agentKey} onChange={(event) => setNode({ agent: event.target.value })}>{Object.keys(spec.spec.agents ?? {}).map((key) => <option key={key}>{key}</option>)}</select></Field>
-      <Field label="Role"><input className={fieldClass} value={stringValue(agent?.["role"])} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, { role: event.target.value }))} /></Field>
-      <Field label="Instructions"><textarea className="mt-1 min-h-28 w-full rounded-lg border border-gray-300 bg-transparent p-3 text-sm dark:border-gray-700" value={stringValue(agent?.["instructions"])} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, { instructions: event.target.value }))} /></Field>
-      <Field label="Model"><input className={fieldClass} placeholder="model://general" value={stringValue(agent?.["model"])} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, event.target.value ? { model: event.target.value } : { model: undefined }))} /></Field>
+      <Field label="智能体声明"><select className={fieldClass} value={agentKey} onChange={(event) => setNode({ agent: event.target.value })}>{Object.keys(spec.spec.agents ?? {}).map((key) => <option key={key}>{key}</option>)}</select></Field>
+      <Field label="角色"><input className={fieldClass} value={stringValue(agent?.["role"])} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, { role: event.target.value }))} /></Field>
+      <Field label="指令"><textarea className="mt-1 min-h-28 w-full rounded-lg border border-gray-300 bg-transparent p-3 text-sm dark:border-gray-700" value={stringValue(agent?.["instructions"])} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, { instructions: event.target.value }))} /></Field>
+      <Field label="模型"><input className={fieldClass} placeholder="model://general" value={stringValue(agent?.["model"])} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, event.target.value ? { model: event.target.value } : { model: undefined }))} /></Field>
     </> : null}
-    {node.type === "join" ? <><Field label="Join strategy"><select className={fieldClass} value={stringValue(node["strategy"])} onChange={(event) => setNode({ strategy: event.target.value, quorum: event.target.value === "quorum" ? 1 : undefined })}>{["all", "any", "quorum", "first_success"].map((value) => <option key={value}>{value}</option>)}</select></Field>{node["strategy"] === "quorum" ? <Field label="Quorum"><input type="number" min={1} className={fieldClass} value={numberValue(node["quorum"], 1)} onChange={(event) => setNode({ quorum: Number(event.target.value) })} /></Field> : null}</> : null}
-    {node.type === "reducer" ? <Field label="Reducer"><select className={fieldClass} value={stringValue(node["reducer"])} onChange={(event) => setNode({ reducer: event.target.value })}>{["merge_object", "concat", "first_success", "vote"].map((value) => <option key={value}>{value}</option>)}</select></Field> : null}
-    {node.type === "approval" || node.type === "input" ? <><Field label="Prompt"><textarea className="mt-1 min-h-24 w-full rounded-lg border border-gray-300 bg-transparent p-3 text-sm dark:border-gray-700" value={stringValue(node["prompt"])} onChange={(event) => setNode({ prompt: event.target.value })} /></Field><JsonField label="Input schema" value={recordValue(node["inputSchema"])} onCommit={(value) => setNode({ inputSchema: value })} onError={onError} /></> : null}
-    {node.type === "parallel" ? <p className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500 dark:bg-gray-800">Branches are maintained by outgoing connections: {stringArray(node.branches).join(", ") || "none"}</p> : null}
+    {node.type === "join" ? <><Field label="汇合策略"><select className={fieldClass} value={stringValue(node["strategy"])} onChange={(event) => setNode({ strategy: event.target.value, quorum: event.target.value === "quorum" ? 1 : undefined })}>{["all", "any", "quorum", "first_success"].map((value) => <option key={value} value={value}>{joinStrategyLabel(value)}</option>)}</select></Field>{node["strategy"] === "quorum" ? <Field label="法定数量"><input type="number" min={1} className={fieldClass} value={numberValue(node["quorum"], 1)} onChange={(event) => setNode({ quorum: Number(event.target.value) })} /></Field> : null}</> : null}
+    {node.type === "reducer" ? <Field label="归并方式"><select className={fieldClass} value={stringValue(node["reducer"])} onChange={(event) => setNode({ reducer: event.target.value })}>{["merge_object", "concat", "first_success", "vote"].map((value) => <option key={value} value={value}>{reducerLabel(value)}</option>)}</select></Field> : null}
+    {node.type === "approval" || node.type === "input" ? <><Field label="提示语"><textarea className="mt-1 min-h-24 w-full rounded-lg border border-gray-300 bg-transparent p-3 text-sm dark:border-gray-700" value={stringValue(node["prompt"])} onChange={(event) => setNode({ prompt: event.target.value })} /></Field><JsonField label="输入结构" value={recordValue(node["inputSchema"])} onCommit={(value) => setNode({ inputSchema: value })} onError={onError} /></> : null}
+    {node.type === "parallel" ? <p className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500 dark:bg-gray-800">分支由出向连接维护：{stringArray(node.branches).join(", ") || "无"}</p> : null}
   </aside>;
 }
 
@@ -283,16 +284,15 @@ function JsonField({ label, value, onCommit, onError }: { label: string; value: 
   const source = JSON.stringify(value, null, 2);
   const [text, setText] = React.useState(source);
   React.useEffect(() => setText(source), [source]);
-  return <Field label={label}><textarea className="mt-1 min-h-28 w-full rounded-lg border border-gray-300 bg-transparent p-3 font-mono text-xs dark:border-gray-700" value={text} onChange={(event) => setText(event.target.value)} onBlur={() => { try { const parsed: unknown = JSON.parse(text); if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("must be an object"); onCommit(parsed as Record<string, unknown>); } catch (error) { onError(`Invalid ${label}: ${error instanceof Error ? error.message : "invalid JSON"}`); } }} /></Field>;
+  return <Field label={label}><textarea className="mt-1 min-h-28 w-full rounded-lg border border-gray-300 bg-transparent p-3 font-mono text-xs dark:border-gray-700" value={text} onChange={(event) => setText(event.target.value)} onBlur={() => { try { const parsed: unknown = JSON.parse(text); if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("必须是对象"); onCommit(parsed as Record<string, unknown>); } catch (error) { onError(`${label}无效：${error instanceof Error ? error.message : "JSON 无效"}`); } }} /></Field>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">{label}{children}</label>;
 }
 
-function nodeLabel(type: string): string {
-  return type === "input" ? "External Input" : type.replaceAll("_", " ");
-}
+function joinStrategyLabel(value: string): string { return ({ all: "全部完成", any: "任意完成", quorum: "达到法定数量", first_success: "首个成功" } as Record<string, string>)[value] ?? value; }
+function reducerLabel(value: string): string { return ({ merge_object: "合并对象", concat: "拼接", first_success: "首个成功", vote: "投票" } as Record<string, string>)[value] ?? value; }
 
 function stringValue(value: unknown): string { return typeof value === "string" ? value : ""; }
 function numberValue(value: unknown, fallback: number): number { return typeof value === "number" ? value : fallback; }

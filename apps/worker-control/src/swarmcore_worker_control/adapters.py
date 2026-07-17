@@ -8,11 +8,14 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from swarmcore_domain import uuid7
+from swarmcore_observability import SwarmMetrics
 from swarmcore_persistence import EventRepository, tenant_transaction
 from swarmcore_persistence.models import (
     ApprovalRequest,
+    CompensationRecord,
     ExternalInputRequest,
     Run,
+    RunEvent,
     RunTask,
     StrategyVersion,
 )
@@ -34,6 +37,13 @@ class GatewayCapabilityIssuer:
             execution_id=str(request["executionId"]),
             effect_id=(str(request["effectId"]) if request.get("effectId") else None),
             approved=bool(request.get("approved", False)),
+            canonical_input_hash=(
+                str(request["canonicalInputHash"]) if request.get("canonicalInputHash") else None
+            ),
+            policy_revision=(
+                str(request["policyRevision"]) if request.get("policyRevision") else None
+            ),
+            action=str(request.get("action", "tool.execute")),
         )
 
 
@@ -77,9 +87,14 @@ class PostgresTransitionProjector:
         "task.retry_started": "RUNNING",
     }
 
-    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        metrics: SwarmMetrics | None = None,
+    ) -> None:
         self._sessions = sessions
         self._events = EventRepository()
+        self._metrics = metrics
 
     async def project(self, transition: Mapping[str, Any]) -> None:
         run_data = transition["run"]
@@ -119,6 +134,15 @@ class PostgresTransitionProjector:
                 data=data,
                 occurred_at=occurred_at,
             )
+            if event_type.startswith("compensation."):
+                await self._project_compensation(
+                    session,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    run_id=run_id,
+                    event_type=event_type,
+                    data=data,
+                )
             if event_type == "run.completed":
                 run = await session.get(Run, run_id, with_for_update=True)
                 if run is not None:
@@ -134,6 +158,86 @@ class PostgresTransitionProjector:
                         if isinstance(value, int | float):
                             usage[key] = float(usage.get(key, 0)) + value
                     run.usage = usage
+            if self._metrics is not None:
+                if event_type == "run.started":
+                    self._metrics.active_runs.add(1)
+                if event_type in {
+                    "run.completed",
+                    "run.failed",
+                    "run.cancelled",
+                    "run.timed_out",
+                    "run.rejected",
+                }:
+                    status = event_type.removeprefix("run.")
+                    run = await session.get(Run, run_id)
+                    strategy = (
+                        str(run.strategy_version_id) if run is not None else "unknown"
+                    )
+                    self._metrics.runs_total.add(
+                        1, {"status": status, "strategy": strategy}
+                    )
+                    self._metrics.active_runs.add(-1)
+                    if run is not None and run.started_at is not None:
+                        self._metrics.run_duration.record(
+                            max(0.0, (occurred_at - run.started_at).total_seconds()),
+                            {"status": status},
+                        )
+                if event_type in {"task.completed", "task.failed", "task.cancelled"}:
+                    task = await session.get(RunTask, task_id) if task_id is not None else None
+                    if task is not None:
+                        started_at = await session.scalar(
+                            select(RunEvent.occurred_at)
+                            .where(
+                                RunEvent.run_id == run_id,
+                                RunEvent.task_id == task.id,
+                                RunEvent.type == "task.started",
+                            )
+                            .order_by(RunEvent.occurred_at.desc())
+                            .limit(1)
+                        )
+                        if started_at is not None:
+                            self._metrics.task_duration.record(
+                                max(0.0, (occurred_at - started_at).total_seconds()),
+                                {"node_type": task.node_type},
+                            )
+
+    async def _project_compensation(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        run_id: UUID,
+        event_type: str,
+        data: dict[str, Any],
+    ) -> None:
+        effect_id = str(data["effectId"])
+        record = await session.scalar(
+            select(CompensationRecord).where(
+                CompensationRecord.run_id == run_id,
+                CompensationRecord.effect_id == effect_id,
+            )
+        )
+        status = {
+            "compensation.completed": "COMPENSATED",
+            "compensation.failed": "FAILED",
+            "compensation.manual_required": "MANUAL_RECOVERY_REQUIRED",
+        }.get(event_type, "PENDING")
+        if record is None:
+            record = CompensationRecord(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                run_id=run_id,
+                effect_id=effect_id,
+                operation=str(data.get("toolRef", "unknown")),
+                status=status,
+                input=dict(data.get("input", {})),
+            )
+            session.add(record)
+        else:
+            record.status = status
+        if data.get("error") is not None:
+            record.error = str(data["error"])[:2000]
 
     async def _project_task(
         self,
@@ -205,6 +309,20 @@ class PostgresTransitionProjector:
                         node_key=str(data["nodeKey"]),
                         prompt=str(data["prompt"]),
                         input_schema=dict(data.get("inputSchema", {"type": "object"})),
+                        requested_by=str(data.get("requestedBy", "workflow")),
+                        task_execution_id=data.get("taskExecutionId"),
+                        tool_ref=data.get("toolRef"),
+                        tool_version=data.get("toolVersion"),
+                        canonical_input_hash=data.get("canonicalInputHash"),
+                        policy_revision=data.get("policyRevision"),
+                        expires_at=(
+                            datetime.fromisoformat(str(data["expiresAt"]))
+                            if data.get("expiresAt")
+                            else None
+                        ),
+                        requires_distinct_approver=bool(
+                            data.get("requiresDistinctApprover", False)
+                        ),
                     )
                 )
             return
@@ -231,6 +349,13 @@ class PostgresTransitionProjector:
                 approval_request.decision = approval_request.status
                 approval_request.response = dict(data.get("value", {}))
                 approval_request.handled_at = occurred_at
+                if self._metrics is not None:
+                    self._metrics.approval_wait.record(
+                        max(
+                            0.0,
+                            (occurred_at - approval_request.created_at).total_seconds(),
+                        )
+                    )
         elif event_type == "input.received":
             input_request = await session.get(
                 ExternalInputRequest, request_id, with_for_update=True

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from swarmcore_observability import configure_telemetry
+from swarmcore_observability import SwarmMetrics, configure_json_logging, configure_telemetry
 from swarmcore_persistence import Database
 from swarmcore_runtime_temporal import ControlActivities, SwarmRunWorkflow
 from swarmcore_tool_gateway import CapabilityTokenIssuer
@@ -38,7 +38,9 @@ async def serve() -> None:
     )
     activities = ControlActivities(
         PostgresPlanStore(database.sessions),
-        PostgresTransitionProjector(database.sessions),
+        PostgresTransitionProjector(
+            database.sessions, SwarmMetrics.create("worker-control")
+        ),
         GatewayCapabilityIssuer(CapabilityTokenIssuer(settings.tool_capability_secret)),
     )
     worker = Worker(
@@ -60,4 +62,5 @@ async def serve() -> None:
 
 
 def run() -> None:
+    configure_json_logging()
     asyncio.run(serve())

@@ -6,10 +6,12 @@ dependencies = [
   "jsonschema==4.25.0",
   "pydantic==2.11.7",
   "swarmcore-registry",
+  "swarmcore-governance",
 ]
 
 [tool.uv.sources]
 swarmcore-registry = { workspace = true }
+swarmcore-governance = { workspace = true }
 
 [build-system]
 requires = ["hatchling==1.27.0"]

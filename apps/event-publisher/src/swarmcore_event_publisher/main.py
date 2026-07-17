@@ -9,7 +9,12 @@ import nats
 from nats.js.api import RetentionPolicy, StorageType, StreamConfig
 from nats.js.errors import BadRequestError
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from swarmcore_observability import configure_telemetry, get_tracer
+from swarmcore_observability import (
+    SwarmMetrics,
+    configure_json_logging,
+    configure_telemetry,
+    get_tracer,
+)
 from swarmcore_persistence import Database
 
 from .publisher import EventPublisher
@@ -44,7 +49,12 @@ async def serve() -> None:
                 num_replicas=1,
             )
         )
-    publisher = EventPublisher(database.sessions, jetstream, worker_id=socket.gethostname())
+    publisher = EventPublisher(
+        database.sessions,
+        jetstream,
+        worker_id=socket.gethostname(),
+        metrics=SwarmMetrics.create("event-publisher"),
+    )
     try:
         while True:
             with get_tracer("event-publisher").start_as_current_span("publish-batch"):
@@ -58,4 +68,5 @@ async def serve() -> None:
 
 
 def run() -> None:
+    configure_json_logging()
     asyncio.run(serve())

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from swarmcore_compiler import Compiler, ExecutionPlan
 from swarmcore_domain import uuid7
+from swarmcore_persistence import AuditRepository
 from swarmcore_persistence.errors import PersistenceConflictError
 from swarmcore_persistence.models import (
     IdempotencyKey,
@@ -25,6 +26,7 @@ from swarmcore_spec import SwarmStrategy
 class StrategyService:
     def __init__(self, compiler: Compiler | None = None) -> None:
         self.compiler = compiler or Compiler()
+        self._audit = AuditRepository()
 
     def compile(
         self, raw_spec: dict[str, Any], *, registry_snapshot: str, policy_revision: str
@@ -71,6 +73,15 @@ class StrategyService:
         )
         session.add(draft)
         await session.flush()
+        await self._audit.append(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            actor_id=actor,
+            action="strategy.create",
+            resource_type="strategy",
+            resource_id=str(strategy.id),
+        )
         return strategy, draft
 
     async def publish(
@@ -82,6 +93,7 @@ class StrategyService:
         draft_id: UUID,
         registry_snapshot: str,
         policy_revision: str,
+        actor: str = "system",
     ) -> StrategyVersion:
         strategy = await session.scalar(
             select(Strategy)
@@ -122,6 +134,17 @@ class StrategyService:
         )
         session.add(version)
         await session.flush()
+        await self._audit.append(
+            session,
+            tenant_id=tenant_id,
+            project_id=strategy.project_id,
+            actor_id=actor,
+            action="strategy.publish",
+            resource_type="strategy",
+            resource_id=str(strategy.id),
+            policy_revision=policy_revision,
+            metadata={"version": version.version, "planHash": version.plan_hash},
+        )
         return version
 
     async def update_draft(
@@ -160,13 +183,27 @@ class StrategyService:
         draft.updated_at = datetime.now(UTC)
         draft.diagnostics = []
         await session.flush()
+        strategy = await session.get(Strategy, strategy_id)
+        if strategy is None:
+            raise LookupError("strategy not found")
+        await self._audit.append(
+            session,
+            tenant_id=tenant_id,
+            project_id=strategy.project_id,
+            actor_id=actor,
+            action="strategy.update",
+            resource_type="strategy",
+            resource_id=strategy_id.hex,
+            metadata={"revision": draft.revision},
+        )
         return draft
 
 
 class RunService:
     def __init__(self) -> None:
-        self.commands = RunCommandRepository()
+        self._commands = RunCommandRepository()
         self.events = EventRepository()
+        self._audit = AuditRepository()
 
     async def create(
         self,
@@ -177,6 +214,9 @@ class RunService:
         strategy_version_id: UUID,
         input_data: dict[str, Any],
         idempotency_key: str,
+        initiated_by: str = "system",
+        submitted_scopes: tuple[str, ...] = (),
+        auth_context_hash: str = "unknown",
     ) -> tuple[Run, Any]:
         request_hash = canonical_hash(
             {"strategyVersionId": str(strategy_version_id), "input": input_data}
@@ -210,6 +250,10 @@ class RunService:
             input_data=input_data,
             idempotency_key=idempotency_key,
             request_hash=request_hash,
+            initiated_by=initiated_by,
+            submitted_scopes=submitted_scopes,
+            auth_context_hash=auth_context_hash,
+            policy_revision=str(version.plan.get("policy_revision", "unknown")),
         )
 
     async def create_inline(
@@ -223,6 +267,9 @@ class RunService:
         idempotency_key: str,
         registry_snapshot: str = builtin_registry().snapshot_id,
         policy_revision: str = "m3",
+        initiated_by: str = "system",
+        submitted_scopes: tuple[str, ...] = (),
+        auth_context_hash: str = "unknown",
     ) -> tuple[Run, Any]:
         request_hash = canonical_hash({"spec": raw_spec, "input": input_data})
         existing = await self._existing(
@@ -270,6 +317,10 @@ class RunService:
             input_data=input_data,
             idempotency_key=idempotency_key,
             request_hash=request_hash,
+            initiated_by=initiated_by,
+            submitted_scopes=submitted_scopes,
+            auth_context_hash=auth_context_hash,
+            policy_revision=policy_revision,
         )
 
     async def _existing(
@@ -295,7 +346,7 @@ class RunService:
             run = await session.get(Run, existing_key.response_ref)
             if run is None:
                 raise RuntimeError("idempotency record references a missing run")
-            command = await self.commands.append(
+            command = await self._commands.append(
                 session,
                 tenant_id=tenant_id,
                 run_id=run.id,
@@ -316,6 +367,10 @@ class RunService:
         input_data: dict[str, Any],
         idempotency_key: str,
         request_hash: str,
+        initiated_by: str,
+        submitted_scopes: tuple[str, ...],
+        auth_context_hash: str,
+        policy_revision: str,
     ) -> tuple[Run, Any]:
         try:
             Draft202012Validator(version.plan["input_schema"]).validate(input_data)
@@ -333,6 +388,10 @@ class RunService:
             plan_hash=version.plan_hash,
             runtime_version=version.runtime_version,
             temporal_workflow_id=f"swarm:{tenant_id}:{run_id}",
+            initiated_by=initiated_by,
+            submitted_scopes=list(submitted_scopes),
+            auth_context_hash=auth_context_hash,
+            policy_revision=policy_revision,
         )
         session.add(run)
         await session.flush()
@@ -347,7 +406,7 @@ class RunService:
                 expires_at=datetime.now(UTC) + timedelta(hours=24),
             )
         )
-        command = await self.commands.append(
+        command = await self._commands.append(
             session,
             tenant_id=tenant_id,
             run_id=run.id,
@@ -364,5 +423,17 @@ class RunService:
             event_type="run.accepted",
             payload={},
             occurred_at=datetime.now(UTC),
+        )
+        await self._audit.append(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            actor_id=initiated_by,
+            action="run.create",
+            resource_type="run",
+            resource_id=str(run.id),
+            run_id=run.id,
+            policy_revision=policy_revision,
+            metadata={"planHash": run.plan_hash},
         )
         return run, command

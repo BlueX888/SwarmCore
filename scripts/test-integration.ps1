@@ -18,6 +18,11 @@ try {
     $env:SWARMCORE_TEST_DATABASE_URL = $databaseUrl
     $env:SWARMCORE_TEST_TEMPORAL_ADDRESS = "localhost:17233"
     $env:SWARMCORE_TEST_TEMPORAL_NAMESPACE = "default"
+    $env:SWARMCORE_TEST_S3_ENDPOINT = "http://localhost:19000"
+    $env:SWARMCORE_TEST_S3_ACCESS_KEY = "swarmcore-test"
+    $env:SWARMCORE_TEST_S3_SECRET_KEY = "swarmcore-test-secret"
+    $env:SWARMCORE_TEST_VAULT_ADDRESS = "http://localhost:18200"
+    $env:SWARMCORE_TEST_VAULT_TOKEN = "integration-root-token"
 
     uv run alembic -c packages/persistence/alembic.ini upgrade head
     uv run pytest -q tests/integration

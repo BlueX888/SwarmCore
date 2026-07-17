@@ -125,6 +125,30 @@ class StrategyVersionHandle(ApiModel):
     plan_hash: str = Field(alias="planHash")
 
 
+class CreateProjectConfigurationRequest(ApiModel):
+    name: str = Field(min_length=1, max_length=128)
+    source_ref: str = Field(alias="sourceRef", min_length=1, max_length=512)
+    configuration: dict[str, Any]
+
+
+class ProjectConfigurationSnapshot(ApiModel):
+    configuration_id: UUID = Field(alias="configurationId")
+    kind: Literal["agent", "tool", "model"]
+    name: str
+    source_ref: str = Field(alias="sourceRef")
+    configuration: dict[str, Any]
+    revision: int
+    created_by: str = Field(alias="createdBy")
+    updated_by: str = Field(alias="updatedBy")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+
+class ProjectConfigurationListResponse(ApiModel):
+    items: list[ProjectConfigurationSnapshot]
+    total: int
+
+
 class CreateRunRequest(ApiModel):
     strategy_version_id: UUID | None = Field(default=None, alias="strategyVersionId")
     spec: dict[str, Any] | None = None
@@ -143,18 +167,6 @@ class RunHandle(ApiModel):
     command_id: UUID = Field(alias="commandId")
     command_status: str = Field(alias="commandStatus")
     plan_hash: str = Field(alias="planHash")
-
-
-class CommandHandle(ApiModel):
-    command_id: UUID = Field(alias="commandId")
-    request_id: UUID = Field(alias="requestId")
-    command_seq: int = Field(alias="commandSeq")
-    status: str
-    result: dict[str, Any] | None = None
-    error: dict[str, Any] | None = None
-    created_at: datetime | None = Field(default=None, alias="createdAt")
-    applied_at: datetime | None = Field(default=None, alias="appliedAt")
-    rejected_at: datetime | None = Field(default=None, alias="rejectedAt")
 
 
 class HumanResponseRequest(ApiModel):
@@ -247,3 +259,66 @@ class JsonRpcRequest(ApiModel):
     id: str | int | None = None
     method: str
     params: dict[str, Any] = Field(default_factory=dict)
+
+
+class ArtifactSnapshot(ApiModel):
+    artifact_id: UUID = Field(alias="artifactId")
+    run_id: UUID = Field(alias="runId")
+    kind: str
+    filename: str
+    media_type: str = Field(alias="mediaType")
+    size_bytes: int = Field(alias="sizeBytes")
+    sha256: str
+    status: str
+    version: int
+    retention_until: datetime = Field(alias="retentionUntil")
+
+
+class ArtifactListResponse(ApiModel):
+    items: list[ArtifactSnapshot]
+    total: int
+
+
+class ArtifactDownloadGrantResponse(ApiModel):
+    artifact_id: UUID = Field(alias="artifactId")
+    download_ref: str = Field(alias="downloadRef")
+    expires_at: datetime = Field(alias="expiresAt")
+
+
+class AuditSnapshot(ApiModel):
+    audit_id: UUID = Field(alias="auditId")
+    actor_id: str = Field(alias="actorId")
+    action: str
+    resource_type: str = Field(alias="resourceType")
+    resource_id: str = Field(alias="resourceId")
+    outcome: str
+    policy_revision: str | None = Field(default=None, alias="policyRevision")
+    run_id: UUID | None = Field(default=None, alias="runId")
+    metadata: dict[str, Any]
+    occurred_at: datetime = Field(alias="occurredAt")
+
+
+class AuditListResponse(ApiModel):
+    items: list[AuditSnapshot]
+    total: int
+
+
+class CreateWebhookRequest(ApiModel):
+    url: str = Field(min_length=1, max_length=2048)
+    secret_ref: str = Field(alias="secretRef", min_length=1, max_length=512)
+    event_types: list[str] = Field(default_factory=list, alias="eventTypes")
+
+
+class WebhookSnapshot(ApiModel):
+    endpoint_id: UUID = Field(alias="endpointId")
+    url: str
+    secret_ref: str = Field(alias="secretRef")
+    event_types: list[str] = Field(alias="eventTypes")
+    status: str
+    failure_count: int = Field(alias="failureCount")
+    created_at: datetime = Field(alias="createdAt")
+
+
+class WebhookListResponse(ApiModel):
+    items: list[WebhookSnapshot]
+    total: int

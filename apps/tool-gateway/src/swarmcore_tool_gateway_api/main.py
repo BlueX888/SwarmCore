@@ -3,13 +3,26 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from swarmcore_domain import uuid7
+from swarmcore_governance import (
+    OpaPolicyEngine,
+    RolePolicyEngine,
+    VaultSecretProvider,
+    WorkloadTls,
+)
+from swarmcore_observability import (
+    SwarmMetrics,
+    configure_json_logging,
+    configure_telemetry,
+    get_tracer,
+)
 from swarmcore_persistence import (
     Database,
     EventRepository,
@@ -23,6 +36,7 @@ from swarmcore_tool_gateway import (
     EffectConflict,
     EffectInProgress,
     GatewayError,
+    TokenError,
     ToolGateway,
     ToolInvocation,
     builtin_executors,
@@ -36,6 +50,38 @@ class Settings(BaseSettings):
     tool_capability_secret: str = "development-only-capability-secret-32-bytes"
     tool_gateway_host: str = "127.0.0.1"
     tool_gateway_port: int = 8090
+    vault_address: str = "http://localhost:8200"
+    vault_token: str = ""
+    vault_kubernetes_role: str = ""
+    vault_kubernetes_jwt_path: str = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    vault_kubernetes_auth_mount: str = "kubernetes"
+    policy_mode: str = "local"
+    opa_decision_url: str = "http://localhost:8181/v1/data/swarmcore/decision"
+    otlp_endpoint: str = "http://localhost:4317"
+    telemetry_enabled: bool = True
+    deployment_mode: Literal["local", "production"] = "local"
+    workload_tls_ca_file: str = ""
+    workload_tls_cert_file: str = ""
+    workload_tls_key_file: str = ""
+
+    def workload_tls(self) -> WorkloadTls:
+        return WorkloadTls(
+            self.workload_tls_ca_file,
+            self.workload_tls_cert_file,
+            self.workload_tls_key_file,
+        )
+
+    @model_validator(mode="after")
+    def validate_production_boundary(self) -> Settings:
+        self.workload_tls().validate(required=self.deployment_mode == "production")
+        if self.deployment_mode == "production":
+            if self.tool_capability_secret.startswith("development-"):
+                raise ValueError("production Tool Gateway requires a managed capability secret")
+            if self.policy_mode != "opa":
+                raise ValueError("production Tool Gateway requires OPA")
+            if not self.vault_kubernetes_role:
+                raise ValueError("production Tool Gateway requires Vault Kubernetes auth")
+        return self
 
 
 class PostgresToolAuditSink:
@@ -68,6 +114,8 @@ class PostgresToolAuditSink:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     configured = settings or Settings()
+    metrics = SwarmMetrics.create("tool-gateway")
+    token_issuer = CapabilityTokenIssuer(configured.tool_capability_secret)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -75,10 +123,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.database = database
         app.state.gateway = ToolGateway(
             builtin_registry(),
-            CapabilityTokenIssuer(configured.tool_capability_secret),
+            token_issuer,
             PostgresEffectJournal(database.sessions),
             builtin_executors(),
             PostgresToolAuditSink(database),
+            secrets=(
+                VaultSecretProvider(
+                    configured.vault_address,
+                    configured.vault_token,
+                    kubernetes_role=configured.vault_kubernetes_role,
+                    kubernetes_jwt_path=configured.vault_kubernetes_jwt_path,
+                    kubernetes_auth_mount=configured.vault_kubernetes_auth_mount,
+                )
+                if configured.vault_token or configured.vault_kubernetes_role
+                else None
+            ),
+            policy=(
+                OpaPolicyEngine(configured.opa_decision_url)
+                if configured.policy_mode == "opa"
+                else RolePolicyEngine()
+            ),
         )
         try:
             yield
@@ -91,12 +155,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def invoke(body: ToolInvocation, request: Request) -> dict[str, Any]:
         gateway: ToolGateway = request.app.state.gateway
         try:
-            return await gateway.invoke(body)
+            capability = token_issuer.verify(body.token)
+        except TokenError as exc:
+            metrics.tool_calls.add(1, {"tool": "invalid", "status": "denied"})
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        labels = {"tool": capability.tool_ref}
+        span = get_tracer("tool-gateway").start_span(
+            "tool.call",
+            attributes={
+                "tenant.id": capability.tenant_id,
+                "project.id": capability.project_id,
+                "swarm.run.id": capability.run_id,
+                "swarm.task.id": capability.execution_id,
+                "tool.name": capability.tool_ref,
+            },
+        )
+        try:
+            result = await gateway.invoke(body)
+            metrics.tool_calls.add(1, {**labels, "status": "succeeded"})
+            span.end()
+            return result
         except EffectInProgress as exc:
+            metrics.tool_calls.add(1, {**labels, "status": "in_progress"})
+            span.set_attribute("error.type", type(exc).__name__)
+            span.end()
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except EffectConflict as exc:
+            metrics.tool_calls.add(1, {**labels, "status": "conflict"})
+            span.set_attribute("error.type", type(exc).__name__)
+            span.end()
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except GatewayError as exc:
+            metrics.tool_calls.add(1, {**labels, "status": "denied"})
+            span.set_attribute("error.type", type(exc).__name__)
+            span.end()
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     @app.get("/healthz")
@@ -107,7 +199,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 def run() -> None:
+    configure_json_logging()
     settings = Settings()
-    uvicorn.run(
-        create_app(settings), host=settings.tool_gateway_host, port=settings.tool_gateway_port
+    telemetry = configure_telemetry(
+        "tool-gateway", endpoint=settings.otlp_endpoint, enabled=settings.telemetry_enabled
     )
+    try:
+        uvicorn.run(
+            create_app(settings),
+            host=settings.tool_gateway_host,
+            port=settings.tool_gateway_port,
+            **settings.workload_tls().uvicorn_options(),
+        )
+    finally:
+        telemetry.shutdown()

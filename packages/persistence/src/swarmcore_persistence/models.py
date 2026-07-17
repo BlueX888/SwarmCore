@@ -6,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKeyConstraint,
     Index,
@@ -171,6 +172,10 @@ class Run(Base, IdMixin, TenantMixin, TimestampMixin):
     parent_run_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    initiated_by: Mapped[str] = mapped_column(String(256), default="system", nullable=False)
+    submitted_scopes: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    auth_context_hash: Mapped[str] = mapped_column(String(64), default="unknown", nullable=False)
+    policy_revision: Mapped[str] = mapped_column(String(128), default="unknown", nullable=False)
 
 
 class RunTask(Base, IdMixin, TenantMixin):
@@ -379,6 +384,13 @@ class ApprovalRequest(Base, IdMixin, TenantMixin):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    task_execution_id: Mapped[str | None] = mapped_column(String(128))
+    tool_ref: Mapped[str | None] = mapped_column(String(512))
+    tool_version: Mapped[str | None] = mapped_column(String(128))
+    canonical_input_hash: Mapped[str | None] = mapped_column(String(64))
+    policy_revision: Mapped[str | None] = mapped_column(String(128))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    requires_distinct_approver: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class ExternalInputRequest(Base, IdMixin, TenantMixin):
@@ -452,3 +464,227 @@ class ToolEffect(Base, IdMixin, TenantMixin, TimestampMixin):
     error: Mapped[str | None] = mapped_column(Text)
     attempts: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ProjectConfiguration(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "project_configurations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_project_configurations_tenant_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "kind",
+            "name",
+            name="uq_project_configurations_scope_name",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id"],
+            ["projects.tenant_id", "projects.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_project_configurations_project_kind", "project_id", "kind", "updated_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_ref: Mapped[str] = mapped_column(String(512), nullable=False)
+    configuration: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(256), nullable=False)
+
+
+class Artifact(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "artifacts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_artifacts_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "run_id"],
+            ["runs.tenant_id", "runs.project_id", "runs.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_artifacts_run_status", "run_id", "status"),
+        Index("ix_artifacts_retention", "status", "retention_until"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    filename: Mapped[str] = mapped_column(String(512), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(256), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(1024), unique=True, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    data_classification: Mapped[str] = mapped_column(
+        String(32), default="internal", nullable=False
+    )
+    retention_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ArtifactDownloadGrant(Base, IdMixin, TenantMixin):
+    __tablename__ = "artifact_download_grants"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_artifact_download_grants_tenant_id"),
+        UniqueConstraint("token_hash", name="uq_artifact_download_grants_token"),
+        ForeignKeyConstraint(
+            ["tenant_id", "artifact_id"],
+            ["artifacts.tenant_id", "artifacts.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_artifact_download_grants_expiry", "expires_at"),
+    )
+
+    artifact_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    issued_to: Mapped[str] = mapped_column(String(256), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
+class AuditLog(Base, IdMixin, TenantMixin):
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_audit_logs_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id"],
+            ["projects.tenant_id", "projects.id"],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_audit_logs_scope_time", "tenant_id", "project_id", "occurred_at"),
+        Index("ix_audit_logs_run", "run_id", "occurred_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    run_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    actor_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    action: Mapped[str] = mapped_column(String(128), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy_revision: Mapped[str | None] = mapped_column(String(128))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, default=dict, nullable=False
+    )
+    trace_id: Mapped[str | None] = mapped_column(String(64))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ModelUsageRecord(Base, IdMixin, TenantMixin):
+    __tablename__ = "model_usage_records"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_model_usage_records_tenant_id"),
+        UniqueConstraint("run_id", "request_id", name="uq_model_usage_run_request"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "run_id"],
+            ["runs.tenant_id", "runs.project_id", "runs.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_model_usage_run", "run_id", "occurred_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    logical_model: Mapped[str] = mapped_column(String(512), nullable=False)
+    provider: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider_model: Mapped[str] = mapped_column(String(512), nullable=False)
+    price_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cost_usd_micros: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class WebhookEndpoint(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "webhook_endpoints"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_webhook_endpoints_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id"],
+            ["projects.tenant_id", "projects.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_webhook_endpoints_project_status", "project_id", "status"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    secret_ref: Mapped[str] = mapped_column(String(512), nullable=False)
+    event_types: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="ACTIVE", nullable=False)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class WebhookDelivery(Base, IdMixin, TenantMixin):
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_webhook_deliveries_tenant_id"),
+        UniqueConstraint("endpoint_id", "event_id", name="uq_webhook_delivery_event"),
+        ForeignKeyConstraint(
+            ["tenant_id", "endpoint_id"],
+            ["webhook_endpoints.tenant_id", "webhook_endpoints.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_webhook_delivery_retry", "status", "next_attempt_at"),
+    )
+
+    endpoint_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    event_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    delivery_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="PENDING", nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    response_status: Mapped[int | None] = mapped_column(Integer)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SandboxExecution(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "sandbox_executions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_sandbox_executions_tenant_id"),
+        UniqueConstraint("run_id", "task_execution_id", name="uq_sandbox_run_task_execution"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "run_id"],
+            ["runs.tenant_id", "runs.project_id", "runs.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_sandbox_execution_run_status", "run_id", "status"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    task_execution_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    image_digest: Mapped[str] = mapped_column(String(512), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy_revision: Mapped[str] = mapped_column(String(128), nullable=False)
+    result_ref: Mapped[str | None] = mapped_column(String(1024))
+    cleanup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CompensationRecord(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "compensation_records"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_compensation_records_tenant_id"),
+        UniqueConstraint("run_id", "effect_id", name="uq_compensation_run_effect"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "run_id"],
+            ["runs.tenant_id", "runs.project_id", "runs.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_compensation_run_status", "run_id", "status"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    effect_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    operation: Mapped[str] = mapped_column(String(512), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    input: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text)

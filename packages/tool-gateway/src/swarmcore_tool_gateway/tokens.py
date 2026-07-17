@@ -28,6 +28,9 @@ class CapabilityClaims(BaseModel):
     execution_id: str = Field(alias="executionId")
     effect_id: str | None = Field(default=None, alias="effectId")
     approved: bool = False
+    action: str = "tool.execute"
+    canonical_input_hash: str | None = Field(default=None, alias="canonicalInputHash")
+    policy_revision: str | None = Field(default=None, alias="policyRevision")
     issued_at: int = Field(alias="iat")
     expires_at: int = Field(alias="exp")
 
@@ -59,6 +62,9 @@ class CapabilityTokenIssuer:
         execution_id: str,
         effect_id: str | None,
         approved: bool,
+        canonical_input_hash: str | None = None,
+        policy_revision: str | None = None,
+        action: str = "tool.execute",
         ttl: timedelta = timedelta(minutes=15),
     ) -> str:
         now = self._clock()
@@ -73,6 +79,9 @@ class CapabilityTokenIssuer:
             executionId=execution_id,
             effectId=effect_id,
             approved=approved,
+            canonicalInputHash=canonical_input_hash,
+            policyRevision=policy_revision,
+            action=action,
             iat=int(now.timestamp()),
             exp=int((now + ttl).timestamp()),
         )

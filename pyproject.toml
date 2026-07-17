@@ -15,6 +15,10 @@ members = [
   "apps/projection-reconciler",
   "apps/worker-tool",
   "apps/tool-gateway",
+  "apps/worker-webhook",
+  "apps/sandbox-manager",
+  "apps/artifact-gateway",
+  "apps/model-gateway",
   "packages/spec",
   "packages/compiler",
   "packages/domain",
@@ -24,10 +28,12 @@ members = [
   "packages/observability",
   "packages/registry",
   "packages/tool-gateway",
+  "packages/governance",
 ]
 
 [dependency-groups]
 dev = [
+  "boto3==1.40.1",
   "mypy==1.17.0",
   "pytest==8.4.1",
   "pytest-asyncio==1.1.0",
@@ -56,9 +62,14 @@ pythonpath = [
   "apps/projection-reconciler/src",
   "apps/worker-tool/src",
   "apps/tool-gateway/src",
+  "apps/worker-webhook/src",
+  "apps/sandbox-manager/src",
+  "apps/artifact-gateway/src",
+  "apps/model-gateway/src",
   "packages/observability/src",
   "packages/registry/src",
   "packages/tool-gateway/src",
+  "packages/governance/src",
 ]
 
 [tool.ruff]
@@ -87,9 +98,14 @@ packages = [
   "swarmcore_projection_reconciler",
   "swarmcore_worker_tool",
   "swarmcore_tool_gateway_api",
+  "swarmcore_worker_webhook",
+  "swarmcore_sandbox_manager",
+  "swarmcore_artifact_gateway",
+  "swarmcore_model_gateway",
   "swarmcore_observability",
   "swarmcore_registry",
   "swarmcore_tool_gateway",
+  "swarmcore_governance",
 ]
 mypy_path = [
   "packages/application/src",
@@ -107,7 +123,12 @@ mypy_path = [
   "apps/projection-reconciler/src",
   "apps/worker-tool/src",
   "apps/tool-gateway/src",
+  "apps/worker-webhook/src",
+  "apps/sandbox-manager/src",
+  "apps/artifact-gateway/src",
+  "apps/model-gateway/src",
   "packages/observability/src",
   "packages/registry/src",
   "packages/tool-gateway/src",
+  "packages/governance/src",
 ]

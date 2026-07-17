@@ -15,20 +15,20 @@ describe("StrategyEditor", () => {
   it("preserves the last valid Spec when text becomes invalid", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("tab", { name: "JSON" }));
-    const editor = screen.getByLabelText("JSON strategy spec");
+    const editor = screen.getByLabelText("JSON 策略规范");
     const valid = createBlankSpec("valid-name");
     fireEvent.change(editor, { target: { value: JSON.stringify(valid) } });
     expect(screen.getByTestId("active-spec")).toHaveTextContent("valid-name");
     fireEvent.change(editor, { target: { value: "{" } });
-    expect(screen.getByRole("alert")).toHaveTextContent("last valid Spec");
+    expect(screen.getByRole("alert")).toHaveTextContent("最近一次有效");
     expect(screen.getByTestId("active-spec")).toHaveTextContent("valid-name");
-    fireEvent.click(screen.getByRole("tab", { name: "CANVAS" }));
+    fireEvent.click(screen.getByRole("tab", { name: "画布" }));
     expect(screen.getByTestId("strategy-canvas")).toBeInTheDocument();
   });
 
   it("renders the capability-driven node library", () => {
     render(<Harness />);
-    expect(screen.getByRole("button", { name: /External Input/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Tool/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /外部输入/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /工具/ })).not.toBeInTheDocument();
   });
 });

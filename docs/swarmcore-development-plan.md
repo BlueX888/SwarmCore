@@ -3,482 +3,380 @@
 | 属性 | 值 |
 |---|---|
 | 文档状态 | Living Document / 持续更新 |
-| 版本 | 1.8 |
+| 版本 | 2.0 |
 | 建立日期 | 2026-07-16 |
-| 最近更新 | 2026-07-16 |
-| 当前里程碑 | M3：受控 Tool 与编排能力扩展（VERIFIED） |
-| 当前基线提交 | M3 复验基线（本文件所在提交） |
-| 关联设计 | [SwarmCore 系统设计](./swarmcore-system-design.md) |
-| 维护者 | SwarmCore Team |
+| 最近更新 | 2026-07-17 |
+| 已提交基线 | `eb75ac3`（受控 Tool 与有界编排） |
+| 当前候选基线 | M3 维护性收敛与 M4 治理能力位于未提交工作树 |
+| 当前焦点 | M5：v1 契约与基线闭合 / G0 |
+| 唯一下一门禁 | G0（见第 5 节） |
+| 架构事实源 | [SwarmCore 系统设计](./swarmcore-system-design.md) |
 
-## 1. 文档目的
+## 1. 文档职责
 
-本文档记录 SwarmCore 的开发顺序、当前进度、验收证据、阻塞项和下一步工作。系统设计文档回答“系统最终是什么”，本文档回答“当前开发到哪里、接下来交付什么”。
+系统设计回答“SwarmCore 是什么以及必须遵守哪些边界”，本文档只回答四个问题：
 
-每次里程碑状态变化、验收结果变化或开发优先级调整时更新本文档。代码已合并不等于里程碑已验收；只有满足退出标准并留下测试证据后，状态才能标记为 `VERIFIED`。
+1. 当前可靠拥有哪些能力；
+2. 还有哪些事实、能力或证据缺口；
+3. 为什么按当前顺序推进；
+4. 用什么可执行证据判定完成。
 
-## 2. 产品目标与开发原则
+本文档不再充当开发流水账。已关闭工作合并为能力基线，详细过程由 Git 历史保留；正文只维护当前事实、开放门禁和未来交付结果。
 
-SwarmCore 的核心目标是形成以下稳定闭环：
+## 2. 第一性原理
 
-~~~text
-DeepTalk / 其他调用方
-  -> 查询 Agent、Tool、Model 和编排能力
-  -> 通过 REST API 或 MCP 提交 SwarmSpec
-  -> SwarmCore 校验、编译并耐久执行
-  -> 调用方查询或订阅状态
-  -> SwarmCore 返回统一 RunResult
-~~~
+### 2.1 价值闭环
 
-开发遵循以下原则：
+SwarmCore 的最小完整价值不是“支持更多节点”，而是让调用方可以信任一次编排执行：
 
-1. DeepTalk 负责目标理解和编排决策，SwarmCore 负责受控、可靠地执行。
-2. REST API 与 MCP 是统一应用服务的并列适配器，不建立两套业务逻辑。
-3. 控制台只用于人工测试、执行观测和问题诊断。
-4. 优先完成真实端到端闭环，再扩展节点数量、治理能力和部署规模。
-5. 每个里程碑必须具有可执行的验收场景，不以文件数量或代码量判断完成度。
-6. 凡开发、调试或验收需要 DeepTalk 参与时，由负责当前任务的开发 Agent 主动模拟 DeepTalk 请求 REST API 和 MCP，不等待真实客户端接入；模拟边界和证据要求见 9.5 节。
+```text
+调用方提交声明式方案
+  -> SwarmCore 统一校验并冻结执行语义
+  -> 在权限、预算和副作用约束下耐久执行
+  -> 故障后恢复且不丢失已接受的工作
+  -> 返回可追溯、可审计的状态与结果
+```
 
-## 3. 状态定义
+只有同时满足以下条件，能力才产生可交付价值：
 
-| 状态 | 含义 |
+- **契约真实**：公开 Schema、Capability Catalog、Compiler、Runtime 和客户端行为一致。
+- **执行可靠**：接受、命令、状态、事件和外部副作用在重试或故障下保持一致。
+- **边界受控**：租户、权限、Secret、预算、Tool、Artifact 和沙箱约束不可绕过。
+- **可被运营**：部署、升级、观测、告警、恢复和容量边界有可执行证据。
+
+### 2.2 不可变约束
+
+1. DeepTalk 和其他调用方负责目标理解与编排决策；SwarmCore 只负责受控、可靠和耐久执行。
+2. REST API 与 MCP 复用同一应用服务、权限、编译、命令和结果语义。
+3. SwarmSpec 是声明式方案事实源，ExecutionPlan 是运行时不可变输入；控制台不建立第二套语义。
+4. Temporal Workflow 保持确定性，网络、数据库、模型和文件 I/O 只进入 Activity。
+5. PostgreSQL 是产品状态事实源，不绕过状态机、幂等、Outbox、RLS、审计或补偿机制。
+6. Agent SDK、Provider、OPA、Vault、S3 和具体运行环境通过 Adapter、Provider 或 Gateway 接入，不污染领域核心。
+7. 所有数据访问保留 tenant/project 边界；条件表达式禁止 Python `eval`。
+8. 重构只能由重复逻辑、边界倒置、测试阻塞、性能、安全或故障证据触发，并必须保留外部契约和回归证据。
+
+### 2.3 排序原则
+
+优先级固定为：
+
+1. 关闭不可复现、契约不一致和安全正确性风险；
+2. 证明真实生产环境可部署；
+3. 证明故障后可恢复；
+4. 在已知负载下证明容量和 SLO；
+5. 最后扩展非核心节点、生态 Adapter 和可选基础设施。
+
+因此不以文件数、代码量、组件数量或“设计中曾经出现”作为排期依据，也不为未经验证的负载提前扩容。
+
+## 3. 状态与证据
+
+### 3.1 交付状态
+
+| 状态 | 定义 |
 |---|---|
-| `PLANNED` | 范围和验收标准已定义，尚未开始实现 |
-| `IN_PROGRESS` | 已开始实现，但尚未完成全部交付项 |
-| `IMPLEMENTED` | 代码已实现，仍有集成、环境或验收项未完成 |
-| `VERIFIED` | 所有退出标准通过，证据已记录 |
-| `BLOCKED` | 存在明确阻塞条件，当前无法继续推进 |
-
-## 4. 总体里程碑
-
-| 里程碑 | 目标 | 当前状态 | 下一道门禁 |
-|---|---|---|---|
-| M0 | 产品定位与系统设计基线 | `VERIFIED` | 设计变更持续同步 |
-| M1 | 耐久执行核心 MVP | `VERIFIED` | 持续回归 |
-| M2A | 人工控制与运行干预 | `VERIFIED` | 持续回归 |
-| M2B | DeepTalk Integration MVP | `IMPLEMENTED` | 远端 CI 运行并通过 Fake Agent E2E |
-| M2C | Strategy Canvas 可视化编排 | `VERIFIED` | 持续回归 |
-| M3 | 受控 Tool 与编排能力扩展 | `VERIFIED` | 持续回归；下一步 M4 |
-| M4 | 治理、安全与生产能力 | `PLANNED` | 安全、审计、预算、Artifact 验收 |
-| M5 | 规模化与生态扩展 | `PLANNED` | 容量、灾备和扩展适配器验收 |
-
-## 5. 当前进度基线
-
-### 5.1 已提交能力
-
-当前仓库已有四个明确的功能基线：
-
-- `230a089`：Phase 1 MVP。
-- `ea8a09b`：Phase 2A Human Control。
-- `0cbeb9a`：DeepTalk Integration 与 Strategy Canvas。
-- 本文件所在提交：M3 受控 Tool、Router、Loop 与稳定取消语义。
-
-已存在的主要模块：
-
-- SwarmSpec v1 数据模型、解析和模板。
-- 确定性 Compiler、ExecutionPlan 和 Plan Hash。
-- Run、Task、Attempt、Event、Command 等领域与持久化模型。
-- PostgreSQL Migration、RLS、Transactional Outbox。
-- Command Dispatcher、Event Publisher、Projection Reconciler。
-- Temporal Workflow、调度器和控制 Worker。
-- Agno Adapter、真实模型入口和确定性 Fake Agent。
-- Strategy、Run、Command、SSE 和基础 MCP 接口。
-- Pause、Resume、Cancel、Approval、External Input 和 Task Retry。
-- 基础测试与观测控制台。
-
-### 5.2 2026-07-16 验证快照
-
-| 门禁 | 结果 | 证据/备注 |
-|---|---|---|
-| 后端单元测试 | 通过 | `44 passed` |
-| Ruff | 通过 | `All checks passed` |
-| Mypy | 通过 | `47 source files` 无问题 |
-| 前端单元测试 | 通过 | `5 files / 10 tests passed` |
-| 前端 ESLint | 通过 | 0 warning |
-| 前端生产构建 | 通过 | Vite 构建成功；存在主 Chunk 大于 500 KiB 警告 |
-| 后端集成测试 | 待复验 | 共收集 4 项；PostgreSQL 契约依赖 `SWARMCORE_TEST_DATABASE_URL`，Temporal 测试环境本次未完成启动 |
-| Playwright E2E | 本次未执行 | M2B 验收前必须执行并记录结果 |
-
-当时结论：M1 和 M2A 已实现，但环境型集成测试尚未形成可重复的全绿证据，因此保持 `IMPLEMENTED`；该缺口已在 5.3 节关闭。
-
-### 5.3 2026-07-16 M1/M2A 验收记录
-
-执行命令：
-
-~~~powershell
-./scripts/test-integration.ps1
-uv run pytest -q tests/unit
-uv run ruff check .
-uv run mypy
-~~~
-
-结果：
-
-- 独立 PostgreSQL 17.5 与 Temporal 1.28.0 环境从零创建，Migration `0001 -> 0002` 成功。
-- 后端集成测试 `7 passed in 50.63s`，无警告；脚本结束后自动清理容器与数据。
-- 后端单元测试 `44 passed`；Ruff 通过；Mypy 对 47 个源文件检查通过。
-- 覆盖 Migration、RLS、Strategy API、完整 Run API/Outbox/Temporal/Worker/Projection 闭环。
-- 覆盖顺序、并行、DAG、Supervisor、Activity 恢复、Cancel、Pause、Resume、Approval、External Input、Retry。
-- Approval 与 External Input 均验证 Control Worker 重启后请求内容、Pending 状态、命令游标和乱序拒绝语义保持一致。
-
-验收中发现并修复：
-
-- `0002` 在全新数据库上可能因 `0001` 的 metadata 建表而重复创建 `uq_runs_scope_id`，现兼容 PostgreSQL `duplicate_table`。
-- Temporal 容器健康检查必须使用容器 DNS 地址，不能使用容器内 loopback。
-- Workflow 终态返回前等待 Update Handler 完成，消除命令结果可能被终态截断的警告。
-- 真实 Temporal 下 Cancel 终态等待窗口由 5 秒调整为 30 秒，避免环境调度抖动造成假失败。
-
-阻塞项：无。
-
-下一步唯一最高优先事项：M2B-01，抽离 REST/MCP 共用的协议无关应用服务层。
-
-### 5.4 2026-07-16 M2B 实现与验收快照
-
-结果：
-
-- 后端单元测试 `47 passed`；Ruff 通过；Mypy 对 53 个源文件检查通过。
-- PostgreSQL/Temporal 集成测试 `7 passed in 55.05s`。
-- DeepTalk Harness 完成 capabilities、compile、REST/MCP inline create、status、result 调用序列。
-- 固定场景为“两路 Fake Agent 并行分析 -> Reducer”，Agent Worker 在 Activity 执行中重启后 Run 恢复成功。
-- REST/MCP 对相同 Spec 的 Plan Hash、诊断、Run 状态和 RunResult 等价。
-- 前端 `5 files / 10 tests passed`，ESLint 通过，生产构建通过；主 Chunk 大于 500 KiB 警告仍保留为 P2。
-- Playwright `15 passed`，覆盖 desktop/tablet/mobile 与 light/dark。
-- 新增 GitHub Actions 后端门禁和 Linux/PowerShell 双平台一键集成脚本；远端 workflow 尚未运行。
-- `./scripts/smoke-agno-ollama.ps1` 使用本机 `qwen3:0.6b` 完成真实 Agno Model 受控调用，输出 `AGNO_OLLAMA_SMOKE_OK model=qwen3:0.6b`。
-- Smoke 修复后复验：后端单元测试 `47 passed`；Ruff 通过；Mypy 对 53 个源文件检查通过。
-
-发现并修复：
-
-- REST 与 MCP 时间戳分别输出 `Z` 和 `+00:00`，现统一为 UTC `Z`。
-- REST 与 MCP 的 compile 默认 registry/policy、诊断与 Plan Hash 原先可能分叉，现统一到应用服务。
-- MCP 原先额外要求 Bearer 且使用异常类名作为错误码，现与 REST 统一使用当前租户作用域和稳定应用错误码；正式认证与 OPA 留在 M4。
-- Worker 重启测试会对固定 Temporal task queue 留下取消投递，因此破坏性恢复场景固定为套件最后一项，避免测试间污染。
-- Agno 2.7.3 的 Ollama provider 还会导入 OpenAI 基类，适配器改用官方 `ollama,openai` extras；结构化 Agent 输入稳定序列化为 JSON，消除 Message 校验警告。
-
-阻塞项：GitHub Actions 只有推送或 PR 后才能形成远端 CI 通过证据；本轮未获授权发布分支或创建 PR。
-
-下一步唯一最高优先事项：在 PR CI 中确认 Fake Agent E2E；通过后将 M2B 标记为 `VERIFIED`。
-
-## 6. M0：产品定位与系统设计基线
-
-状态：`VERIFIED`
-
-已完成：
-
-- 明确 SwarmCore 是协议无关的多 Agent 编排执行运行时。
-- 明确 DeepTalk 是编排决策方，SwarmCore 是执行方。
-- 明确 REST API 与 MCP 是并列入口。
-- 明确控制台是人工测试与观测客户端。
-- 建立系统边界、领域模型、执行设计、数据设计和安全设计。
-
-持续要求：任何改变产品边界、事实源、执行语义或接口职责的决定，必须先更新系统设计或新增 ADR。
-
-## 7. M1：耐久执行核心 MVP
-
-状态：`VERIFIED`
-
-目标：证明声明式 SwarmSpec 可以被编译为不可变 ExecutionPlan，并由 Temporal 可靠执行。
-
-已完成：
-
-- 顺序、并行、DAG、Supervisor 模板和基础 Reducer。
-- Run 创建、耐久接收和异步启动。
-- Temporal Worker 故障重试与状态投影。
-- PostgreSQL 产品状态、事件和 Outbox。
-- SSE 事件读取和基础控制台观察。
-- REST API 与基础 MCP Server。
-
-退出标准：
-
-- [x] 单元测试覆盖 Spec、Compiler、调度、状态和持久化。
-- [x] 静态检查和类型检查通过。
-- [x] Temporal Workflow 集成测试在标准开发环境可重复通过。
-- [x] PostgreSQL Migration、RLS 和 API 集成测试在标准测试数据库可重复通过。
-- [x] 一条从提交 Run 到获得最终结果的本地部署验收记录。
-
-## 8. M2A：人工控制与运行干预
-
-状态：`VERIFIED`
-
-目标：允许调用方在不破坏 Temporal 状态一致性的前提下控制运行和处理人工等待。
-
-已完成：
-
-- RunCommand 按 `command_seq` 顺序交付。
-- Command `request_id` 幂等。
-- Pause、Resume 和 Cancel。
-- Approval 和 External Input 一次性请求。
-- 失败 Task 的人工 Retry。
-- 人工等待表、RLS 和 API。
-- 控制台 Run 控制操作。
-
-退出标准：
-
-- [x] 状态机和命令顺序单元测试通过。
-- [x] Migration 契约测试通过。
-- [x] Pause/Resume/Approval/Input/Retry 的 Temporal 集成测试在标准环境可重复通过。
-- [x] Worker 重启后未决人工请求和命令游标保持一致。
-
-## 9. M2B：DeepTalk Integration MVP
-
-状态：`IMPLEMENTED` / 待外部验收证据
-
-### 9.1 目标
-
-DeepTalk 可以通过 REST API 或 MCP 查询能力、自主生成并提交 SwarmSpec、跟踪执行并取得最终 RunResult。关闭控制台后，该链路仍完整可用。
-
-### 9.2 工作分解
-
-| ID | 工作项 | 状态 | 预期产出 |
-|---|---|---|---|
-| M2B-01 | 抽离协议无关的应用服务层 | `IMPLEMENTED` | `packages/application`；REST/MCP 共用 Strategy、Run、Run Query 服务；44 单测、Ruff、Mypy 通过 |
-| M2B-02 | 建立 Capability Catalog | `IMPLEMENTED` | REST/MCP 统一 DTO；Agent、Model、6 种节点、限制和 SwarmSpec Schema；45 单测通过 |
-| M2B-03 | 支持 Inline SwarmSpec 创建 Run | `IMPLEMENTED` | REST/MCP 可提交 inline Spec；EPHEMERAL 版本、幂等 RunHandle、双 Run 真实闭环通过 |
-| M2B-04 | 建立标准 RunResult | `IMPLEMENTED` | REST `GET result`；终态信封、Task/Usage/Artifact/Error/Provenance；非终态 409；真实闭环通过 |
-| M2B-05 | 补齐 MCP 入站适配器 | `IMPLEMENTED` | capabilities、validate、compile、create、status、result、control Tools；真实 MCP Run 通过 |
-| M2B-06 | 统一 REST/MCP 契约 | `IMPLEMENTED` | 共用应用服务；Plan Hash、diagnostics、status、result 等价；修复 UTC 时间格式分叉 |
-| M2B-07 | 建立 DeepTalk 契约测试 Harness | `IMPLEMENTED` | 可复用 Harness 按 capabilities/compile/create/status/result 顺序完成 REST/MCP 真实验收 |
-| M2B-08 | 完成可重复集成测试环境 | `IMPLEMENTED` | PostgreSQL、Temporal 和服务进程一键启动与测试；`7 passed` |
-| M2B-09 | 控制台适配新增公开接口 | `IMPLEMENTED` | RunHandle `planHash` 类型已适配；10 单测、Lint、Build、15 Playwright 通过 |
-
-### 9.3 退出标准
-
-- [x] DeepTalk 可查询当前允许使用的 Agent、Tool、Model 和编排节点。
-- [x] DeepTalk 可通过 REST 提交 inline SwarmSpec 并获得 RunHandle。
-- [x] DeepTalk 可通过 MCP 提交相同方案并获得结构等价的 RunHandle。
-- [x] 调用方可查询状态、读取事件并获得统一 RunResult。
-- [x] REST 与 MCP 对相同 Spec 产生相同 Plan Hash 和验证诊断。
-- [x] REST 与 MCP 使用相同的权限、幂等和错误语义。
-- [x] 短任务和长任务均不依赖长时间阻塞连接。
-- [ ] Fake Agent 确定性 E2E 在 CI 通过。
-- [x] 至少一条真实 Agno Model 的受控 Smoke Test 通过。
-- [x] 控制台关闭或未部署时，REST/MCP/Worker 链路不受影响。
-- [x] M1、M2A 遗留集成测试全部形成可重复证据。
-
-### 9.4 固定验收场景
-
-采用一个稳定场景作为 M2B 的主验收用例：
-
-1. DeepTalk 查询两个 Agent 和一个 Reducer 能力。
-2. DeepTalk 生成“两路并行分析 -> Reducer 汇总”的 inline SwarmSpec。
-3. SwarmCore 编译并返回 Plan Hash 和 RunHandle。
-4. DeepTalk 使用事件或状态查询跟踪运行。
-5. Worker 在执行中重启，Run 自动恢复。
-6. DeepTalk 获得包含输出、用量、警告和 provenance 的 RunResult。
-7. 同一场景分别通过 REST 和 MCP 执行，契约保持一致。
-
-### 9.5 DeepTalk 模拟约定
-
-当真实 DeepTalk 客户端未接入或不便参与当前开发流程时，由负责当前任务的开发 Agent 使用 `DeepTalkContractHarness` 模拟 DeepTalk，按 capabilities -> compile -> create -> status -> result 的顺序分别请求 REST API 和 MCP，并比较两种入口的 Plan Hash、诊断、状态和 RunResult。
-
-模拟应尽量使用真实 SwarmCore API、PostgreSQL、Temporal 和 Worker；模型调用可按验收目标选择确定性 Fake Agent 或真实受控模型。结果必须明确标记为“DeepTalk 模拟验收”，不得冒充真实 DeepTalk 联调；只有退出标准明确要求真实外部客户端时，才额外等待外部联调证据。
-
-2026-07-16 复验：开发 Agent 使用确定性 Fake Agent 模拟 DeepTalk，通过 REST API 和 MCP 完成能力查询、编译、Inline Run、状态查询和 RunResult 对比；Agent Worker 重启后运行恢复，`1 passed in 6.46s`。
-
-### 9.6 本里程碑不做
-
-- 不实现所有 SwarmSpec 节点类型。
-- 不扩展 A2A 生态适配器。
-- 不建设面向终端用户的聊天界面。
-- 不进行大规模控制台视觉重构。
-- 不引入 Kafka、Qdrant 或 Kata 等非必要基础设施。
-
-## 10. M2C：Strategy Canvas 可视化编排
-
-状态：`VERIFIED`
-
-### 10.1 目标
-
-让开发和测试人员通过 React Flow 画布拖拽节点、连线和编辑属性，生成、校验、保存、发布并执行与文本编辑器语义完全一致的 SwarmSpec。画布只是 SwarmSpec 的可视化编辑器，不引入第二套策略格式、编译规则或执行链路。
-
-### 10.2 固定决策
-
-1. SwarmSpec 是唯一执行语义和发布事实源；画布操作只对 Spec 做无损的局部修改。
-2. 节点坐标和视口保存为 Draft 的独立 `editorState`，不写入 SwarmSpec，移动节点不得改变 Spec Hash 或 Plan Hash。
-3. Canvas、JSON 和 YAML 共用同一份工作中 Spec；模式切换是显式同步边界，文本无效时不覆盖最后一份有效画布状态。
-4. 节点库由 Capability Catalog 驱动；首版只允许 `agent`、`parallel`、`join`、`reducer`、`approval` 和 `input`。
-5. 未支持节点在导入时必须保留原始数据并以只读节点显示，不允许静默丢弃。
-6. 服务端 Compiler 是权威校验器；前端只做循环、自连接、重复连线和必填属性等即时防错。
-
-### 10.3 画布语义
-
-| 画布操作 | SwarmSpec 变更 |
+| `PLANNED` | 结果、范围、依赖和退出标准已定义，尚未开始实现 |
+| `IN_PROGRESS` | 已开始范围内工作，仍有交付项或门禁未关闭 |
+| `IMPLEMENTED` | 实现完成且相关本地测试通过，但不可变基线、CI 或目标环境证据仍不完整 |
+| `VERIFIED` | 全部退出标准通过，证据已绑定到不可变提交、CI 运行或明确的验收环境 |
+| `BLOCKED` | 存在明确外部阻塞，范围内没有可继续推进的工作 |
+
+### 3.2 证据层级
+
+| 层级 | 含义 |
 |---|---|
-| 添加 Agent 节点 | 新增 `spec.agents` 声明和 `graph.nodes` 中的 `agent` 节点 |
-| A 连接 B | 向 `B.dependsOn` 加入 A |
-| 删除连线 | 从目标节点 `dependsOn` 移除源节点 |
-| Parallel 连接分支 | 同时维护 `parallel.branches` 和目标节点 `dependsOn` |
-| 设置入口 | 修改 `graph.entrypoint` |
-| 删除节点 | 删除节点、相关依赖和布局；仅在 Agent 声明已无引用时提示一并删除 |
-| 移动节点 | 只更新 `editorState.positions` |
+| `LOCAL` | 开发工作树或本机环境通过 |
+| `CI` | 从干净检出自动复现 |
+| `STAGING` | 在生产同构环境完成部署、联调或故障验收 |
+| `PRODUCTION` | 真实负载下形成运行、SLO 或恢复证据 |
 
-### 10.4 工作分解
+交付状态与证据层级必须同时记录。`IMPLEMENTED / LOCAL` 不等于生产可用，较晚里程碑完成也不能替代较早门禁的缺失证据。
 
-| ID | 工作项 | 状态 | 预期产出 |
-|---|---|---|---|
-| M2C-01 | 建立前端 Strategy Editor 领域模型 | `VERIFIED` | 当前可执行 SwarmSpec 子集的 TypeScript 类型、无损局部修改和循环检测纯函数 |
-| M2C-02 | 持久化独立编辑器布局 | `VERIFIED` | `strategy_drafts.editor_state` JSONB、Migration、REST DTO 和 ETag 并发更新；Publish 忽略界面状态 |
-| M2C-03 | 建立可编辑 React Flow 画布 | `VERIFIED` | 节点库、自定义节点、连线、删除、入口设置、选择与属性面板 |
-| M2C-04 | 实现当前节点的语义映射 | `VERIFIED` | Agent 引用、`dependsOn`、Parallel branches、Join、Reducer、Approval 和 External Input 的双向映射 |
-| M2C-05 | 打通 Canvas / JSON / YAML | `VERIFIED` | 三模式显式切换、无效文本保护、dirty 状态、重载确认和 Draft revision 冲突处理 |
-| M2C-06 | 接入 Compile / Save / Publish | `VERIFIED` | 语义变更的延迟编译、诊断定位与节点高亮；发布前对当前 Spec 强制重新编译 |
-| M2C-07 | 完成自动化与真实验收 | `VERIFIED` | 纯函数单测、组件测试、Playwright 画布 E2E 和真实模型运行记录 |
+## 4. 当前能力基线
 
-### 10.5 退出标准
+### 4.1 当前事实
 
-- [x] 可从空白画布创建、校验、保存和发布一个策略。
-- [x] 可将现有顺序、并行和人工审批 Spec 无损载入画布，往返转换不改变执行语义。
-- [x] 连线正确生成 `dependsOn`；Parallel 分支同时生成 `branches` 和调度依赖。
-- [x] 自连接、重复连线和循环依赖在保存前被拒绝。
-- [x] Compiler diagnostics 可定位到对应节点或全局属性。
-- [x] 画布、JSON 和 YAML 可靠切换；无效文本不破坏最后有效 Spec。
-- [x] 保存后刷新页面，节点位置和视口不丢失。
-- [x] 仅移动节点不改变 Plan Hash；改变连线或节点配置会改变 Plan Hash。
-- [x] 未支持节点不会被画布编辑器静默删除。
-- [x] 窄屏、深色模式、键盘操作和未保存提示通过可用性检查。
-- [x] 画布生成的“Planner -> Approval -> 两路并行 Agent -> Reducer”策略能通过真实 API 完成 Run 并返回 RunResult。
+| 项目 | 当前事实 |
+|---|---|
+| Git HEAD | `eb75ac3`，已提交 M3 受控 Tool、Router、Loop 和取消语义 |
+| 远端分支 | `origin/codex/phase2a-human-control` 停在 `0cbeb9a`；当前分支领先 1 个提交 |
+| 候选实现 | M3 维护性收敛与 M4 治理、安全、Provider、Sandbox、Webhook 和补偿代码仍在工作树 |
+| 自动化 | 现有 GitHub Actions 只覆盖后端；当前分支及候选实现尚无合格远端 CI 证据 |
+| 当前目标 | 不再增加产品表面积，先形成真实、可复现且范围明确的 v1 候选基线 |
 
-### 10.6 验收证据
+### 4.2 现有能力与候选基线
 
-- `uv run ruff check .`：通过。
-- `.venv/Scripts/python.exe -m mypy`：53 个 source file 通过 strict 类型检查。
-- `.venv/Scripts/python.exe -m pytest -q tests/unit`：52 项通过。
-- `.\scripts\test-integration.ps1`：从零迁移 PostgreSQL、启动 Temporal 并完成 8 项集成测试；覆盖 `editorState` 持久化、ETag 冲突、布局不改变 Plan Hash、语义变更改变 Plan Hash，以及 Planner -> Approval -> Parallel 两路 Agent -> Reducer 的真实 REST API、PostgreSQL、Temporal、Worker、RunResult 闭环。
-- `pnpm --filter @swarmcore/web lint`、`test`、`build`：通过；Vitest 17 项通过。
-- `pnpm --filter @swarmcore/web test:e2e`：Desktop、Tablet、Mobile 共 21 项通过；覆盖空白画布创建、连线与 Parallel 双写、键盘删除、节点移动、保存刷新、发布、窄屏和深色模式。
-- `.\scripts\smoke-agno-ollama.ps1`：本机 `qwen3:0.6b` 真实 Agno Model smoke 通过，输出 `AGNO_OLLAMA_SMOKE_OK model=qwen3:0.6b`。
-- 下一步唯一最高优先事项：完成 M2B 远端 CI Fake Agent E2E 门禁。
+历史 M0 至 M4 不再作为活跃里程碑逐节维护，统一合并为以下能力域：
 
-### 10.7 本里程碑不做
+| 能力域 | 已交付边界 | 状态 | 证据层级 | 基线/证据 | 开放门禁 |
+|---|---|---|---|---|---|
+| 耐久执行与人工控制 | SwarmSpec、Compiler、Plan Hash；PostgreSQL/RLS/Outbox；Temporal；顺序、并行、DAG、Supervisor、Reducer；Pause/Resume/Cancel/Approval/Input/Retry | `VERIFIED` | `LOCAL` | `eb75ac3`，E2 | 持续回归 |
+| 调用方契约与策略控制台 | REST/MCP 共用应用服务；capabilities/validate/compile/create/status/result/control；inline Spec；Strategy Canvas；JSON/YAML；Run 控制台 | `IMPLEMENTED` | `LOCAL` | `0cbeb9a`，E1 | G0：远端 Fake Agent E2E 与完整 CI |
+| 受控 Tool 与有界编排 | Registry Snapshot；GatewayProxyTool；Capability Token；effect journal；高风险审批；`tool`、`router`、`loop` Runtime | `VERIFIED` | `LOCAL` | `eb75ac3`，E2 | 持续回归 |
+| 治理与安全候选能力 | JWT/OPA、Vault、Artifact/Model Gateway、预算、Webhook/Audit/OTel、Sandbox 契约和补偿 | `IMPLEMENTED` | `LOCAL` | 当前工作树，E3 | G0：不可变基线 |
 
-- 不改变 SwarmSpec、Compiler、ExecutionPlan 或 Temporal 执行语义。
-- 不在运行时未支持前开放 Tool、Team、Router、Loop 或 Subflow 发布。
-- 不在首版实现多人实时协同、复杂 Schema 可视化设计器或自动优化布局。
-- 不让控制台形成独立的策略执行入口。
+状态只评价表中已经声明的能力边界，证据层级说明已证明到哪个环境；M6 及之后的环境资格不会反向改写基础能力状态。
 
-## 11. M3：受控 Tool 与编排能力扩展
+### 4.3 证据索引
 
-状态：`VERIFIED`
+| ID | 基线 | 层级 | 已记录结果 | 证据边界 |
+|---|---|---|---|---|
+| E1 | `0cbeb9a` | `LOCAL` | 52 项单元测试、8 项集成测试、17 项 Vitest、21 项 Playwright、前端 lint/build 和真实 Ollama smoke 通过 | 合并覆盖耐久执行、人工控制、REST/MCP 本地等价、DeepTalk 模拟和 Strategy Canvas；无合格远端 CI |
+| E2 | `eb75ac3` | `LOCAL` | Ruff、mypy、69 项单元测试、10 项 PostgreSQL/Temporal 集成测试通过 | 在 E1 基础上回归 Tool/Router/Loop、审批、effect 幂等和取消语义 |
+| E3 | 2026-07-17 工作树 | `LOCAL` | Ruff、mypy、105 项单元测试通过；新增项目配置 PostgreSQL 集成测试通过，既有 15 项 PostgreSQL/Temporal/MinIO/Vault 集成证据保持；前端 lint、26 项 Vitest、33 项 Playwright 和 build 已重跑通过 | 未绑定提交；其余集成测试本轮未全量重跑；真实 Kubernetes、gVisor 与 ClamAV daemon 未验收 |
 
-目标：让 Agent 在不直接持有外部凭据的情况下使用受控 Tool，并覆盖实际业务需要的动态编排。
+以上是已有验收记录，不表示本次文档重构重新执行了这些测试。新证据必须绑定 commit、CI run 和环境信息，不能只追加孤立的“通过”文本。
 
-主要交付：
+## 5. 开放门禁与风险
 
-- Agent、Tool、Model Registry 与版本化引用。
-- Tool Gateway、GatewayProxyTool 和 Capability Token。
-- Tool 输入输出 Schema、风险等级、幂等和审批。
-- `tool`、`router`、`loop` 节点进入 Compiler 和 Runtime 支持范围。
-- Tool 结果、Agent 输出和 Reducer 的类型衔接。
-- Tool 调用事件、成本和审计。
+| ID | 优先级 | 当前缺口 | 关闭条件 | 所属里程碑 |
+|---|---|---|---|---|
+| G0 | Release Blocker | M3 维护性收敛与 M4 候选实现未形成不可变提交；远端 CI 未覆盖当前分支，且现有 workflow 缺少前端门禁 | 干净检出下后端、前端、集成和 Fake Agent E2E 全绿，证据绑定 commit 与 CI run | M5 |
+| G1 | P1 | Spec 声明的 `team/transform/subflow/emit` 不可执行；配置/CLI 入站也未实现，设计承诺与真实 v1 范围不一致 | v1 明确只保留现有 9 类可执行节点和 REST/MCP 入站；Schema、Catalog、Compiler、Canvas、系统设计和文档一致表达延期能力 | M5 |
+| G2A | P1 | 当前 SSE 直接读取 PostgreSQL，缺少公开事件语义的 gap、backpressure、410 和断线续传集成证据 | 冻结协议无关的事件查询/订阅契约并在 CI 验证游标、顺序、gap、410 和客户端重连，不建立临时双轨业务逻辑 | M5 |
+| G2B | P1 | 无 Runtime Event Ingestor 和独立 Event Gateway；现有集成环境未验证真实 NATS JetStream 发布、重投递和恢复 | 在生产同构环境打通 PostgreSQL/Outbox -> JetStream -> Event Gateway，并验证慢消费者、背压、重连和滚动升级 | M6 |
+| G3 | P1 | 只有 Compose；Sandbox、ClamAV、工作负载身份、mTLS 和 Provider 主要停留在本地或协议级证据 | 在真实 Kubernetes 生产同构环境完成端到端安全与 Provider 验收 | M6 |
+| G4 | P1 | Temporal Replay/Continue-As-New、基础设施故障、备份恢复、RPO/RTO 和完整安全故障矩阵证据不足 | 故障注入、回放、恢复和安全套件通过，并完成恢复演练 | M7 |
+| G5 | P2 | 无容量基线、租户公平性、背压、Autoscaling、HA 和可运营 SLI/SLO 证据 | 在明确负载模型下验证容量、延迟和恢复目标，并具备生产可用性 SLI、告警与 Error Budget | M8 |
+| G6 | P2 | Web 主 Chunk 大于 500 KiB | 先测量真实加载影响；只有影响目标体验时才按路由或依赖拆包 | 候选优化 |
 
-固定实现决策：
+## 6. 新里程碑总览
 
-- Registry v1 使用内容寻址的不可变内置快照；无版本别名在编译期解析为 `@version` canonical ref，提交的 snapshot ID 必须匹配。
-- Agent Worker 只向 Agno 注入 GatewayProxyTool，不注入 Provider Tool 或 Secret；有副作用 Tool 必须是显式 `tool` 节点。
-- HIGH/CRITICAL Tool 在 Capability Token 签发前进入现有 Approval/RunCommand 耐久流程；Token 绑定 tenant/project/run/node/tool/execution/effect/expiry。
-- Tool Gateway 用 PostgreSQL `tool_effects` 记录 tenant/project/tool/effect 作用域、input hash 和已确认输出；Provider Adapter 必须继续传递 effect ID。
-- Router v1 按声明顺序选择首个匹配目标，未选直接目标为 SKIPPED，分支在依赖全部目标的节点汇合。
-- Loop v1 只允许有序 Agent/Tool/Reducer body，最多 20 次；task instance 使用 `node#iteration`，未满足 until 时明确失败；表达式不使用 `eval`。
+| 里程碑 | 可交付结果 | 前置条件 | 目标证据 | 状态 |
+|---|---|---|---|---|
+| M5 | v1 契约真实且候选基线可从干净检出复现 | 当前候选实现 | `CI` | `IN_PROGRESS` |
+| M6 | 单集群生产同构环境可安全部署、升级和观测 | M5 `VERIFIED` | `STAGING` | `PLANNED` |
+| M7 | 关键故障、安全边界和备份恢复有可重复证据 | M6 `VERIFIED` | `STAGING` | `PLANNED` |
+| M8 | 容量、背压、Autoscaling、HA 和 SLO 有测量边界 | M7 `VERIFIED` | `STAGING` | `PLANNED` |
+| M9 | 同一不可变候选版本通过独立 v1 发布门禁 | M8 `VERIFIED` | `STAGING` | `PLANNED` |
 
-工作分解：
+依赖顺序为“契约 -> 部署 -> 恢复 -> 容量 -> 发布”。上表是里程碑状态的唯一事实源；除非出现已确认的 P0 安全问题，不跨过前置里程碑并行扩大能力表面积。
 
-- [x] M3-01：Agent/Model/Tool Registry Snapshot、版本解析、Capability Catalog 与 Plan 固定资源。
-- [x] M3-02：Tool Gateway 核心、HTTP Gateway、Agent Gateway Proxy 与 Capability Token。
-- [x] M3-03：Tool 输入/输出 Schema、风险规则、持久化 effect journal、RLS migration 与副作用幂等。
-- [x] M3-04：`tool` 节点 Compiler、Temporal Activity、审批、模板输入、结果/成本/事件衔接。
-- [x] M3-05：`router`、`loop` 编译约束和确定性 Runtime 语义。
-- [x] M3-06：单元、Temporal 重放边界和真实 API/PostgreSQL/Temporal/Worker 验收。
+资格必须累积但不能自动继承：后续里程碑修改代码、Schema、Migration、镜像、部署或配置后，必须在新候选版本上重跑所有受影响的前置门禁。未受影响的外部演练证据可以引用，但必须说明适用版本和未失效理由。
 
-退出标准：
+## 7. M5：v1 契约与基线闭合
 
-- [x] Agent 只能通过 Tool Gateway 调用外部能力。
-- [x] 高风险 Tool 必须通过 Approval 才能执行。
-- [x] Activity 重试不会重复产生已确认的外部副作用。
-- [x] Router 和 Loop 具有明确、有界且可回放的执行语义。
-- [x] “并行 Agent -> Tool -> Reducer”真实业务场景通过验收。
+### 7.1 结果
 
-验收证据（2026-07-16）：
+形成一个不可变、可复现且不夸大能力范围的 v1 代码与集成基线。任何调用方只依赖公开契约即可完成核心闭环，开发工作树和本地手工结果不再是完成依据；Release Candidate 只在 M9 产生。
 
-- `uv run pytest -q tests/unit`：69 项通过；覆盖 Registry snapshot 不匹配、Gateway token scope、Schema、审批约束、effect input 冲突和已确认结果去重。
-- `uv run mypy`：67 个 source file 通过 strict 类型检查。
-- `uv run ruff check .`：通过。
-- `./scripts/test-integration.ps1`：从零应用 `0001 -> 0005` migration，PostgreSQL 17.5、Temporal 1.28.0 下 10 项集成测试通过，耗时 70.48 s。
-- M3 真实验收通过 REST API 创建/发布 Strategy 和 Run，经 Outbox/Dispatcher 启动；两路 Fake Agent 并行完成后，HIGH `publish-report` Tool 进入 Approval，批准后由 Tool Worker 通过 Gateway 执行并由 Reducer 生成 RunResult；数据库仅有 1 条成功 effect，并有 `tool.completed` 事件。
-- 同一 Temporal 验收覆盖 Router 只执行选中分支，以及 Loop 在第 2 次迭代满足条件停止；迭代 task instance 和输出可回放。
-- M3 基线提交前复验：Ruff、Mypy strict、69 项单元测试通过；完整 PostgreSQL/Temporal 集成套件 10 项通过。复验同时修复 Cancel 在节点启动投影与业务 Activity 之间竞争时可能无法及时进入终态的问题，并连续 3 次通过针对性真实 Temporal 回归。
+### 7.2 范围
 
-## 12. M4：治理、安全与生产能力
+- 将 M3 维护性收敛和 M4 候选实现整理为可审查提交，不混入无关变更。
+- 扩展远端 CI，覆盖 Ruff、mypy、单元测试、完整集成测试、前端 lint/test/build、必要的 Playwright 和 Fake Agent DeepTalk E2E。
+- 建立 v1 能力矩阵，逐项冻结节点、入站方式、Model、Tool、Artifact、Webhook 和 Sandbox 的支持边界与触发路径；M6 不得隐式扩展该矩阵。
+- 当前路线图默认不在 v1 实现 `team/transform/subflow/emit` 和配置/CLI 入站；M5 通过系统设计更新正式固化延期决定，恢复进 v1 必须先提供明确场景并重新评估范围。
+- 冻结 REST/MCP 的编译、幂等、权限、命令、错误、状态和 RunResult 契约。
+- 冻结协议无关的事件查询/订阅应用契约，补齐 SSE 游标、顺序、gap、410 和客户端断线续传的 CI 证据；Event Gateway、真实 JetStream 与服务端慢消费者背压留给 M6。
+- 由真实 DeepTalk 或一个不链接 SwarmCore 内部应用服务的代表性调用方执行黑盒契约验收；不可用时明确记录外部依赖，不能用内部单元调用冒充。
+- 将系统设计第 26 章逐项映射到自动化测试、CI、环境验收或明确的后续门禁。
+- 核对 migration `0001 -> 0006`、配置、启动方式和兼容性说明。
 
-状态：`PLANNED`
+### 7.3 固定验收场景
 
-主要交付：
+从干净检出和空数据库启动标准测试环境，由 DeepTalk Harness 分别通过 REST 与 MCP：
 
-- OPA Policy、角色、Scope 和 obligations。
-- Vault Secret Provider 和短期凭据。
-- Artifact Gateway、S3、扫描、保留与下载授权。
-- Model Gateway、预算、Token 和成本控制。
-- Webhook、审计导出和完整 Observability。
-- Sandbox Manager 与不可信代码隔离。
-- 可恢复的补偿和外部副作用治理。
+1. 查询可执行能力并编译同一 inline SwarmSpec；
+2. 创建“两路 Agent -> 高风险 Tool 审批 -> Reducer”的 Run；
+3. 在执行中重启 Worker，确认 Run 自动恢复；
+4. 使用 SSE 断线续传并验证过期游标行为；
+5. 获得结构等价的 Plan Hash、状态、事件和 RunResult；
+6. 重放相同幂等键与 effect ID，确认不会创建第二个 Run 或重复外部副作用。
 
-退出标准以系统设计第 17、18、20、22 和 26 章为准，并为每项保留安全测试和故障测试证据。
+### 7.4 退出标准
 
-## 13. M5：规模化与生态扩展
+- [ ] G0、G1 和 G2A 全部关闭。
+- [ ] 所有证据绑定同一不可变 commit，远端 CI 从干净检出全绿。
+- [ ] 公开可执行节点不存在 Schema/Catalog/Compiler/Runtime 分叉。
+- [ ] v1 能力矩阵中的每项均有公开触发路径和契约证据；M6 只生产化该矩阵。
+- [ ] 独立黑盒调用方完成 capabilities -> compile -> create -> status/events -> result 闭环，并记录与真实 DeepTalk 的差异。
+- [ ] 系统设计第 26 章每项均有责任里程碑和证据位置，不保留“默认认为已通过”。
+- [ ] 公共 API、事件、数据库、Plan Hash 和配置变更已记录兼容性；破坏性变更有迁移方案。
+- [ ] README、`.env.example`、系统设计和本计划与最终支持范围一致。
 
-状态：`PLANNED`
+### 7.5 非目标
 
-主要交付：
+- 不建设 Kubernetes HA、Autoscaling 或多区域拓扑。
+- 不实现 `team/transform/subflow/emit`、动态派生或配置/CLI 入站。
+- 不引入 A2A、其他 Agent Runtime Adapter、Qdrant、Kafka 或 Kata。
 
-- Kubernetes 生产拓扑、Worker Autoscaling 和背压。
-- NATS、PostgreSQL、Temporal 和 Artifact 高可用。
-- 容量压测、Chaos、备份恢复和灾备演练。
-- A2A RemoteAgent 和其他 Runtime Adapter。
-- 可选向量后端与审计数据出口。
+## 8. M6：单集群生产资格
 
-M5 只有在 M2B、M3 和 M4 的产品闭环稳定后启动，避免提前为尚未验证的负载扩容。
+### 8.1 结果
 
-## 14. 当前风险与处理顺序
+证明 SwarmCore 可以在一个生产同构 Kubernetes 集群中安全安装、升级、回滚和观测，并完成真实 Provider 参与的核心业务闭环。
 
-| 优先级 | 风险 | 影响 | 处理方式 |
-|---|---|---|---|
-| 已关闭 | REST 与 MCP 仍可能产生语义分叉 | DeepTalk 集成不稳定 | M2B-01、M2B-06 已实现并通过契约测试 |
-| 已关闭 | 缺少 Capability Catalog、inline Run 和标准 RunResult | DeepTalk 无法独立完成闭环 | M2B-02 至 M2B-05 已实现 |
-| 已关闭 | 缺少真实模型凭据 | 无法完成 Agno smoke | 使用本机 Ollama `qwen3:0.6b` 完成受控 smoke |
-| 已关闭 | 集成测试环境不可重复 | M1/M2A 无法可靠验收 | M2B-08 已实现并通过从零复验 |
-| 已关闭 | Agno Agent 尚未接入受控 Tool | 只能执行有限 Agent 场景 | M3 GatewayProxyTool、Capability Token 和 Tool Gateway 已验收 |
-| 已关闭 | Compiler 与 Runtime 支持节点有限 | 复杂编排无法落地 | M3 已支持 Tool、Router 和有界 Loop；其他节点按后续里程碑扩展 |
-| 已关闭 | 策略只能通过 JSON/YAML 编辑 | 人工编排门槛高，难以直观验证拓扑 | M2C Strategy Canvas 已通过验收 |
-| P2 | 前端主 Chunk 大于 500 KiB | 控制台加载性能风险 | M2B 后按路由拆包处理 |
+### 8.2 范围
 
-## 15. 进度更新规则
+- 只生产化 M5 v1 能力矩阵中已确认的触发路径；必要的 Application、Workflow、Activity 或 Adapter 接线必须显式实现，独立 Gateway 存在不等于 Run 已支持该能力。
+- 建立版本化 Helm 部署、配置校验、Migration Job、健康检查、资源限制和回滚路径。
+- 接入真实 OIDC/JWKS、workload identity、mTLS、OPA、Vault Kubernetes Auth、S3、LiteLLM、ClamAV、NATS 和 OTel Collector。
+- 使用真实 Kubernetes Job + gVisor 验证 Sandbox Admission、NetworkPolicy、无 ServiceAccount Token、受控出站和 NodeLost 收敛。
+- 完成 Runtime Event Ingestor、Event Gateway 和真实 JetStream 链路；完成 v1 矩阵内 Webhook、Artifact、Model、Tool 和 Sandbox 路径联调。
+- 部署 Phoenix、Prometheus/Grafana、Alloy/Loki 以及最小 Dashboard/Alert，使 Trace、Metrics 和 Logs 的查询与告警退出标准可执行。
+- 提供安装、升级、回滚、密钥轮换、告警和常见故障 Runbook。
 
-每次更新至少记录：
+### 8.3 验收矩阵
 
-1. `最近更新` 日期和当前基线提交。
-2. 当前里程碑及工作项状态。
-3. 新完成的交付项。
-4. 实际执行的测试及结果。
-5. 新增阻塞、风险和决策。
-6. 下一步唯一最高优先事项。
+- 部署：空集群安装、Migration、滚动升级、失败回滚和配置/密钥轮换。
+- 核心闭环：通过真实身份运行 Model -> 高风险 Tool 审批 -> Result，并验证 Secret Lease、Trace 和 Audit。
+- Gateway：按 M5 能力矩阵分别验证 Artifact/ClamAV、Webhook 和 Sandbox/gVisor；只有存在已冻结 Runtime 触发路径时才纳入综合 Run。
+- 事件：真实 JetStream 下验证事件顺序、重连、慢消费者背压和组件滚动升级。
+- 安全：跨租户、mTLS、OPA fail-closed、受控出站和无集群凭据。
 
-状态更新约束：
+保留一条跨服务综合闭环用于发布冒烟，但不以单个“超级场景”替代上述可独立定位的验收项。
 
-- 工作项只有合并并通过对应自动化测试后才能标记 `IMPLEMENTED`。
-- 里程碑只有全部退出标准通过后才能标记 `VERIFIED`。
-- 未执行的测试必须写“未执行”或“待复验”，不能视为通过。
-- 产品边界变化更新系统设计；实施顺序和完成情况更新本文档。
-- 每个里程碑完成后，在下方追加一条变更记录。
+### 8.4 退出标准
 
-## 16. 变更记录
+- [ ] G2B 和 G3 关闭，目标生产路径不使用 dry-run 或协议 mock 代替真实环境。
+- [ ] 干净安装、`0001 -> head` 迁移、滚动升级和回滚可重复执行。
+- [ ] tenant/project 隔离、mTLS、OPA fail-closed、Secret 撤销和出站限制在集群中通过。
+- [ ] 核心 Trace、Metrics、JSON Logs 和 Audit 可查询，并有最小告警集。
+- [ ] 关闭控制台后 REST/MCP/Worker/Event 链路仍完整运行。
+- [ ] M6 候选 commit 与镜像集重新通过 M5 的 CI 和契约回归。
+
+### 8.5 非目标
+
+- 不在本里程碑承诺最终容量、跨区域灾备或完整 HA 指标。
+- 不扩展新的编排节点和生态 Adapter。
+
+## 9. M7：故障、安全与恢复资格
+
+### 9.1 结果
+
+证明已接受的工作在关键组件故障下不会静默丢失、越权或重复产生已确认副作用，并能在声明的 RPO/RTO 内恢复。
+
+### 9.2 范围
+
+- Temporal Replay、Continue-As-New 和 Workflow 版本兼容门禁。
+- 在固定参考负载下验证 Worker/Node 丢失，PostgreSQL、Temporal、NATS、Provider、Vault、S3 和网络短暂故障。
+- Dispatcher、Event Publisher、Projection Reconciler 的提交成功/响应丢失、PubAck 丢失和重复投递。
+- Event Gateway 与 NATS 故障恢复；PostgreSQL/Event/Outbox 是重建依据，NATS 不作为业务事实备份源。
+- Run Cancel 与 Approval/Input/补偿并发，effect 幂等与逆序补偿。
+- 跨租户、JWT Scope、RLS 连接污染、SSRF/DNS Rebinding、Secret 泄漏、Sandbox 提权和 Artifact 攻击矩阵。
+- PostgreSQL、Temporal、Vault 和 S3 的备份恢复；JetStream Stream 可重建，并能从 PostgreSQL Event/Outbox 重放和对账。
+
+### 9.3 验收矩阵
+
+按 Worker、数据存储、事件链、Provider、控制命令、补偿和安全边界拆分故障用例，使每项可独立重复和定位。另保留一条包含审批、模型、外部副作用、Artifact 和补偿的长 Run 综合演练；最终确认状态和审计可重建、已成功 effect 不重复、未完成 effect 可恢复或补偿、跨租户读取始终失败。
+
+### 9.4 退出标准
+
+- [ ] G4 关闭，系统设计第 22.2 至 22.5 节的适用高风险场景均有自动化或演练证据。
+- [ ] Workflow Replay 阻止不兼容发布，长历史能按设计安全 Continue-As-New。
+- [ ] Projection、Outbox、Event 和 Webhook 重放不改变最终事实。
+- [ ] 备份恢复达到 RPO ≤ 5 min、RTO ≤ 30 min，或以测量数据修订系统设计目标。
+- [ ] 故障与安全 Runbook 由非实现者按文档复现。
+- [ ] M7 候选版本重新通过受影响的 M5 CI 与 M6 部署、安全和综合冒烟门禁。
+
+### 9.5 非目标
+
+- 不以故障测试结果替代容量压测。
+- 不同时引入多区域主动-主动架构。
+
+## 10. M8：容量、背压与 SLO 资格
+
+### 10.1 结果
+
+给出可复现的负载模型、容量边界和部署规格，证明系统在饱和时排队或降级，而不是丢失工作、突破预算或拖垮其他租户。
+
+### 10.2 范围
+
+- 定义代表性 Spec、Run 时长、模型/Tool 延迟、事件量、租户分布和峰谷负载。
+- 验证租户/项目配额、maxParallelism、Temporal Task Queue、Provider 限流和 Tool/Sandbox 容量背压。
+- 建立 Worker Autoscaling、HPA、PDB、队列延迟和租户公平性策略。
+- 验证 API、Event Gateway、Dispatcher、Publisher、Worker、PostgreSQL、Temporal、NATS、Vault 和 S3 的 HA 行为。
+- 建立 SLI/SLO Dashboard、告警阈值、Error Budget、容量报告和版本间性能回归门禁。
+- 执行持续负载、峰值、突发、慢消费者和 Soak Test。
+
+### 10.3 退出标准
+
+- [ ] G5 关闭，测试数据、脚本、部署规格和结果可复现。
+- [ ] 达到系统设计第 3.1 和第 21 章中可在 Staging 压测的延迟、吞吐、恢复和容量目标，或基于证据修订不合理目标。
+- [ ] 月度 99.9% 可用性不以 Staging 压测冒充通过；发布前只验收 SLI、Dashboard、告警和 Error Budget 就绪，真实可用性在发布后以 `PRODUCTION` 证据持续记录。
+- [ ] 饱和时保持有界队列和明确错误/状态，不以无限协程或无界缓存吸收压力。
+- [ ] 单一租户或 Provider 退化不会无限挤占其他租户容量。
+- [ ] Autoscaling、HA 切换和告警在目标负载下通过。
+- [ ] M8 候选版本重新通过受影响的 M5-M7 门禁；在新副本、队列和扩缩容策略下，M7 的关键恢复与 RPO/RTO 场景重新通过。
+
+### 10.4 非目标
+
+- 不为没有测量证据的热点做预先重构。
+- 不把多区域、额外数据库或消息系统作为默认解法。
+
+## 11. M9：v1 发布门禁
+
+### 11.1 结果
+
+从 M8 已验证的同一不可变 commit 和镜像 digest 产生 Release Candidate，独立复验、汇总并签署 v1 发布证据；本阶段不再实现或重新定义能力。
+
+### 11.2 范围
+
+- 冻结同一 commit、镜像 digest、Schema、Migration 和配置基线；任何代码变化都使受影响资格失效并退回对应里程碑。
+- 对系统设计第 26 章做独立最终审计，只引用 M5-M8 已形成的安装、升级、恢复、容量和安全证据。
+- 在 Release Candidate 上复跑最小发布套件、Soak 和最终安全检查，确认汇总证据未因最后变更失效。
+- 由真实 DeepTalk 或指定外部调用方完成最终 REST/MCP 复验和发布签署，不把内部 Harness 冒充真实联调。
+- 固化版本策略、镜像与依赖清单、Release Notes、部署/恢复手册和已知限制。
+
+### 11.3 退出标准
+
+- [ ] M5 至 M8 均为 `VERIFIED`，无开放 Release Blocker 或未处置 P1。
+- [ ] 第 26 章发布验收矩阵全部通过，且每项引用同一候选版本的有效证据。
+- [ ] 独立发布套件和外部调用方复验通过，发布签署不包含条件性“以后补测”。
+- [ ] commit、镜像 digest、版本、证据索引、Runbook、已知限制和后续候选项完成评审。
+
+### 11.4 非目标
+
+- 不在发布资格阶段补做未经排期的新节点、Adapter 或基础设施。
+- 不把未执行的测试、计划中的演练或协议级 mock 视为通过。
+
+## 12. Post-v1 候选项
+
+以下内容不是已承诺里程碑：
+
+| 候选方向 | 当前候选 |
+|---|---|
+| 编排表达力 | `team`、`transform`、`subflow`、`emit`、动态派生、Map/Review/Vote 的完整 Runtime 与 Canvas 支持 |
+| 生态接入 | A2A RemoteAgent、LangGraph、MAF、CrewAI、PydanticAI Adapter |
+| 入站方式 | 配置文件与 CLI Adapter |
+| 数据与记忆 | pgvector Knowledge/Memory、可选 Qdrant 后端 |
+| 基础设施扩展 | 多区域 Artifact、Kafka Audit/Data Export、Kata 高风险 Runtime |
+| 控制台优化 | 基于真实性能数据的路由拆包、离线/冲突体验和更完整的治理页面 |
+
+候选项只有同时满足以下条件才升级为里程碑：
+
+1. 有明确调用方和不可由现有能力完成的场景；
+2. 有可量化目标和可执行验收；
+3. 依赖的公共契约已经稳定；
+4. 不阻塞当前 Release Blocker、P1 或前置里程碑；
+5. 产品边界变化已同步系统设计。
+
+## 13. 全局质量门禁
+
+每个里程碑退出时按影响范围检查：
+
+| 维度 | 最低要求 |
+|---|---|
+| 行为 | 固定端到端场景证明用户或系统结果，不以实现清单代替 |
+| 契约 | REST、MCP、Schema、事件、数据库、Plan Hash 和错误语义兼容或有迁移说明 |
+| 架构 | 领域纯净、应用服务复用、Workflow 确定性、I/O Activity 边界保持 |
+| 一致性 | tenant/project、幂等、状态机、Outbox、审计、effect 和补偿不可绕过 |
+| 测试 | 新行为有测试；执行相关静态、单元、集成、前端、故障或安全检查 |
+| 证据 | 记录命令、结果、commit、CI run、环境和未执行项；变更后重跑受影响的前置资格 |
+| 文档 | 产品/架构更新系统设计，实施状态更新本计划，公共接口/配置更新 README 和示例 |
+| 收敛 | 删除确认无引用的旧路径；技术债进入开放门禁或候选项，不保留无限期双轨实现 |
+
+## 14. 更新规则
+
+1. 同一时间只允许一个主里程碑为 `IN_PROGRESS`。
+2. 每次更新页首基线、当前焦点、唯一下一门禁和受影响的开放门禁。
+3. `IMPLEMENTED` 必须有相关本地测试；`VERIFIED` 必须满足里程碑全部退出标准并绑定不可变证据。
+4. 未执行、环境不具备或只做协议 mock 的测试必须明确记录，不能视为通过。
+5. 已完成里程碑在下一次结构性更新时合并进能力基线，不在正文累积过程日志。
+6. 关闭风险直接删除或并入能力证据；历史状态由 Git 保留。
+7. 产品目标、系统边界或架构决策变化时同步系统设计；公共 API、配置和启动方式变化时同步 README 与 `.env.example`。
+8. 下一步只写一个最高优先门禁；其他工作按依赖留在对应里程碑，避免“并行推进”掩盖阻塞。
+
+## 15. 变更记录
 
 | 日期 | 版本 | 变更 |
 |---|---|---|
-| 2026-07-16 | 1.0 | 建立开发计划；登记 M1、M2A 实现状态；将 M2B DeepTalk Integration MVP 设为下一里程碑 |
-| 2026-07-16 | 1.1 | 建立隔离 PostgreSQL/Temporal 测试环境；7 项集成测试全绿；M1、M2A 标记为 VERIFIED；下一步 M2B-01 |
-| 2026-07-16 | 1.2 | 完成 M2B-01 至 M2B-09 实现和本地验收；M2B 保持 IMPLEMENTED，等待远端 CI 与真实 Agno smoke |
-| 2026-07-16 | 1.3 | 使用本机 Ollama 完成真实 Agno Model smoke；修复 provider 依赖与结构化输入警告；M2B 仅待远端 CI Fake Agent E2E |
-| 2026-07-16 | 1.4 | 新增 M2C Strategy Canvas 可视化编排计划；固定 SwarmSpec 单一事实源、独立布局持久化、当前可执行节点范围与真实 Run 退出标准 |
-| 2026-07-16 | 1.5 | M2C-01 至 M2C-07 全部完成；画布、独立布局、三模式、Compile/Save/Publish、自动化与真实 API RunResult 验收通过，M2C 标记为 VERIFIED |
-| 2026-07-16 | 1.6 | 固化 DeepTalk 模拟原则：需要 DeepTalk 时由当前开发 Agent 主动请求 REST API 与 MCP，并记录模拟边界和验收证据 |
-| 2026-07-16 | 1.7 | 完成 Registry、GatewayProxyTool、Capability Token、Tool effect journal、Tool/Router/Loop Runtime 与真实跨服务验收；M3 标记为 VERIFIED |
-| 2026-07-16 | 1.8 | 提交前复验 M3；修复 Workflow Cancel 对节点 Task 与业务 Activity 取消边界不清导致的竞争，并通过 3 次针对性回归与 10 项完整集成测试 |
+| 2026-07-17 | 2.0 | 从第一性原理重构：将旧 M0-M4 合并为能力与候选基线，按不可变证据重置状态口径；默认延期 4 类未执行节点和配置/CLI；按契约、部署、恢复、容量、发布重新规划 M5-M9 |

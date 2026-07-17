@@ -13,7 +13,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
-PROJECTED: list[str] = []
+PROJECTED: list[dict[str, Any]] = []
 REGISTRY = builtin_registry().snapshot_id
 AGENT = {"role": "worker", "instructions": "Do the assigned work."}
 PLANS = {
@@ -55,7 +55,7 @@ async def load_execution_plan(request: dict[str, Any]) -> dict[str, Any]:
 
 @activity.defn(name="project_transition")
 async def project_transition(value: dict[str, Any]) -> None:
-    PROJECTED.append(str(value["type"]))
+    PROJECTED.append(value)
 
 
 @activity.defn(name="execute_agent")
@@ -171,4 +171,11 @@ async def test_phase_one_workflow_acceptance(
                 raise AssertionError(f"cancelled workflow did not finish: {state}") from exc
     assert update == {"status": "APPLIED"}
     assert result["status"] == "CANCELLED"
-    assert PROJECTED[-2:] == ["run.cancelling", "run.cancelled"]
+    assert [event["type"] for event in PROJECTED[-2:]] == [
+        "run.cancelling",
+        "run.cancelled",
+    ]
+    for event_type in ("run.validating", "run.queued", "run.started"):
+        payloads = [event["data"] for event in PROJECTED if event["type"] == event_type]
+        assert payloads
+        assert all(payload for payload in payloads)

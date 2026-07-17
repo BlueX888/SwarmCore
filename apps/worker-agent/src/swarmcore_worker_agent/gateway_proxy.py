@@ -6,6 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
+from swarmcore_governance import WorkloadTls
 from swarmcore_registry import RegistrySnapshot
 
 from agno.tools.function import Function
@@ -17,10 +18,15 @@ class HttpGatewayProxyFactory:
         endpoint: str,
         registry: RegistrySnapshot,
         client: httpx.AsyncClient | None = None,
+        workload_tls: WorkloadTls | None = None,
     ) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._registry = registry
-        self._client = client or httpx.AsyncClient(timeout=30)
+        tls = workload_tls or WorkloadTls()
+        self._client = client or httpx.AsyncClient(
+            timeout=30,
+            verify=tls.client_context() or True,
+        )
 
     def create(self, tool_ref: str, capability_token: str, context: Mapping[str, Any]) -> Function:
         del context

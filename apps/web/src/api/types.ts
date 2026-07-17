@@ -16,15 +16,51 @@ export interface EditorState {
   positions: Record<string, { x: number; y: number }>;
   viewport: { x: number; y: number; zoom: number };
 }
+export interface AgentCapability {
+  id: string;
+  runtime: string;
+  environments: string[];
+  declarationSchema: Record<string, unknown>;
+}
+export interface ToolCapability {
+  ref: string;
+  risk: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+}
+export interface ModelCapability {
+  ref: string;
+  runtime: string;
+  environments: string[];
+}
 export interface CapabilityCatalog {
   schemaVersion: string;
   registrySnapshot: string;
   nodeTypes: Array<{ type: string; schema: Record<string, unknown> }>;
-  agents: Array<{ id: string; runtime: string; environments: string[]; declarationSchema: Record<string, unknown> }>;
-  tools: unknown[];
-  models: Array<{ ref: string; runtime: string; environments: string[] }>;
+  agents: AgentCapability[];
+  tools: ToolCapability[];
+  models: ModelCapability[];
   limits: Record<string, unknown>;
   swarmSpecSchema: Record<string, unknown>;
+}
+export type ConfigurationKind = "agent" | "tool" | "model";
+export interface SavedConfiguration {
+  configurationId: string;
+  kind: ConfigurationKind;
+  name: string;
+  sourceRef: string;
+  configuration: Record<string, unknown>;
+  revision: number;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface SavedConfigurationListResponse { items: SavedConfiguration[]; total: number; }
+export interface CreateSavedConfiguration {
+  name: string;
+  sourceRef: string;
+  configuration: Record<string, unknown>;
 }
 export interface StrategySummary {
   strategyId: string; name: string; lifecycle: string; createdAt: string; updatedAt: string;
@@ -82,6 +118,19 @@ export interface ExternalInputRequest {
   requestedBy: string; handledBy: string | null; createdAt: string; handledAt: string | null;
 }
 export interface ExternalInputListResponse { items: ExternalInputRequest[]; total: number; }
+export interface AuditSnapshot {
+  auditId: string;
+  actorId: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  outcome: string;
+  policyRevision: string | null;
+  runId: string | null;
+  metadata: Record<string, unknown>;
+  occurredAt: string;
+}
+export interface AuditListResponse { items: AuditSnapshot[]; total: number; }
 export interface RunEvent {
   id: string;
   seq: number;

@@ -4,7 +4,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from swarmcore_observability import SwarmMetrics
 from swarmcore_persistence.models import OutboxEvent, Run, RunCommand
 from swarmcore_persistence.repositories import EventRepository, pending_temporal_outbox_query
 from swarmcore_runtime_temporal import SwarmRunWorkflow
@@ -25,12 +27,15 @@ class CommandDispatcher:
         *,
         worker_id: str,
         batch_size: int = 50,
+        metrics: SwarmMetrics | None = None,
     ) -> None:
         self._sessions = sessions
         self._temporal = temporal
         self._worker_id = worker_id
         self._batch_size = batch_size
         self._events = EventRepository()
+        self._metrics = metrics
+        self._last_pending = 0
 
     async def run_once(self) -> int:
         claimed = await self._claim()
@@ -46,6 +51,15 @@ class CommandDispatcher:
         claimed: list[UUID] = []
         partitions: set[str] = set()
         async with self._sessions() as session, session.begin():
+            pending = int(
+                await session.scalar(
+                    select(func.count(OutboxEvent.id)).where(
+                        OutboxEvent.destination == "temporal",
+                        OutboxEvent.status == "PENDING",
+                    )
+                )
+                or 0
+            )
             candidates = list(
                 await session.scalars(pending_temporal_outbox_query(limit=self._batch_size * 2))
             )
@@ -57,8 +71,18 @@ class CommandDispatcher:
                 event.locked_until = now + timedelta(seconds=30)
                 partitions.add(event.partition_key)
                 claimed.append(event.id)
+                if self._metrics is not None:
+                    self._metrics.queue_schedule_latency.record(
+                        max(0.0, (now - event.available_at).total_seconds()),
+                        {"queue": "temporal"},
+                    )
                 if len(claimed) >= self._batch_size:
                     break
+        if self._metrics is not None:
+            self._metrics.outbox_pending.add(
+                pending - self._last_pending, {"destination": "temporal"}
+            )
+            self._last_pending = pending
         return claimed
 
     async def _deliver(self, outbox_id: UUID) -> None:
@@ -86,8 +110,13 @@ class CommandDispatcher:
                     "tenantId": str(run.tenant_id),
                     "projectId": str(run.project_id),
                     "runId": str(run.id),
+                    "strategyVersionId": str(run.strategy_version_id),
                     "planHash": run.plan_hash,
                     "input": run.input,
+                    "initiatedBy": run.initiated_by,
+                    "submittedScopes": run.submitted_scopes,
+                    "authContextHash": run.auth_context_hash,
+                    "policyRevision": run.policy_revision,
                     "startCommand": command_payload,
                 }
                 try:
@@ -174,6 +203,8 @@ class CommandDispatcher:
                 run.temporal_run_id = temporal_run_id
 
     async def _retry(self, outbox_id: UUID, error: str) -> None:
+        if self._metrics is not None:
+            self._metrics.activity_retries.add(1, {"category": "command_dispatch"})
         async with self._sessions() as session, session.begin():
             outbox = await session.get(OutboxEvent, outbox_id, with_for_update=True)
             if outbox is None or outbox.status == "DEAD":

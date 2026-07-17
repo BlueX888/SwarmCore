@@ -7,6 +7,7 @@ dependencies = [
   "pydantic-settings==2.14.2",
   "swarmcore-persistence",
   "swarmcore-observability",
+  "swarmcore-domain",
 ]
 
 [project.scripts]
@@ -15,6 +16,7 @@ swarmcore-event-publisher = "swarmcore_event_publisher.main:run"
 [tool.uv.sources]
 swarmcore-persistence = { workspace = true }
 swarmcore-observability = { workspace = true }
+swarmcore-domain = { workspace = true }
 
 [build-system]
 requires = ["hatchling==1.27.0"]

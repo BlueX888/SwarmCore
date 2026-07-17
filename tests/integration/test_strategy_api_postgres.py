@@ -98,6 +98,42 @@ async def test_strategy_queries_are_project_scoped_and_versioned() -> None:
         version_id = published.json()["strategyVersionId"]
         initial_plan_hash = published.json()["planHash"]
 
+        run_response = client.post(
+            f"/v1/projects/{project_id}/runs",
+            headers={**headers, "Idempotency-Key": "rest-mcp-command-run"},
+            json={"strategyVersionId": version_id, "input": {}},
+        )
+        assert run_response.status_code == 202
+        run_id = run_response.json()["runId"]
+        command_key = "shared-cancel-command"
+        rest_command = client.post(
+            f"/v1/projects/{project_id}/runs/{run_id}:cancel",
+            headers={**headers, "Idempotency-Key": command_key},
+        )
+        assert rest_command.status_code == 202
+        mcp_command = client.post(
+            "/mcp",
+            headers={**headers, "Mcp-Protocol-Version": "2025-11-25"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "swarm.run.control",
+                    "arguments": {
+                        "projectId": str(project_id),
+                        "runId": run_id,
+                        "action": "cancel",
+                        "idempotencyKey": command_key,
+                    },
+                },
+            },
+        )
+        assert mcp_command.status_code == 200
+        mcp_result = mcp_command.json()["result"]
+        assert mcp_result["isError"] is False
+        assert mcp_result["structuredContent"] == rest_command.json()
+
         moved_editor_state = {
             "positions": {"one": {"x": 900, "y": 700}},
             "viewport": {"x": -50, "y": 25, "zoom": 1.25},
@@ -156,3 +192,20 @@ async def test_strategy_queries_are_project_scoped_and_versioned() -> None:
         )
         assert isolated.status_code == 404
         assert isolated.json()["code"] == "NOT_FOUND"
+
+    cleanup_engine = create_async_engine(database_url)
+    try:
+        async with cleanup_engine.begin() as connection:
+            await connection.execute(
+                text("SELECT set_config('app.tenant_id', :tenant, true)"),
+                {"tenant": str(tenant_id)},
+            )
+            await connection.execute(
+                text(
+                    "DELETE FROM outbox_events "
+                    "WHERE tenant_id = :tenant AND aggregate_id = :run"
+                ),
+                {"tenant": tenant_id, "run": run_id},
+            )
+    finally:
+        await cleanup_engine.dispose()

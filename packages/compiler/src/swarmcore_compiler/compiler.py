@@ -199,10 +199,17 @@ class Compiler:
         return ExecutionPlan(**payload, plan_hash=plan_hash)
 
     def validate(self, strategy: SwarmStrategy) -> list[Diagnostic]:
+        diagnostics = [
+            *self._validate_strategy_schemas(strategy),
+            *self._validate_graph(strategy),
+            *self._validate_agents(strategy),
+        ]
+        return sorted(diagnostics, key=lambda item: (item.path, item.code, item.message))
+
+    @staticmethod
+    def _validate_strategy_schemas(strategy: SwarmStrategy) -> list[Diagnostic]:
         diagnostics: list[Diagnostic] = []
         spec = strategy.spec
-        nodes = spec.graph.nodes.root
-
         for name, schema in (
             ("inputSchema", spec.input_schema),
             ("outputSchema", spec.output_schema),
@@ -218,6 +225,12 @@ class Compiler:
                         message=exc.message,
                     )
                 )
+        return diagnostics
+
+    def _validate_graph(self, strategy: SwarmStrategy) -> list[Diagnostic]:
+        diagnostics: list[Diagnostic] = []
+        spec = strategy.spec
+        nodes = spec.graph.nodes.root
 
         if spec.graph.entrypoint not in nodes:
             diagnostics.append(
@@ -230,97 +243,133 @@ class Compiler:
             )
 
         for key, node in sorted(nodes.items()):
-            path = f"$.spec.graph.nodes.{key}"
-            if node.type not in _SUPPORTED_NODE_TYPES:
-                diagnostics.append(
-                    Diagnostic(
-                        severity="error",
-                        code="UNSUPPORTED_NODE_TYPE",
-                        path=f"{path}.type",
-                        message=f"node type {node.type!r} is not supported by the Phase 1 runtime",
-                    )
-                )
-            if key in node.depends_on:
-                diagnostics.append(
-                    Diagnostic(
-                        severity="error",
-                        code="SELF_DEPENDENCY",
-                        path=f"{path}.dependsOn",
-                        message="a node cannot depend on itself",
-                    )
-                )
-            unknown = sorted(set(node.depends_on) - nodes.keys())
-            for dependency in unknown:
-                diagnostics.append(
-                    Diagnostic(
-                        severity="error",
-                        code="UNKNOWN_DEPENDENCY",
-                        path=f"{path}.dependsOn",
-                        message=f"node {dependency!r} does not exist",
-                    )
-                )
-            if isinstance(node, AgentNode) and node.agent not in spec.agents:
-                diagnostics.append(
-                    Diagnostic(
-                        severity="error",
-                        code="UNKNOWN_AGENT",
-                        path=f"{path}.agent",
-                        message=f"agent {node.agent!r} is not declared",
-                    )
-                )
-            if isinstance(node, ToolNode) and self._registry.resolve_tool(node.tool) is None:
-                diagnostics.append(
-                    Diagnostic(
-                        severity="error",
-                        code="UNKNOWN_TOOL",
-                        path=f"{path}.tool",
-                        message=f"tool {node.tool!r} is not present in the registry snapshot",
-                    )
-                )
-            if isinstance(node, RouterNode):
-                for index, route in enumerate(node.routes):
-                    try:
-                        validate_condition(route.when)
-                    except ExpressionError as exc:
-                        diagnostics.append(
-                            Diagnostic(
-                                severity="error",
-                                code="INVALID_CONDITION",
-                                path=f"{path}.routes.{index}.when",
-                                message=str(exc),
-                            )
-                        )
-                targets = [route.target for route in node.routes]
-                if node.default:
-                    targets.append(node.default)
-                for target in targets:
-                    if target in nodes and key not in nodes[target].depends_on:
-                        diagnostics.append(
-                            Diagnostic(
-                                severity="error",
-                                code="ROUTE_TARGET_NOT_GATED",
-                                path=f"{path}.routes",
-                                message=f"route target {target!r} must depend on router {key!r}",
-                            )
-                        )
-                diagnostics.extend(self._validate_router_shape(key, targets, nodes))
-            if isinstance(node, LoopNode):
-                try:
-                    validate_condition(node.until)
-                except ExpressionError as exc:
-                    diagnostics.append(
-                        Diagnostic(
-                            severity="error",
-                            code="INVALID_CONDITION",
-                            path=f"{path}.until",
-                            message=str(exc),
-                        )
-                    )
-                diagnostics.extend(self._validate_loop(key, node, nodes))
-            diagnostics.extend(self._validate_control_references(key, node, nodes))
-            diagnostics.extend(self._validate_templates(key, node.input, nodes))
+            diagnostics.extend(self._validate_node(strategy, key, node, nodes))
 
         diagnostics.extend(self._validate_templates("output", spec.graph.output, nodes))
+        diagnostics.extend(self._validate_loop_ownership(nodes))
+        if not any(item.code in {"UNKNOWN_DEPENDENCY", "SELF_DEPENDENCY"} for item in diagnostics):
+            try:
+                self._topological_order(strategy)
+            except CompileError as exc:
+                diagnostics.extend(exc.diagnostics)
+        return diagnostics
+
+    def _validate_node(
+        self,
+        strategy: SwarmStrategy,
+        key: str,
+        node: Any,
+        nodes: dict[str, Any],
+    ) -> list[Diagnostic]:
+        diagnostics: list[Diagnostic] = []
+        path = f"$.spec.graph.nodes.{key}"
+        if node.type not in _SUPPORTED_NODE_TYPES:
+            diagnostics.append(
+                Diagnostic(
+                    severity="error",
+                    code="UNSUPPORTED_NODE_TYPE",
+                    path=f"{path}.type",
+                    message=f"node type {node.type!r} is not supported by the Phase 1 runtime",
+                )
+            )
+        if key in node.depends_on:
+            diagnostics.append(
+                Diagnostic(
+                    severity="error",
+                    code="SELF_DEPENDENCY",
+                    path=f"{path}.dependsOn",
+                    message="a node cannot depend on itself",
+                )
+            )
+        for dependency in sorted(set(node.depends_on) - nodes.keys()):
+            diagnostics.append(
+                Diagnostic(
+                    severity="error",
+                    code="UNKNOWN_DEPENDENCY",
+                    path=f"{path}.dependsOn",
+                    message=f"node {dependency!r} does not exist",
+                )
+            )
+        if isinstance(node, AgentNode) and node.agent not in strategy.spec.agents:
+            diagnostics.append(
+                Diagnostic(
+                    severity="error",
+                    code="UNKNOWN_AGENT",
+                    path=f"{path}.agent",
+                    message=f"agent {node.agent!r} is not declared",
+                )
+            )
+        if isinstance(node, ToolNode) and self._registry.resolve_tool(node.tool) is None:
+            diagnostics.append(
+                Diagnostic(
+                    severity="error",
+                    code="UNKNOWN_TOOL",
+                    path=f"{path}.tool",
+                    message=f"tool {node.tool!r} is not present in the registry snapshot",
+                )
+            )
+        if isinstance(node, RouterNode):
+            diagnostics.extend(self._validate_router_node(key, node, nodes))
+        if isinstance(node, LoopNode):
+            diagnostics.extend(self._validate_loop_node(key, node, nodes))
+        diagnostics.extend(self._validate_control_references(key, node, nodes))
+        diagnostics.extend(self._validate_templates(key, node.input, nodes))
+        return diagnostics
+
+    def _validate_router_node(
+        self, key: str, node: RouterNode, nodes: dict[str, Any]
+    ) -> list[Diagnostic]:
+        diagnostics: list[Diagnostic] = []
+        path = f"$.spec.graph.nodes.{key}"
+        for index, route in enumerate(node.routes):
+            try:
+                validate_condition(route.when)
+            except ExpressionError as exc:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="INVALID_CONDITION",
+                        path=f"{path}.routes.{index}.when",
+                        message=str(exc),
+                    )
+                )
+        targets = [route.target for route in node.routes]
+        if node.default:
+            targets.append(node.default)
+        for target in targets:
+            if target in nodes and key not in nodes[target].depends_on:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="ROUTE_TARGET_NOT_GATED",
+                        path=f"{path}.routes",
+                        message=f"route target {target!r} must depend on router {key!r}",
+                    )
+                )
+        diagnostics.extend(self._validate_router_shape(key, targets, nodes))
+        return diagnostics
+
+    def _validate_loop_node(
+        self, key: str, node: LoopNode, nodes: dict[str, Any]
+    ) -> list[Diagnostic]:
+        diagnostics: list[Diagnostic] = []
+        try:
+            validate_condition(node.until)
+        except ExpressionError as exc:
+            diagnostics.append(
+                Diagnostic(
+                    severity="error",
+                    code="INVALID_CONDITION",
+                    path=f"$.spec.graph.nodes.{key}.until",
+                    message=str(exc),
+                )
+            )
+        diagnostics.extend(self._validate_loop(key, node, nodes))
+        return diagnostics
+
+    @staticmethod
+    def _validate_loop_ownership(nodes: dict[str, Any]) -> list[Diagnostic]:
+        diagnostics: list[Diagnostic] = []
         body_owners: dict[str, list[str]] = {}
         for loop_key, candidate in nodes.items():
             if isinstance(candidate, LoopNode):
@@ -336,11 +385,11 @@ class Compiler:
                         message=f"loop body node is shared by: {', '.join(sorted(owners))}",
                     )
                 )
-        if not any(item.code in {"UNKNOWN_DEPENDENCY", "SELF_DEPENDENCY"} for item in diagnostics):
-            try:
-                self._topological_order(strategy)
-            except CompileError as exc:
-                diagnostics.extend(exc.diagnostics)
+        return diagnostics
+
+    def _validate_agents(self, strategy: SwarmStrategy) -> list[Diagnostic]:
+        diagnostics: list[Diagnostic] = []
+        spec = strategy.spec
         if len(spec.agents) > spec.budget.max_agents:
             diagnostics.append(
                 Diagnostic(
@@ -416,7 +465,7 @@ class Compiler:
                             ),
                         )
                     )
-        return sorted(diagnostics, key=lambda item: (item.path, item.code, item.message))
+        return diagnostics
 
     @staticmethod
     def _validate_router_shape(
@@ -426,8 +475,10 @@ class Compiler:
         diagnostics: list[Diagnostic] = []
         for other_key, other in nodes.items():
             dependencies = set(other.depends_on)
-            if other_key not in target_set and dependencies.intersection(target_set) and not (
-                target_set.issubset(dependencies)
+            if (
+                other_key not in target_set
+                and dependencies.intersection(target_set)
+                and not (target_set.issubset(dependencies))
             ):
                 diagnostics.append(
                     Diagnostic(

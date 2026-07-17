@@ -1,0 +1,26 @@
+[project]
+name = "swarmcore-sandbox-manager"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi==0.116.1",
+  "pydantic-settings==2.14.2",
+  "swarmcore-domain",
+  "swarmcore-governance",
+  "swarmcore-observability",
+  "swarmcore-persistence",
+  "uvicorn[standard]==0.35.0",
+]
+
+[project.scripts]
+swarmcore-sandbox-manager = "swarmcore_sandbox_manager.main:run"
+
+[tool.uv.sources]
+swarmcore-domain = { workspace = true }
+swarmcore-governance = { workspace = true }
+swarmcore-observability = { workspace = true }
+swarmcore-persistence = { workspace = true }
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"

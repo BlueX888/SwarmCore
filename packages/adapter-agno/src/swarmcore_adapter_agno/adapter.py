@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class ModelResolver(Protocol):
-    def resolve(self, reference: str) -> Model | str: ...
+    def resolve(self, reference: str, context: Mapping[str, Any]) -> Model | str: ...
 
 
 class GatewayProxyFactory(Protocol):
@@ -52,7 +52,7 @@ class AgnoAdapter:
         ]
         agent = Agent(
             id=f"{run['runId']}:{node['key']}",
-            model=self._models.resolve(model_ref),
+            model=self._models.resolve(model_ref, request),
             role=str(agent_spec["role"]),
             instructions=str(agent_spec["instructions"]),
             tools=tools,

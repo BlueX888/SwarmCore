@@ -6,7 +6,7 @@ export const sampleStrategy: Record<string, unknown> = {
     inputSchema: { type: "object", properties: { topic: { type: "string" } }, required: ["topic"], additionalProperties: false },
     outputSchema: { type: "object" },
     defaults: { model: "model://fake-deterministic" },
-    agents: { worker: { role: "worker", instructions: "Return a concise structured response." } },
+    agents: { worker: { role: "worker", instructions: "返回简洁的结构化响应。" } },
     graph: { entrypoint: "work", nodes: { work: { type: "agent", agent: "worker", input: { topic: "{{ input.topic }}" } } }, output: { result: "{{ tasks.work.output }}" } },
   },
 };

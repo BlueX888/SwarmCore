@@ -4,7 +4,7 @@ import asyncio
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import select
-from swarmcore_observability import configure_telemetry
+from swarmcore_observability import configure_json_logging, configure_telemetry
 from swarmcore_persistence import Database, ProjectionReconciler
 from swarmcore_persistence.models import Run
 
@@ -54,4 +54,5 @@ async def serve() -> None:
 
 
 def run() -> None:
+    configure_json_logging()
     asyncio.run(serve())

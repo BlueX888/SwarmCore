@@ -16,8 +16,14 @@ async def publish_report(input_value: dict[str, Any], effect_id: str) -> dict[st
     return {"publicationId": publication_id, "reports": input_value["reports"]}
 
 
+async def unpublish_report(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
+    del input_value
+    return {"compensatedEffectId": effect_id}
+
+
 def builtin_executors() -> dict[str, ToolExecutor]:
     return {
         "builtin.search": search,
         "builtin.publish_report": publish_report,
+        "builtin.unpublish_report": unpublish_report,
     }

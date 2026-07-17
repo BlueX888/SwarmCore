@@ -1,5 +1,4 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { DEMO_PROJECT_ID, DEMO_TENANT_ID } from "../src/lib/demo-scope";
 
 const strategyId = "00000000-0000-0000-0000-000000000020";
 const draftId = "00000000-0000-0000-0000-000000000021";
@@ -21,12 +20,13 @@ test("creates a draft from an empty canvas", async ({ page }) => {
   await page.route("**/api/v1/projects/*/strategies/*/versions", (route) => route.fulfill({ json: { total: 0, items: [] } }));
   await page.route("**/api/v1/projects/*/strategies/*/drafts/*", (route) => route.fulfill({ json: draftSnapshot(1, captured.body?.spec ?? initialSpec(), captured.body?.editorState ?? { positions: {}, viewport: { x: 0, y: 0, zoom: 1 } }) }));
 
-  await page.goto(`/t/${DEMO_TENANT_ID}/p/${DEMO_PROJECT_ID}/strategies/new`);
+  await page.goto("/canvas");
+  await expect(page.getByRole("heading", { name: "编排画布" })).toBeVisible();
   await expect(page.locator(".react-flow__node")).toHaveCount(0);
-  await page.getByRole("button", { name: "agent", exact: true }).click();
-  await page.getByRole("button", { name: "Validate", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("Valid plan");
-  await page.getByRole("button", { name: "Create draft", exact: true }).click();
+  await page.getByRole("button", { name: "智能体", exact: true }).click();
+  await page.getByRole("button", { name: "校验", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("计划校验通过");
+  await page.getByRole("button", { name: "创建草稿", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/strategies/${strategyId}$`));
   expect(captured.body).toBeDefined();
   expect(captured.body?.spec.spec.graph.entrypoint).toBe("agent-1");
@@ -64,35 +64,35 @@ test("edits, persists and publishes a Strategy Canvas", async ({ page }, testInf
     await route.fulfill({ json: draftSnapshot(revision, savedSpec, savedEditorState), headers: { ETag: `"${revision}"` } });
   });
 
-  await page.goto(`/t/${DEMO_TENANT_ID}/p/${DEMO_PROJECT_ID}/strategies/${strategyId}`);
+  await page.goto(`/strategies/${strategyId}`);
   await expect(page.getByTestId("strategy-canvas")).toBeVisible();
-  await page.getByRole("button", { name: "parallel", exact: true }).click();
-  await page.getByRole("button", { name: "External Input", exact: true }).click();
+  await page.getByRole("button", { name: "并行", exact: true }).click();
+  await page.getByRole("button", { name: "外部输入", exact: true }).click();
   await expect(page.locator('.react-flow__node[data-id="parallel-1"]')).toBeVisible();
   await connect(page, "planner", "parallel-1");
   await connect(page, "parallel-1", "input-1");
-  await page.getByRole("button", { name: "join", exact: true }).click();
+  await page.getByRole("button", { name: "汇合", exact: true }).click();
   await expect(page.locator('.react-flow__node[data-id="join-1"]')).toBeVisible();
   await page.keyboard.press("Delete");
   await expect(page.locator('.react-flow__node[data-id="join-1"]')).toHaveCount(0);
 
   await page.getByRole("tab", { name: "JSON" }).click();
-  await expect(page.getByLabel("JSON strategy spec")).toHaveValue(/"dependsOn": \[\s*"parallel-1"/);
-  await expect(page.getByLabel("JSON strategy spec")).toHaveValue(/"branches": \[\s*"input-1"/);
-  await page.getByRole("tab", { name: "CANVAS" }).click();
+  await expect(page.getByLabel("JSON 策略规范")).toHaveValue(/"dependsOn": \[\s*"parallel-1"/);
+  await expect(page.getByLabel("JSON 策略规范")).toHaveValue(/"branches": \[\s*"input-1"/);
+  await page.getByRole("tab", { name: "画布" }).click();
 
   const inputNode = page.locator('.react-flow__node[data-id="input-1"]');
   await inputNode.dragTo(page.getByTestId("strategy-canvas"), { force: true, targetPosition: { x: 700, y: 400 } });
-  await page.getByRole("button", { name: "Save draft" }).click();
-  await expect(page.getByRole("status")).toContainText("Draft saved");
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await expect(page.getByRole("status")).toContainText("草稿已保存");
   expect(savedSpec.spec.graph.nodes["input-1"]?.dependsOn).toEqual(["parallel-1"]);
   expect(savedSpec.spec.graph.nodes["parallel-1"]?.branches).toEqual(["input-1"]);
   expect(savedEditorState.positions["input-1"]).toBeDefined();
 
   await page.reload();
   await expect(page.locator('.react-flow__node[data-id="input-1"]')).toBeVisible();
-  await page.getByRole("button", { name: "Save & publish" }).click();
-  await expect(page.getByRole("status")).toContainText("Published version 1");
+  await page.getByRole("button", { name: "保存并发布" }).click();
+  await expect(page.getByRole("status")).toContainText("已发布版本 1");
   expect(published).toBe(true);
 });
 

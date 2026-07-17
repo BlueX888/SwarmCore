@@ -1,3 +1,4 @@
+from .audit import AuditRepository
 from .database import Database, tenant_transaction
 from .errors import IdempotencyConflictError, PersistenceConflictError, TransitionConflictError
 from .models import Base
@@ -12,6 +13,7 @@ from .repositories import (
 from .tool_journal import PostgresEffectJournal
 
 __all__ = [
+    "AuditRepository",
     "Base",
     "Database",
     "EventRepository",

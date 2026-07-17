@@ -1,4 +1,5 @@
 import { Badge, type BadgeProps } from "./badge";
+import { statusLabel } from "@/lib/display-text";
 
 const success = new Set(["SUCCEEDED", "APPLIED", "COMPLETED"]);
 const error = new Set(["FAILED", "CANCELLED", "REJECTED", "TIMED_OUT", "DEAD"]);
@@ -11,4 +12,4 @@ export function statusColor(status: string): BadgeProps["color"] {
   if (status === "RUNNING" || status === "QUEUED") return "primary";
   return "neutral";
 }
-export function StatusBadge({ status }: { status: string }) { return <Badge color={statusColor(status)}>{status.replaceAll("_", " ")}</Badge>; }
+export function StatusBadge({ status }: { status: string }) { return <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>; }

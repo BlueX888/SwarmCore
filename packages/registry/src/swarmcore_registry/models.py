@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -48,11 +48,17 @@ class ToolRegistration(FrozenModel):
     idempotent: bool
     side_effecting: bool = Field(alias="sideEffecting")
     cost_usd: float = Field(default=0.0, alias="costUsd", ge=0)
+    recovery_policy: Literal["idempotent", "compensate", "manual"] = Field(
+        alias="recoveryPolicy"
+    )
+    compensation_operation: str | None = Field(default=None, alias="compensationOperation")
 
     @model_validator(mode="after")
     def side_effects_require_idempotency(self) -> ToolRegistration:
-        if self.side_effecting and not self.idempotent:
-            raise ValueError("side-effecting tools must accept the gateway effect id")
+        if self.side_effecting and self.recovery_policy == "idempotent" and not self.idempotent:
+            raise ValueError("idempotent recovery requires the gateway effect id")
+        if (self.recovery_policy == "compensate") != (self.compensation_operation is not None):
+            raise ValueError("compensate recovery requires exactly one compensation operation")
         return self
 
 
@@ -150,6 +156,7 @@ def builtin_registry() -> RegistrySnapshot:
                 idempotent=True,
                 sideEffecting=False,
                 costUsd=0.001,
+                recoveryPolicy="idempotent",
             ),
             ToolRegistration(
                 ref="tool://publish-report@1",
@@ -174,6 +181,8 @@ def builtin_registry() -> RegistrySnapshot:
                 idempotent=True,
                 sideEffecting=True,
                 costUsd=0.01,
+                recoveryPolicy="compensate",
+                compensationOperation="builtin.unpublish_report",
             ),
         ),
     )

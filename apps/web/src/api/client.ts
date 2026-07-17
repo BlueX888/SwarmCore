@@ -1,6 +1,7 @@
 import type {
-  ApprovalListResponse, CapabilityCatalog, CommandHandle, CompileResponse, DraftSnapshot, EditorState, EventHistory,
-  ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, StrategyHandle,
+  ApprovalListResponse, AuditListResponse, CapabilityCatalog, CommandHandle, CompileResponse, ConfigurationKind, CreateSavedConfiguration,
+  DraftSnapshot, EditorState, EventHistory, ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, SavedConfiguration,
+  SavedConfigurationListResponse, StrategyHandle,
   StrategyListResponse, StrategyVersionDetail,
   StrategyVersionListResponse,
 } from "./types";
@@ -9,6 +10,7 @@ const configuredApiUrl: unknown = import.meta.env["VITE_API_URL"];
 const baseUrl = typeof configuredApiUrl === "string" ? configuredApiUrl : "/api";
 const temporalUi: unknown = import.meta.env["VITE_TEMPORAL_UI_URL"];
 const phoenixUi: unknown = import.meta.env["VITE_PHOENIX_URL"];
+const temporalUiUrl = typeof temporalUi === "string" ? temporalUi : "http://localhost:8088";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string) { super(message); }
@@ -32,12 +34,25 @@ async function request<T>(path: string, tenantId: string, init?: RequestInit): P
       throw new ApiError(response.status, body || response.statusText);
     }
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+async function requestFile(path: string, tenantId: string, init?: RequestInit): Promise<Blob> {
+  const headers = new Headers(init?.headers);
+  headers.set("X-Tenant-ID", tenantId);
+  const response = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  if (!response.ok) throw new ApiError(response.status, await response.text());
+  return response.blob();
 }
 
 export const api = {
   listStrategies: (tenantId: string, projectId: string) => request<StrategyListResponse>(`/v1/projects/${projectId}/strategies`, tenantId),
   getCapabilities: (tenantId: string, projectId: string) => request<CapabilityCatalog>(`/v1/projects/${projectId}/capabilities`, tenantId),
+  listConfigurations: (tenantId: string, projectId: string, kind: ConfigurationKind) => request<SavedConfigurationListResponse>(`/v1/projects/${projectId}/configurations/${kind}`, tenantId),
+  createConfiguration: (tenantId: string, projectId: string, kind: ConfigurationKind, body: CreateSavedConfiguration) => request<SavedConfiguration>(`/v1/projects/${projectId}/configurations/${kind}`, tenantId, { method: "POST", body: JSON.stringify(body) }),
+  updateConfiguration: (tenantId: string, projectId: string, kind: ConfigurationKind, configurationId: string, body: CreateSavedConfiguration) => request<SavedConfiguration>(`/v1/projects/${projectId}/configurations/${kind}/${configurationId}`, tenantId, { method: "PUT", body: JSON.stringify(body) }),
+  deleteConfiguration: (tenantId: string, projectId: string, kind: ConfigurationKind, configurationId: string) => request<undefined>(`/v1/projects/${projectId}/configurations/${kind}/${configurationId}`, tenantId, { method: "DELETE" }),
   createStrategy: (tenantId: string, projectId: string, name: string, spec: Record<string, unknown>, editorState: EditorState) => request<StrategyHandle>(`/v1/projects/${projectId}/strategies`, tenantId, { method: "POST", body: JSON.stringify({ name, spec, editorState }) }),
   getDraft: (tenantId: string, projectId: string, strategyId: string, draftId: string) => request<DraftSnapshot>(`/v1/projects/${projectId}/strategies/${strategyId}/drafts/${draftId}`, tenantId),
   updateDraft: (tenantId: string, projectId: string, strategyId: string, draftId: string, revision: number, spec: Record<string, unknown>, editorState: EditorState) => request<DraftSnapshot>(`/v1/projects/${projectId}/strategies/${strategyId}/drafts/${draftId}`, tenantId, { method: "PUT", headers: { "If-Match": `"${revision}"` }, body: JSON.stringify({ spec, editorState }) }),
@@ -53,13 +68,16 @@ export const api = {
   pauseRun: (tenantId: string, projectId: string, runId: string) => request<CommandHandle>(`/v1/projects/${projectId}/runs/${runId}:pause`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   resumeRun: (tenantId: string, projectId: string, runId: string) => request<CommandHandle>(`/v1/projects/${projectId}/runs/${runId}:resume`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   getCommand: (tenantId: string, projectId: string, commandId: string) => request<CommandHandle>(`/v1/projects/${projectId}/commands/${commandId}`, tenantId),
-  listApprovals: (tenantId: string, projectId: string, runId: string) => request<ApprovalListResponse>(`/v1/projects/${projectId}/approvals?runId=${runId}`, tenantId),
+  listApprovals: (tenantId: string, projectId: string, runId?: string) => request<ApprovalListResponse>(`/v1/projects/${projectId}/approvals${runId ? `?runId=${runId}` : ""}`, tenantId),
   approve: (tenantId: string, projectId: string, approvalId: string, value: Record<string, unknown>) => request<CommandHandle>(`/v1/projects/${projectId}/approvals/${approvalId}:approve`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ value }) }),
   reject: (tenantId: string, projectId: string, approvalId: string, value: Record<string, unknown>) => request<CommandHandle>(`/v1/projects/${projectId}/approvals/${approvalId}:reject`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ value }) }),
-  listInputs: (tenantId: string, projectId: string, runId: string) => request<ExternalInputListResponse>(`/v1/projects/${projectId}/inputs?runId=${runId}`, tenantId),
+  listInputs: (tenantId: string, projectId: string, runId?: string) => request<ExternalInputListResponse>(`/v1/projects/${projectId}/inputs${runId ? `?runId=${runId}` : ""}`, tenantId),
   provideInput: (tenantId: string, projectId: string, inputRequestId: string, value: Record<string, unknown>) => request<CommandHandle>(`/v1/projects/${projectId}/inputs/${inputRequestId}:provide`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ value }) }),
+  listAuditLogs: (tenantId: string, projectId: string, limit = 100) => request<AuditListResponse>(`/v1/projects/${projectId}/audit-logs?limit=${limit}`, tenantId),
+  exportAuditLogs: (tenantId: string, projectId: string) => requestFile(`/v1/projects/${projectId}/audit-logs:export`, tenantId, { method: "POST" }),
   retryTask: (tenantId: string, projectId: string, runId: string, taskId: string) => request<CommandHandle>(`/v1/projects/${projectId}/runs/${runId}/tasks/${taskId}:retry`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   eventUrl: (projectId: string, runId: string, after: number) => `${baseUrl}/v1/projects/${projectId}/runs/${runId}/events?after=${after}`,
-  temporalUrl: (tenantId: string, runId: string) => `${typeof temporalUi === "string" ? temporalUi : "http://localhost:8088"}/namespaces/default/workflows/${encodeURIComponent(`swarm:${tenantId}:${runId}`)}`,
+  temporalUiUrl,
+  temporalUrl: (tenantId: string, runId: string) => `${temporalUiUrl}/namespaces/default/workflows/${encodeURIComponent(`swarm:${tenantId}:${runId}`)}`,
   phoenixUrl: typeof phoenixUi === "string" ? phoenixUi : "http://localhost:6006",
 };

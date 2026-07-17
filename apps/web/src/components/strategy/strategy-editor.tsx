@@ -44,15 +44,15 @@ export function StrategyEditor({ spec, editorState, nodeTypes, diagnostics, onSp
   const syncText = (format: SpecFormat, source: string) => {
     try {
       const parsed = parseSpec(source, format);
-      if (!isSwarmSpecDocument(parsed)) throw new Error("Document must contain spec.graph.nodes.");
+      if (!isSwarmSpecDocument(parsed)) throw new Error("文档必须包含 spec.graph.nodes。");
       setInvalid((current) => ({ ...current, [format]: undefined }));
       lastSpec.current = parsed;
       onSpecChange(parsed);
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Invalid strategy document.";
+      const message = error instanceof Error ? error.message : "策略文档无效。";
       setInvalid((current) => ({ ...current, [format]: message }));
-      onError(`${format.toUpperCase()} is invalid. The last valid SwarmSpec is still active: ${message}`);
+      onError(`${format.toUpperCase()} 格式无效，仍保留最近一次有效的 SwarmSpec：${message}`);
       return false;
     }
   };
@@ -64,20 +64,20 @@ export function StrategyEditor({ spec, editorState, nodeTypes, diagnostics, onSp
 
   return <div className="min-w-0 space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><p className="text-sm font-medium text-gray-700 dark:text-gray-300">Strategy editor</p><p className="text-xs text-gray-500">SwarmSpec is the execution source; canvas layout is saved separately.</p></div>
-      <div className="flex gap-1" role="tablist" aria-label="Editor mode">
-        {(["canvas", "json", "yaml"] as const).map((item) => <Button key={item} type="button" size="sm" role="tab" aria-selected={mode === item} variant={mode === item ? "primary" : "ghost"} onClick={() => switchMode(item)}>{item.toUpperCase()}</Button>)}
+      <div><p className="text-sm font-medium text-gray-700 dark:text-gray-300">策略编辑器</p><p className="text-xs text-gray-500">SwarmSpec 是执行来源，画布布局会单独保存。</p></div>
+      <div className="flex gap-1" role="tablist" aria-label="编辑模式">
+        {(["canvas", "json", "yaml"] as const).map((item) => <Button key={item} type="button" size="sm" role="tab" aria-selected={mode === item} variant={mode === item ? "primary" : "ghost"} onClick={() => switchMode(item)}>{item === "canvas" ? "画布" : item.toUpperCase()}</Button>)}
       </div>
     </div>
     {mode === "canvas" ? <StrategyCanvas spec={spec} editorState={editorState} nodeTypes={nodeTypes} diagnostics={diagnostics} onSpecChange={onSpecChange} onEditorStateChange={onEditorStateChange} onError={onError} /> : <div>
       <textarea
-        aria-label={`${mode.toUpperCase()} strategy spec`}
+        aria-label={`${mode.toUpperCase()} 策略规范`}
         spellCheck={false}
         value={buffers[mode]}
         onChange={(event) => changeText(mode, event.target.value)}
         className={`min-h-[620px] w-full resize-y rounded-xl border bg-white p-4 font-mono text-xs text-gray-800 outline-none focus:ring-3 dark:bg-gray-900 dark:text-gray-200 ${invalid[mode] ? "border-error-500 focus:ring-error-500/10" : "border-gray-300 focus:border-brand-500 focus:ring-brand-500/10 dark:border-gray-700"}`}
       />
-      {invalid[mode] ? <p role="alert" className="mt-2 rounded-lg bg-error-50 p-3 text-sm text-error-600 dark:bg-error-500/10">{invalid[mode]} The last valid Spec remains available in Canvas.</p> : null}
+      {invalid[mode] ? <p role="alert" className="mt-2 rounded-lg bg-error-50 p-3 text-sm text-error-600 dark:bg-error-500/10">{invalid[mode]} 画布中仍保留最近一次有效的规范。</p> : null}
     </div>}
   </div>;
 }

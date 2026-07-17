@@ -130,15 +130,15 @@ export function connectNodes(spec: SwarmSpecDocument, source: string, target: st
   const nodes = spec.spec.graph.nodes;
   const sourceNode = nodes[source];
   const targetNode = nodes[target];
-  if (!sourceNode || !targetNode) return { spec, error: "Both connection endpoints must exist." };
-  if (source === target) return { spec, error: "A node cannot connect to itself." };
+  if (!sourceNode || !targetNode) return { spec, error: "连接的两个端点都必须存在。" };
+  if (source === target) return { spec, error: "节点不能连接到自身。" };
   const dependencyExists = stringList(targetNode.dependsOn).includes(source);
   const branchExists = sourceNode.type === "parallel" && stringList(sourceNode.branches).includes(target);
   if (dependencyExists && (sourceNode.type !== "parallel" || branchExists)) {
-    return { spec, error: "This connection already exists." };
+    return { spec, error: "该连接已存在。" };
   }
   if (wouldCreateCycle(spec, source, target)) {
-    return { spec, error: "This connection would create a cycle." };
+    return { spec, error: "该连接会形成循环。" };
   }
   const next = cloneSpec(spec);
   const nextSource = next.spec.graph.nodes[source];
@@ -178,8 +178,8 @@ export function addNode(
   if (type === "agent") {
     next.spec.agents ??= {};
     next.spec.agents[nodeKey] = {
-      role: "Worker",
-      instructions: "Complete the assigned task.",
+      role: "执行者",
+      instructions: "完成分配的任务。",
     };
   }
   return {
@@ -273,8 +273,8 @@ function defaultNode(type: SupportedNodeType, nodeKey: string): StrategyNode {
     case "parallel": return { type, branches: [], dependsOn: [] };
     case "join": return { type, strategy: "all", dependsOn: [] };
     case "reducer": return { type, reducer: "merge_object", dependsOn: [] };
-    case "approval": return { type, prompt: "Approve this step?", inputSchema: { type: "object" }, dependsOn: [] };
-    case "input": return { type, prompt: "Provide input", inputSchema: { type: "object" }, dependsOn: [] };
+    case "approval": return { type, prompt: "是否批准此步骤？", inputSchema: { type: "object" }, dependsOn: [] };
+    case "input": return { type, prompt: "请提供输入", inputSchema: { type: "object" }, dependsOn: [] };
   }
 }
 

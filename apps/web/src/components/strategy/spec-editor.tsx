@@ -11,12 +11,12 @@ export function serializeSpec(spec: Record<string, unknown>, format: SpecFormat)
 export function parseSpec(source: string, format: SpecFormat): Record<string, unknown> {
   const value: unknown = format === "json" ? JSON.parse(source) : parse(source);
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Strategy document must be an object.");
+    throw new Error("策略文档必须是对象。");
   }
   return value as Record<string, unknown>;
 }
 
-export function SpecEditor({ value, onChange, format, onFormatChange, label = "Strategy spec" }: {
+export function SpecEditor({ value, onChange, format, onFormatChange, label = "策略规范" }: {
   value: string; onChange: (value: string) => void; format: SpecFormat;
   onFormatChange: (format: SpecFormat) => void; label?: string;
 }) {

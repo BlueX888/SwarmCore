@@ -1,0 +1,23 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "contract-integrity", "version": "1.0.0"},
+  "spec": {
+    "workItemType": "contract-case",
+    "workItemSchema": "schema://contract/case@1",
+    "inputSchema": "schema://contract/validation-input@1",
+    "outputSchema": "schema://contract/validation-result@1",
+    "strategies": {"execute": "strategy://contract-integrity/validate@1"},
+    "agents": [],
+    "tools": [
+      "tool://rules/evaluate@1",
+      "tool://workbench/record-evaluation@1",
+      "tool://report/render@1"
+    ],
+    "rules": {"schema": "schema://contract/checklist-rule@1"},
+    "report": {"template": "report://contract/validation@1"},
+    "permissions": ["work-item.read", "work-item.execute", "finding.act", "rule.manage"],
+    "events": {"namespace": "capability.contract-integrity"},
+    "ui": {"viewDefinition": "view://contract-integrity/work-item@1"}
+  }
+}

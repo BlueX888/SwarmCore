@@ -18,6 +18,7 @@ from swarmcore_application import (
     RunService,
     StrategyService,
 )
+from swarmcore_capability_contract_integrity import MANIFEST
 from swarmcore_governance import (
     PolicyDenied,
     PolicyError,
@@ -30,6 +31,8 @@ from swarmcore_persistence.errors import PersistenceConflictError
 from swarmcore_persistence.models import Project
 
 from .authentication import AuthenticationError, Identity, JwtAuthenticator
+from .business_routes import capability_packs as _capability_packs
+from .business_routes import workbench as _workbench
 from .schemas import JsonRpcRequest
 
 router = APIRouter()
@@ -39,9 +42,26 @@ _runs = RunService()
 _commands = RunCommandService()
 _run_queries = RunQueryService()
 _run_results = RunResultService()
-_capabilities = CapabilityCatalogService()
+_capabilities = CapabilityCatalogService((MANIFEST,))
 _compilation = CompilationService(_strategies)
 logger = logging.getLogger(__name__)
+
+
+def _business_schema(
+    *,
+    required: tuple[str, ...] = (),
+    properties: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": ["projectId", *required],
+        "properties": {
+            "projectId": {"type": "string", "format": "uuid"},
+            **(properties or {}),
+        },
+        "additionalProperties": False,
+    }
+
 
 _TOOLS = [
     {
@@ -149,6 +169,76 @@ _TOOLS = [
             },
             "additionalProperties": False,
         },
+    },
+    {
+        "name": "list_capability_packs",
+        "description": "List trusted capability pack versions and project enablement state.",
+        "inputSchema": _business_schema(),
+    },
+    {
+        "name": "create_work_item",
+        "description": "Create a schema-validated business work item and immutable revision.",
+        "inputSchema": _business_schema(
+            required=("workItemType", "payload", "idempotencyKey"),
+            properties={
+                "workItemType": {"type": "string"},
+                "payload": {"type": "object"},
+                "owner": {"type": "string"},
+                "idempotencyKey": {"type": "string"},
+            },
+        ),
+    },
+    {
+        "name": "execute_work_item",
+        "description": "Create one Evaluation and Run for a work item revision.",
+        "inputSchema": _business_schema(
+            required=("workItemId", "idempotencyKey"),
+            properties={
+                "workItemId": {"type": "string", "format": "uuid"},
+                "idempotencyKey": {"type": "string"},
+            },
+        ),
+    },
+    {
+        "name": "get_evaluation",
+        "description": "Get an Evaluation result and immutable provenance snapshot.",
+        "inputSchema": _business_schema(
+            required=("evaluationId",),
+            properties={"evaluationId": {"type": "string", "format": "uuid"}},
+        ),
+    },
+    {
+        "name": "list_findings",
+        "description": "List current findings for a work item.",
+        "inputSchema": _business_schema(
+            required=("workItemId",),
+            properties={"workItemId": {"type": "string", "format": "uuid"}},
+        ),
+    },
+    {
+        "name": "act_on_finding",
+        "description": "Acknowledge, assign, waive, resolve, or reopen a finding.",
+        "inputSchema": _business_schema(
+            required=("findingId", "action", "idempotencyKey"),
+            properties={
+                "findingId": {"type": "string", "format": "uuid"},
+                "action": {
+                    "type": "string",
+                    "enum": ["ACKNOWLEDGE", "ASSIGN", "WAIVE", "RESOLVE", "REOPEN"],
+                },
+                "reason": {"type": "string"},
+                "assignee": {"type": "string"},
+                "idempotencyKey": {"type": "string"},
+            },
+        ),
+    },
+    {
+        "name": "get_report",
+        "description": "Get JSON and HTML reports for an Evaluation.",
+        "inputSchema": _business_schema(
+            required=("evaluationId",),
+            properties={"evaluationId": {"type": "string", "format": "uuid"}},
+        ),
     },
 ]
 
@@ -268,6 +358,13 @@ async def _call_tool(
         "swarm.run.status": "run.read",
         "swarm.run.result": "run.read",
         "swarm.run.control": "run.control",
+        "list_capability_packs": "capability.read",
+        "create_work_item": "work-item.write",
+        "execute_work_item": "work-item.execute",
+        "get_evaluation": "work-item.read",
+        "list_findings": "finding.read",
+        "act_on_finding": "finding.act",
+        "get_report": "report.read",
     }.get(name)
     if action is None:
         raise ValueError(f"unknown tool: {name}")
@@ -322,6 +419,119 @@ async def _call_tool(
     async with tenant_transaction(
         database.sessions, tenant_id=tenant_id, project_id=project_id
     ) as session:
+        if name == "list_capability_packs":
+            await _capability_packs.ensure_trusted(
+                session, tenant_id=tenant_id, project_id=project_id
+            )
+            rows = await _capability_packs.list_project(
+                session, tenant_id=tenant_id, project_id=project_id
+            )
+            return {
+                "items": [
+                    {
+                        "packId": str(pack.id),
+                        "name": pack.name,
+                        "versionId": str(version.id),
+                        "version": version.version,
+                        "contentHash": version.content_hash,
+                        "manifest": version.manifest,
+                        "enabled": binding is not None and binding.status == "ENABLED",
+                        "bindingStatus": binding.status if binding is not None else None,
+                    }
+                    for pack, version, binding in rows
+                ]
+            }
+        if name == "create_work_item":
+            item, revision = await _workbench.create_work_item(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                work_item_type=str(arguments["workItemType"]),
+                payload=dict(arguments["payload"]),
+                owner=str(arguments["owner"]) if arguments.get("owner") is not None else None,
+                idempotency_key=str(arguments["idempotencyKey"]),
+                actor=identity.subject_id,
+            )
+            return {
+                "workItemId": str(item.id),
+                "workItemType": item.work_item_type,
+                "schemaVersion": item.schema_version,
+                "payload": item.payload,
+                "status": item.status,
+                "owner": item.owner,
+                "revisionId": str(revision.id),
+                "revision": revision.revision,
+                "payloadHash": revision.payload_hash,
+            }
+        if name == "execute_work_item":
+            evaluation = await _workbench.execute(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                work_item_id=UUID(str(arguments["workItemId"])),
+                idempotency_key=str(arguments["idempotencyKey"]),
+                actor=identity.subject_id,
+                submitted_scopes=effective_scopes,
+                auth_context_hash=identity.context_hash,
+            )
+            return _evaluation_payload(evaluation)
+        if name == "get_evaluation":
+            evaluation = await _workbench.get_evaluation(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                evaluation_id=UUID(str(arguments["evaluationId"])),
+            )
+            return _evaluation_payload(evaluation)
+        if name == "list_findings":
+            findings = await _workbench.list_findings(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                work_item_id=UUID(str(arguments["workItemId"])),
+            )
+            return {"items": [_finding_payload(finding) for finding in findings]}
+        if name == "act_on_finding":
+            finding = await _workbench.act_on_finding(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                finding_id=UUID(str(arguments["findingId"])),
+                action=str(arguments["action"]),
+                reason=(
+                    str(arguments["reason"]) if arguments.get("reason") is not None else None
+                ),
+                assignee=(
+                    str(arguments["assignee"])
+                    if arguments.get("assignee") is not None
+                    else None
+                ),
+                expires_at=None,
+                idempotency_key=str(arguments["idempotencyKey"]),
+                actor=identity.subject_id,
+            )
+            return _finding_payload(finding)
+        if name == "get_report":
+            reports = await _workbench.list_reports(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                evaluation_id=UUID(str(arguments["evaluationId"])),
+            )
+            return {
+                "items": [
+                    {
+                        "reportId": str(report.id),
+                        "evaluationId": str(report.evaluation_id),
+                        "format": report.format,
+                        "templateVersion": report.template_version,
+                        "resultSchemaVersion": report.result_schema_version,
+                        "content": report.content,
+                        "contentHash": report.content_hash,
+                    }
+                    for report in reports
+                ]
+            }
         if name == "swarm.run.create":
             if "spec" in arguments:
                 run, command = await _runs.create_inline(
@@ -410,3 +620,39 @@ def _application_error_code(exc: Exception) -> str:
     if str(exc) == "IDEMPOTENCY_KEY_REUSED":
         return "IDEMPOTENCY_KEY_REUSED"
     return "VALIDATION_ERROR"
+
+
+def _evaluation_payload(evaluation: Any) -> dict[str, Any]:
+    return {
+        "evaluationId": str(evaluation.id),
+        "workItemId": str(evaluation.work_item_id),
+        "workItemRevisionId": str(evaluation.work_item_revision_id),
+        "runId": str(evaluation.run_id),
+        "status": evaluation.status,
+        "result": evaluation.result,
+        "capabilityPackVersionId": str(evaluation.capability_pack_version_id),
+        "ruleSetVersionId": (
+            str(evaluation.rule_set_version_id)
+            if evaluation.rule_set_version_id is not None
+            else None
+        ),
+        "planHash": evaluation.plan_hash,
+        "attachmentManifestHash": evaluation.attachment_manifest_hash,
+        "registrySnapshot": evaluation.registry_snapshot,
+    }
+
+
+def _finding_payload(finding: Any) -> dict[str, Any]:
+    return {
+        "findingId": str(finding.id),
+        "workItemId": str(finding.work_item_id),
+        "evaluationId": str(finding.evaluation_id),
+        "ruleKey": finding.rule_key,
+        "code": finding.code,
+        "category": finding.category,
+        "severity": finding.severity,
+        "status": finding.status,
+        "title": finding.title,
+        "detail": finding.detail,
+        "evidence": finding.evidence,
+    }

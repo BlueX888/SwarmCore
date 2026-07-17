@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["workItemId", "workItemRevisionId", "payload", "attachments"],
+  "properties": {
+    "workItemId": {"type": "string", "format": "uuid"},
+    "workItemRevisionId": {"type": "string", "format": "uuid"},
+    "payload": {"type": "object"},
+    "attachments": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

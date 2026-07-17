@@ -2,8 +2,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@radix-ui/react-tooltip";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Activity, Bot, Boxes, ChartNoAxesCombined, ChevronLeft, ChevronRight, Clock3, Cpu,
-  ExternalLink, Inbox, LayoutDashboard, Menu, Moon, Network, Plus, Rocket, ScrollText, Sun, Workflow, Wrench, X,
+  Activity, Bot, Boxes, ChartNoAxesCombined, ChevronLeft, ChevronRight, ClipboardList, Clock3, Cpu,
+  ExternalLink, FileCheck2, Inbox, LayoutDashboard, Menu, Moon, Network, Plus, Rocket, ScrollText, Sun, TableProperties, Workflow, Wrench, X,
 } from "lucide-react";
 import * as React from "react";
 import { Link, Outlet, useLocation } from "react-router";
@@ -25,40 +25,45 @@ export function Navigation({ collapsed = false, onNavigate }: NavigationProps) {
   const approvals = useQuery({ queryKey: ["approvals", tenantId, projectId, "all"], queryFn: () => api.listApprovals(tenantId, projectId), refetchInterval: 10000 });
   const inputs = useQuery({ queryKey: ["inputs", tenantId, projectId, "all"], queryFn: () => api.listInputs(tenantId, projectId), refetchInterval: 10000 });
   const pendingActions = (approvals.data?.total ?? 0) + (inputs.data?.total ?? 0);
-  const groups: Array<{ label: string; items: NavItem[] }> = [
-    { label: "总览", items: [
+  const groups: Array<{ id: string; label: string; items: NavItem[] }> = [
+    { id: "overview", label: "总览", items: [
       { label: "工作台", to: `${workspacePath}/overview`, icon: LayoutDashboard, active: (path) => path.startsWith("/overview") },
     ] },
-    { label: "运行管理", items: [
-      { label: "运行记录", to: `${workspacePath}/runs`, icon: Activity, active: (path) => path.startsWith("/runs") && path !== "/runs/new" },
-      { label: "新建运行", to: `${workspacePath}/runs/new`, icon: Rocket, active: (path) => path === "/runs/new" },
-      { label: "待办中心", to: `${workspacePath}/actions`, icon: Inbox, active: (path) => path.startsWith("/actions"), badge: pendingActions },
+    { id: "business", label: "业务工作", items: [
+      { label: "业务工作项", to: `${workspacePath}/work-items`, icon: ClipboardList, active: (path) => path.startsWith("/work-items") },
+      { label: "业务能力包", to: `${workspacePath}/capability-packs`, icon: FileCheck2, active: (path) => path.startsWith("/capability-packs") },
+      { label: "规则集", to: `${workspacePath}/rule-sets`, icon: TableProperties, active: (path) => path.startsWith("/rule-sets") },
     ] },
-    { label: "构建", items: [
+    { id: "execution", label: "执行管理", items: [
+      { label: "新建运行", to: `${workspacePath}/runs/new`, icon: Rocket, active: (path) => path === "/runs/new" },
+      { label: "运行记录", to: `${workspacePath}/runs`, icon: Activity, active: (path) => path.startsWith("/runs") && path !== "/runs/new" },
+      { label: "待办中心", to: `${workspacePath}/actions`, icon: Inbox, active: (path) => path.startsWith("/actions"), badge: pendingActions },
       { label: "策略管理", to: `${workspacePath}/strategies`, icon: Workflow, active: (path) => path.startsWith("/strategies") },
       { label: "编排画布", to: `${workspacePath}/canvas`, icon: Network, active: (path) => path.startsWith("/canvas") },
+    ] },
+    { id: "platform", label: "平台底座", items: [
       { label: "能力目录", to: `${workspacePath}/capabilities`, icon: Boxes, active: (path) => path.startsWith("/capabilities") },
       { label: "智能体配置", to: `${workspacePath}/agents`, icon: Bot, active: (path) => path.startsWith("/agents") },
       { label: "工具配置", to: `${workspacePath}/tools`, icon: Wrench, active: (path) => path.startsWith("/tools") },
       { label: "模型配置", to: `${workspacePath}/models`, icon: Cpu, active: (path) => path.startsWith("/models") },
     ] },
-    { label: "治理", items: [
+    { id: "governance", label: "系统治理", items: [
       { label: "审计日志", to: `${workspacePath}/audit-logs`, icon: ScrollText, active: (path) => path.startsWith("/audit-logs") },
     ] },
   ];
 
   return <nav aria-label="主导航" className="space-y-5">
-    {groups.map((group) => <div key={group.label}>
-      {collapsed ? null : <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">{group.label}</p>}
+    {groups.map((group) => <section key={group.id} aria-labelledby={`navigation-group-${group.id}`}>
+      <h2 id={`navigation-group-${group.id}`} className={cn("mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400", collapsed && "sr-only")}>{group.label}</h2>
       <div className="space-y-1">{group.items.map((item) => <NavigationLink key={item.label} item={item} active={item.active(relativePath)} collapsed={collapsed} onNavigate={onNavigate} />)}</div>
-    </div>)}
-    <div>
-      {collapsed ? null : <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">观测</p>}
+    </section>)}
+    <section aria-labelledby="navigation-group-observability">
+      <h2 id="navigation-group-observability" className={cn("mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400", collapsed && "sr-only")}>系统观测</h2>
       <div className="space-y-1">
         <ExternalNavigationLink label="Temporal" href={api.temporalUiUrl} icon={Clock3} collapsed={collapsed} />
         <ExternalNavigationLink label="Phoenix" href={api.phoenixUrl} icon={ChartNoAxesCombined} collapsed={collapsed} />
       </div>
-    </div>
+    </section>
   </nav>;
 }
 
@@ -88,6 +93,9 @@ function Brand({ collapsed, homePath }: { collapsed?: boolean; homePath: string 
 }
 
 function currentPage(pathname: string) {
+  if (pathname.includes("/work-items")) return "业务工作项";
+  if (pathname.includes("/capability-packs")) return "业务能力包";
+  if (pathname.includes("/rule-sets")) return "规则集";
   if (pathname.includes("/overview")) return "工作台";
   if (pathname.endsWith("/runs/new") || pathname === "/runs/new") return "新建运行";
   if (pathname.includes("/actions")) return "待办中心";

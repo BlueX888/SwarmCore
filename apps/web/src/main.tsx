@@ -8,6 +8,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ActionCenterPage } from "@/pages/action-center-page";
 import { AuditLogsPage } from "@/pages/audit-logs-page";
 import { CapabilitiesPage } from "@/pages/capabilities-page";
+import { CapabilityPacksPage } from "@/pages/capability-packs-page";
 import { AgentConfigurationPage, ModelConfigurationPage, ToolConfigurationPage } from "@/pages/registry-config-page";
 import { ThemeProvider } from "@/context/theme-context";
 import { RunsPage } from "@/pages/runs-page";
@@ -16,6 +17,9 @@ import { OverviewPage } from "@/pages/overview-page";
 import { StrategiesPage } from "@/pages/strategies-page";
 import { StrategyCreatePage } from "@/pages/strategy-create-page";
 import { StrategyDetailPage } from "@/pages/strategy-detail-page";
+import { RuleSetsPage } from "@/pages/rule-sets-page";
+import { WorkItemDetailPage } from "@/pages/work-item-detail-page";
+import { WorkItemsPage } from "@/pages/work-items-page";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DEMO_PROJECT_ID, DEMO_TENANT_ID, demoOverviewPath, demoWorkspacePath } from "@/lib/demo-scope";
 
@@ -37,6 +41,12 @@ const workspaceChildren = () => [
   { path: "canvas", element: <StrategyCreatePage standalone /> },
   { path: "actions", element: <ActionCenterPage /> },
   { path: "capabilities", element: <CapabilitiesPage /> },
+  { path: "capability-packs", element: <CapabilityPacksPage /> },
+  { path: "work-items", children: [
+    { index: true, element: <WorkItemsPage /> },
+    { path: ":workItemId", element: <WorkItemDetailPage /> },
+  ] },
+  { path: "rule-sets", element: <RuleSetsPage /> },
   { path: "agents", element: <AgentConfigurationPage /> },
   { path: "tools", element: <ToolConfigurationPage /> },
   { path: "models", element: <ModelConfigurationPage /> },

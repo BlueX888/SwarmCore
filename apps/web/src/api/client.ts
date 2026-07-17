@@ -1,6 +1,8 @@
 import type {
   ApprovalListResponse, AuditListResponse, CapabilityCatalog, CommandHandle, CompileResponse, ConfigurationKind, CreateSavedConfiguration,
   DraftSnapshot, EditorState, EventHistory, ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, SavedConfiguration,
+  AttachmentUploadHandle, CapabilityPackListResponse, EvaluationSnapshot, FindingListResponse, ReportListResponse,
+  RuleSetDraftSnapshot, RuleSetValidationResponse, RuleSetVersionSnapshot, WorkItemListResponse, WorkItemSnapshot,
   SavedConfigurationListResponse, StrategyHandle,
   StrategyListResponse, StrategyVersionDetail,
   StrategyVersionListResponse,
@@ -11,6 +13,8 @@ const baseUrl = typeof configuredApiUrl === "string" ? configuredApiUrl : "/api"
 const temporalUi: unknown = import.meta.env["VITE_TEMPORAL_UI_URL"];
 const phoenixUi: unknown = import.meta.env["VITE_PHOENIX_URL"];
 const temporalUiUrl = typeof temporalUi === "string" ? temporalUi : "http://localhost:8088";
+const configuredArtifactGateway: unknown = import.meta.env["VITE_ARTIFACT_GATEWAY_URL"];
+const artifactGatewayUrl = typeof configuredArtifactGateway === "string" ? configuredArtifactGateway : "http://localhost:8091";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string) { super(message); }
@@ -76,6 +80,24 @@ export const api = {
   listAuditLogs: (tenantId: string, projectId: string, limit = 100) => request<AuditListResponse>(`/v1/projects/${projectId}/audit-logs?limit=${limit}`, tenantId),
   exportAuditLogs: (tenantId: string, projectId: string) => requestFile(`/v1/projects/${projectId}/audit-logs:export`, tenantId, { method: "POST" }),
   retryTask: (tenantId: string, projectId: string, runId: string, taskId: string) => request<CommandHandle>(`/v1/projects/${projectId}/runs/${runId}/tasks/${taskId}:retry`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
+  listCapabilityPacks: (tenantId: string, projectId: string) => request<CapabilityPackListResponse>(`/v1/projects/${projectId}/capability-packs`, tenantId),
+  enableCapabilityPack: (tenantId: string, projectId: string, versionId: string) => request(`/v1/projects/${projectId}/capability-packs/${versionId}:enable`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ configuration: {} }) }),
+  listWorkItems: (tenantId: string, projectId: string) => request<WorkItemListResponse>(`/v1/projects/${projectId}/work-items`, tenantId),
+  getWorkItem: (tenantId: string, projectId: string, workItemId: string) => request<WorkItemSnapshot>(`/v1/projects/${projectId}/work-items/${workItemId}`, tenantId),
+  createWorkItem: (tenantId: string, projectId: string, body: { workItemType: string; payload: Record<string, unknown>; owner?: string }) => request<WorkItemSnapshot>(`/v1/projects/${projectId}/work-items`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
+  executeWorkItem: (tenantId: string, projectId: string, workItemId: string) => request<EvaluationSnapshot>(`/v1/projects/${projectId}/work-items/${workItemId}:execute`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
+  listFindings: (tenantId: string, projectId: string, workItemId: string) => request<FindingListResponse>(`/v1/projects/${projectId}/work-items/${workItemId}/findings`, tenantId),
+  actOnFinding: (tenantId: string, projectId: string, findingId: string, action: "ACKNOWLEDGE" | "WAIVE" | "RESOLVE" | "REOPEN", reason?: string) => request(`/v1/projects/${projectId}/findings/${findingId}:act`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ action, reason }) }),
+  listReports: (tenantId: string, projectId: string, evaluationId: string) => request<ReportListResponse>(`/v1/projects/${projectId}/evaluations/${evaluationId}/reports`, tenantId),
+  initiateAttachment: (tenantId: string, projectId: string, workItemId: string, body: { documentType: string; filename: string; mediaType: string; sizeBytes: number; sha256: string }) => request<AttachmentUploadHandle>(`/v1/projects/${projectId}/work-items/${workItemId}/attachments:initiate`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
+  uploadBlob: async (handle: AttachmentUploadHandle, contentBase64: string) => {
+    const response = await fetch(`${artifactGatewayUrl}${handle.uploadRef}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capabilityToken: handle.capabilityToken, contentBase64 }) });
+    if (!response.ok) throw new ApiError(response.status, await response.text());
+  },
+  completeAttachment: (tenantId: string, projectId: string, handle: AttachmentUploadHandle, sha256: string) => request<AttachmentUploadHandle>(`/v1/projects/${projectId}/attachments/${handle.attachmentId}:complete`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ sha256, scanStatus: "CLEAN" }) }),
+  createRuleSet: (tenantId: string, projectId: string, body: { name: string; purpose: string; rules: Record<string, unknown> }) => request<RuleSetDraftSnapshot>(`/v1/projects/${projectId}/rule-sets`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
+  validateRuleSet: (tenantId: string, projectId: string, draftId: string, attachments: Array<Record<string, unknown>>) => request<RuleSetValidationResponse>(`/v1/projects/${projectId}/rule-set-drafts/${draftId}:validate`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ attachments }) }),
+  publishRuleSet: (tenantId: string, projectId: string, draftId: string) => request<RuleSetVersionSnapshot>(`/v1/projects/${projectId}/rule-set-drafts/${draftId}:publish`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   eventUrl: (projectId: string, runId: string, after: number) => `${baseUrl}/v1/projects/${projectId}/runs/${runId}/events?after=${after}`,
   temporalUiUrl,
   temporalUrl: (tenantId: string, runId: string) => `${temporalUiUrl}/namespaces/default/workflows/${encodeURIComponent(`swarm:${tenantId}:${runId}`)}`,

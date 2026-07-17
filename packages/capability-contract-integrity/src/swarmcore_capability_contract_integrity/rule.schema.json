@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schemaVersion", "match", "requirements"],
+  "properties": {
+    "schemaVersion": {"const": "schema://contract/checklist-rule@1"},
+    "match": {"type": "object", "additionalProperties": {"type": "string"}},
+    "requirements": {"type": "array", "minItems": 1, "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

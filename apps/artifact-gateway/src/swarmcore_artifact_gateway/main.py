@@ -16,10 +16,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import func, select
 from starlette.middleware.base import RequestResponseEndpoint
+from starlette.middleware.cors import CORSMiddleware
 from swarmcore_governance import (
     ArtifactCapabilityIssuer,
     ArtifactError,
     ArtifactGateway,
+    BlobCapabilityIssuer,
     ClamAvScanner,
     InMemoryAuditWriter,
     LocalArtifactStore,
@@ -39,7 +41,7 @@ from swarmcore_observability import (
     get_tracer,
 )
 from swarmcore_persistence import AuditRepository, Database, tenant_transaction
-from swarmcore_persistence.models import Artifact, Run
+from swarmcore_persistence.models import Artifact, BlobObject, Run
 
 
 class Settings(BaseSettings):
@@ -60,6 +62,7 @@ class Settings(BaseSettings):
     opa_decision_url: str = "http://localhost:8181/v1/data/swarmcore/decision"
     artifact_gateway_host: str = "127.0.0.1"
     artifact_gateway_port: int = 8091
+    cors_origins: tuple[str, ...] = ()
     otlp_endpoint: str = "http://localhost:4317"
     telemetry_enabled: bool = True
     deployment_mode: Literal["local", "production"] = "local"
@@ -106,26 +109,35 @@ class UploadBody(BaseModel):
     retention_days: int = Field(default=30, alias="retentionDays", ge=1, le=3650)
 
 
+class BlobUploadBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    capability_token: str = Field(alias="capabilityToken")
+    content_base64: str = Field(alias="contentBase64")
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     configured = settings or Settings()
     metrics = SwarmMetrics.create("artifact-gateway")
     tokens = ArtifactCapabilityIssuer(configured.artifact_capability_secret.encode())
+    blob_tokens = BlobCapabilityIssuer(configured.artifact_capability_secret.encode())
     store = _store(configured)
     policy = (
         OpaPolicyEngine(configured.opa_decision_url)
         if configured.policy_mode == "opa"
         else RolePolicyEngine()
     )
+    content_scanner = (
+        ClamAvScanner(configured.artifact_clamav_host)
+        if configured.artifact_clamav_host
+        else None
+    )
     gateway = ArtifactGateway(
         store,
         policy,
         InMemoryAuditWriter(),
         configured.artifact_capability_secret.encode(),
-        content_scanner=(
-            ClamAvScanner(configured.artifact_clamav_host)
-            if configured.artifact_clamav_host
-            else None
-        ),
+        content_scanner=content_scanner,
         max_artifact_bytes=configured.artifact_max_bytes,
         max_run_bytes=configured.artifact_run_max_bytes,
     )
@@ -139,6 +151,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await app.state.database.dispose()
 
     app = FastAPI(title="SwarmCore Artifact Gateway", lifespan=lifespan)
+    if configured.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(configured.cors_origins),
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Content-Type"],
+        )
 
     @app.middleware("http")
     async def trace_artifact_request(
@@ -260,6 +280,127 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 metadata={"sha256": ref.sha256, "sizeBytes": ref.size_bytes},
             )
         return {"artifactId": ref.id, "status": ref.status, "sha256": ref.sha256}
+
+    @app.post("/internal/v1/blobs/{blob_id}")
+    async def upload_blob(blob_id: UUID, body: BlobUploadBody, request: Request) -> dict[str, Any]:
+        try:
+            capability = blob_tokens.verify(body.capability_token)
+            if capability.action != "blob.write" or capability.blob_id != str(blob_id):
+                raise ArtifactError("blob capability does not allow upload")
+            request.state.tenant_id = capability.tenant_id
+            request.state.project_id = capability.project_id
+            request.state.blob_id = capability.blob_id
+            content = base64.b64decode(body.content_base64, validate=True)
+            if not content or len(content) > configured.artifact_max_bytes:
+                raise ArtifactError("blob size is outside the allowed range")
+            decision = (
+                await policy.evaluate(_blob_policy_request(capability, "blob.write"))
+            ).enforce()
+            tenant_id = UUID(capability.tenant_id)
+            project_id = UUID(capability.project_id)
+            database: Database = request.app.state.database
+            async with tenant_transaction(
+                database.sessions, tenant_id=tenant_id, project_id=project_id
+            ) as session:
+                blob = await session.get(BlobObject, blob_id, with_for_update=True)
+                if blob is None or blob.project_id != project_id:
+                    raise HTTPException(status_code=404, detail="blob not found")
+                if blob.status == "AVAILABLE":
+                    if hashlib.sha256(content).hexdigest() != blob.sha256:
+                        raise HTTPException(status_code=409, detail="blob content differs")
+                    return {"blobId": str(blob.id), "status": blob.status, "sha256": blob.sha256}
+                if blob.status != "PENDING":
+                    raise HTTPException(status_code=409, detail="blob upload is not pending")
+                digest = hashlib.sha256(content).hexdigest()
+                if len(content) != blob.size_bytes or digest != blob.sha256:
+                    blob.status = "REJECTED"
+                    blob.scan_status = "HASH_MISMATCH"
+                    raise HTTPException(status_code=422, detail="blob size or SHA-256 differs")
+                blob.status = "SCANNING"
+            try:
+                if content_scanner is not None:
+                    await content_scanner.scan(content)
+                await store.put(blob.object_key, content)
+            except Exception:
+                await _mark_blob_rejected(
+                    database,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    blob_id=blob_id,
+                )
+                raise
+            async with tenant_transaction(
+                database.sessions, tenant_id=tenant_id, project_id=project_id
+            ) as session:
+                blob = await session.get(BlobObject, blob_id, with_for_update=True)
+                if blob is None or blob.status != "SCANNING":
+                    raise HTTPException(status_code=409, detail="blob upload reservation was lost")
+                blob.status = "AVAILABLE"
+                blob.scan_status = "CLEAN"
+                await AuditRepository().append(
+                    session,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    actor_id=capability.subject_id,
+                    action="blob.upload",
+                    resource_type="blob_object",
+                    resource_id=str(blob.id),
+                    policy_revision=decision.policy_revision,
+                    metadata={"sha256": blob.sha256, "sizeBytes": blob.size_bytes},
+                )
+            return {"blobId": str(blob_id), "status": "AVAILABLE", "sha256": digest}
+        except HTTPException:
+            raise
+        except (ArtifactError, PolicyDenied, ValueError) as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except PolicyError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/internal/v1/blobs/{blob_id}/content")
+    async def read_blob(blob_id: UUID, capability_token: str, request: Request) -> Response:
+        try:
+            capability = blob_tokens.verify(capability_token)
+            if capability.action != "blob.read" or capability.blob_id != str(blob_id):
+                raise ArtifactError("blob capability does not allow read")
+            decision = (
+                await policy.evaluate(_blob_policy_request(capability, "blob.read"))
+            ).enforce()
+        except (ArtifactError, PolicyDenied) as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except PolicyError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        tenant_id = UUID(capability.tenant_id)
+        project_id = UUID(capability.project_id)
+        database: Database = request.app.state.database
+        async with tenant_transaction(
+            database.sessions, tenant_id=tenant_id, project_id=project_id
+        ) as session:
+            blob = await session.scalar(
+                select(BlobObject).where(
+                    BlobObject.id == blob_id,
+                    BlobObject.tenant_id == tenant_id,
+                    BlobObject.project_id == project_id,
+                    BlobObject.status == "AVAILABLE",
+                    BlobObject.scan_status == "CLEAN",
+                    BlobObject.retention_until > datetime.now(UTC),
+                )
+            )
+            if blob is None:
+                raise HTTPException(status_code=404, detail="blob not found")
+            content = await store.get(blob.object_key)
+            if hashlib.sha256(content).hexdigest() != blob.sha256:
+                raise HTTPException(status_code=500, detail="blob integrity check failed")
+            await AuditRepository().append(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                actor_id=capability.subject_id,
+                action="blob.read",
+                resource_type="blob_object",
+                resource_id=str(blob.id),
+                policy_revision=decision.policy_revision,
+            )
+        return Response(content=content, media_type=blob.media_type)
 
     @app.post("/internal/v1/artifacts/{artifact_id}:read")
     async def read_artifact(artifact_id: UUID, capability_token: str, request: Request) -> Response:
@@ -388,6 +529,22 @@ async def _mark_upload_failed(
             artifact.status = "REJECTED"
 
 
+async def _mark_blob_rejected(
+    database: Database,
+    *,
+    tenant_id: UUID,
+    project_id: UUID,
+    blob_id: UUID,
+) -> None:
+    async with tenant_transaction(
+        database.sessions, tenant_id=tenant_id, project_id=project_id
+    ) as session:
+        blob = await session.get(BlobObject, blob_id, with_for_update=True)
+        if blob is not None and blob.status == "SCANNING":
+            blob.status = "REJECTED"
+            blob.scan_status = "REJECTED"
+
+
 def _store(settings: Settings) -> Any:
     if settings.artifact_store == "local":
         return LocalArtifactStore(Path(settings.artifact_root))
@@ -419,6 +576,21 @@ def _policy_request(capability: Any, action: str) -> PolicyRequest:
             "artifactId": capability.artifact_id,
         },
         context={"runId": capability.run_id},
+    )
+
+
+def _blob_policy_request(capability: Any, action: str) -> PolicyRequest:
+    return PolicyRequest(
+        subject=PolicySubject(
+            id=capability.subject_id,
+            tenantId=capability.tenant_id,
+            roles=("workload",),
+        ),
+        action=action,
+        resource={
+            "projectId": capability.project_id,
+            "blobId": capability.blob_id,
+        },
     )
 
 

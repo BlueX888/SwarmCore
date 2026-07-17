@@ -8,7 +8,7 @@
 | 最近更新 | 2026-07-17 |
 | 已提交基线 | `eb75ac3`（受控 Tool 与有界编排） |
 | 当前候选基线 | M3 维护性收敛与 M4 治理能力位于未提交工作树 |
-| 当前焦点 | M5：v1 契约与基线闭合 / G0 |
+| 当前焦点 | M5：v1 契约与基线闭合 / G0；B1：业务智能体扩展 E4-E5 |
 | 唯一下一门禁 | G0（见第 5 节） |
 | 架构事实源 | [SwarmCore 系统设计](./swarmcore-system-design.md) |
 
@@ -112,6 +112,7 @@ SwarmCore 的最小完整价值不是“支持更多节点”，而是让调用�
 | 调用方契约与策略控制台 | REST/MCP 共用应用服务；capabilities/validate/compile/create/status/result/control；inline Spec；Strategy Canvas；JSON/YAML；Run 控制台 | `IMPLEMENTED` | `LOCAL` | `0cbeb9a`，E1 | G0：远端 Fake Agent E2E 与完整 CI |
 | 受控 Tool 与有界编排 | Registry Snapshot；GatewayProxyTool；Capability Token；effect journal；高风险审批；`tool`、`router`、`loop` Runtime | `VERIFIED` | `LOCAL` | `eb75ac3`，E2 | 持续回归 |
 | 治理与安全候选能力 | JWT/OPA、Vault、Artifact/Model Gateway、预算、Webhook/Audit/OTel、Sandbox 契约和补偿 | `IMPLEMENTED` | `LOCAL` | 当前工作树，E3 | G0：不可变基线 |
+| 通用业务智能体扩展 E0-E3 | Capability Pack Registry；Workbench；输入 Blob；RuleSet；Evaluation/Finding/Report；文件完整性校验；REST/MCP/UI | `IMPLEMENTED` | `LOCAL` | 当前工作树，BA-E3 | B1：E4 AI 增强与 E5 第二能力包通用性闭合 |
 
 状态只评价表中已经声明的能力边界，证据层级说明已证明到哪个环境；M6 及之后的环境资格不会反向改写基础能力状态。
 
@@ -122,6 +123,7 @@ SwarmCore 的最小完整价值不是“支持更多节点”，而是让调用�
 | E1 | `0cbeb9a` | `LOCAL` | 52 项单元测试、8 项集成测试、17 项 Vitest、21 项 Playwright、前端 lint/build 和真实 Ollama smoke 通过 | 合并覆盖耐久执行、人工控制、REST/MCP 本地等价、DeepTalk 模拟和 Strategy Canvas；无合格远端 CI |
 | E2 | `eb75ac3` | `LOCAL` | Ruff、mypy、69 项单元测试、10 项 PostgreSQL/Temporal 集成测试通过 | 在 E1 基础上回归 Tool/Router/Loop、审批、effect 幂等和取消语义 |
 | E3 | 2026-07-17 工作树 | `LOCAL` | Ruff、mypy、105 项单元测试通过；新增项目配置 PostgreSQL 集成测试通过，既有 15 项 PostgreSQL/Temporal/MinIO/Vault 集成证据保持；前端 lint、26 项 Vitest、33 项 Playwright 和 build 已重跑通过 | 未绑定提交；其余集成测试本轮未全量重跑；真实 Kubernetes、gVisor 与 ClamAV daemon 未验收 |
+| BA-E3 | 2026-07-17 工作树 | `LOCAL` | Ruff、mypy、117 项单元测试、13 项 PostgreSQL/Temporal/Blob 集成测试、27 项 Vitest、33 项 Playwright、前端 lint/build 通过 | 未绑定提交；4 项环境依赖集成测试跳过（S3/MinIO、Vault、持久 Temporal 重启恢复），ClamAV daemon 未验收 |
 
 以上是已有验收记录，不表示本次文档重构重新执行了这些测试。新证据必须绑定 commit、CI run 和环境信息，不能只追加孤立的“通过”文本。
 
@@ -143,7 +145,8 @@ SwarmCore 的最小完整价值不是“支持更多节点”，而是让调用�
 | 里程碑 | 可交付结果 | 前置条件 | 目标证据 | 状态 |
 |---|---|---|---|---|
 | M5 | v1 契约真实且候选基线可从干净检出复现 | 当前候选实现 | `CI` | `IN_PROGRESS` |
-| M6 | 单集群生产同构环境可安全部署、升级和观测 | M5 `VERIFIED` | `STAGING` | `PLANNED` |
+| B1 | 通用业务智能体扩展和两个差异能力包完成代码闭环 | M5 候选基线；E0-E3 已实现 | `CI` | `IN_PROGRESS` |
+| M6 | 单集群生产同构环境可安全部署、升级和观测 | M5、B1 `VERIFIED` | `STAGING` | `PLANNED` |
 | M7 | 关键故障、安全边界和备份恢复有可重复证据 | M6 `VERIFIED` | `STAGING` | `PLANNED` |
 | M8 | 容量、背压、Autoscaling、HA 和 SLO 有测量边界 | M7 `VERIFIED` | `STAGING` | `PLANNED` |
 | M9 | 同一不可变候选版本通过独立 v1 发布门禁 | M8 `VERIFIED` | `STAGING` | `PLANNED` |
@@ -197,6 +200,12 @@ SwarmCore 的最小完整价值不是“支持更多节点”，而是让调用�
 - 不建设 Kubernetes HA、Autoscaling 或多区域拓扑。
 - 不实现 `team/transform/subflow/emit`、动态派生或配置/CLI 入站。
 - 不引入 A2A、其他 Agent Runtime Adapter、Qdrant、Kafka 或 Kata。
+
+## 7A. B1：通用业务智能体扩展
+
+M5 候选基线之后、M6 生产资格之前完成。E0-E3 已在本地实现：冻结 Capability Pack/Workbench/RuleSet/Blob/REST/MCP 契约，完成不可变 Registry、通用 Workbench 和确定性文件完整性校验。剩余 E4 为 AI 文档理解与人工复核，E5 以无附件、无 RuleSet 的工单分诊能力包验证通用性；B1 未完成前不进入业务扩展的生产资格。
+
+事实来源为 [通用业务智能体扩展实施计划](./swarmcore-business-agent-extension-plan.md)，数据库和事件兼容边界见 [业务智能体扩展 v1 兼容性说明](./swarmcore-business-agent-compatibility.md)。
 
 ## 8. M6：单集群生产资格
 
@@ -380,3 +389,4 @@ SwarmCore 的最小完整价值不是“支持更多节点”，而是让调用�
 | 日期 | 版本 | 变更 |
 |---|---|---|
 | 2026-07-17 | 2.0 | 从第一性原理重构：将旧 M0-M4 合并为能力与候选基线，按不可变证据重置状态口径；默认延期 4 类未执行节点和配置/CLI；按契约、部署、恢复、容量、发布重新规划 M5-M9 |
+| 2026-07-17 | 2.1 | 纳入业务智能体扩展 B1；记录 E0-E3 的 Capability Pack、Workbench、Blob、RuleSet 和确定性文件完整性校验本地实现证据，并将 E4-E5 置于 M6 生产资格之前 |

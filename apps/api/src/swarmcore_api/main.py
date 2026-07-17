@@ -24,6 +24,7 @@ from swarmcore_observability import (
 from swarmcore_persistence import Database
 from swarmcore_persistence.errors import PersistenceConflictError
 
+from .business_routes import router as business_router
 from .mcp import router as mcp_router
 from .routes import router
 from .schemas import Problem
@@ -68,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ],
         )
     app.include_router(router)
+    app.include_router(business_router)
     app.include_router(mcp_router)
 
     @app.middleware("http")

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["title", "contractType"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1, "maxLength": 256},
+    "contractType": {"type": "string", "enum": ["purchase"]},
+    "counterparty": {"type": "string", "maxLength": 256}
+  },
+  "additionalProperties": false
+}

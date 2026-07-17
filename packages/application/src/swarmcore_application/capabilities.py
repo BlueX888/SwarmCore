@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 from swarmcore_registry import builtin_registry
@@ -49,6 +49,15 @@ class NodeCapability(CapabilityModel):
     config_schema: dict[str, object] = Field(alias="schema")
 
 
+class CapabilityPackCapability(CapabilityModel):
+    name: str
+    version: str
+    work_item_type: str = Field(alias="workItemType")
+    input_schema: str = Field(alias="inputSchema")
+    output_schema: str = Field(alias="outputSchema")
+    view_definition: str = Field(alias="viewDefinition")
+
+
 class CapabilityCatalog(CapabilityModel):
     schema_version: str = Field(alias="schemaVersion")
     registry_snapshot: str = Field(alias="registrySnapshot")
@@ -58,6 +67,9 @@ class CapabilityCatalog(CapabilityModel):
     node_types: list[NodeCapability] = Field(alias="nodeTypes")
     limits: dict[str, object]
     swarm_spec_schema: dict[str, object] = Field(alias="swarmSpecSchema")
+    capability_packs: list[CapabilityPackCapability] = Field(
+        default_factory=list, alias="capabilityPacks"
+    )
 
 
 class CapabilityCatalogService:
@@ -72,6 +84,9 @@ class CapabilityCatalogService:
         "tool": ToolNode,
         "loop": LoopNode,
     }
+
+    def __init__(self, capability_manifests: tuple[dict[str, Any], ...] = ()) -> None:
+        self._capability_manifests = capability_manifests
 
     def get(self) -> CapabilityCatalog:
         registry = builtin_registry()
@@ -124,4 +139,15 @@ class CapabilityCatalogService:
             ],
             limits=Budget().model_dump(mode="json", by_alias=True),
             swarmSpecSchema=SwarmStrategy.model_json_schema(by_alias=True),
+            capabilityPacks=[
+                CapabilityPackCapability(
+                    name=str(manifest["metadata"]["name"]),
+                    version=str(manifest["metadata"]["version"]),
+                    workItemType=str(manifest["spec"]["workItemType"]),
+                    inputSchema=str(manifest["spec"]["inputSchema"]),
+                    outputSchema=str(manifest["spec"]["outputSchema"]),
+                    viewDefinition=str(manifest["spec"]["ui"]["viewDefinition"]),
+                )
+                for manifest in self._capability_manifests
+            ],
         )

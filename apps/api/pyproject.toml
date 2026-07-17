@@ -15,6 +15,7 @@ dependencies = [
   "swarmcore-registry",
   "swarmcore-spec",
   "swarmcore-governance",
+  "swarmcore-capability-contract-integrity",
   "uvicorn[standard]==0.35.0",
 ]
 
@@ -31,6 +32,7 @@ swarmcore-persistence = { workspace = true }
 swarmcore-registry = { workspace = true }
 swarmcore-spec = { workspace = true }
 swarmcore-governance = { workspace = true }
+swarmcore-capability-contract-integrity = { workspace = true }
 
 [build-system]
 requires = ["hatchling==1.27.0"]

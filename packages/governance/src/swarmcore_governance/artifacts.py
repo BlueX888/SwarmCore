@@ -34,6 +34,71 @@ class ArtifactCapability:
     jti: str
 
 
+@dataclass(frozen=True)
+class BlobCapability:
+    action: str
+    tenant_id: str
+    project_id: str
+    blob_id: str
+    subject_id: str
+    expires_at: int
+    jti: str
+
+
+class BlobCapabilityIssuer:
+    def __init__(self, secret: bytes) -> None:
+        if len(secret) < 32:
+            raise ArtifactError("blob capability secret must contain at least 32 bytes")
+        self._secret = secret
+
+    def issue(
+        self,
+        *,
+        action: str,
+        tenant_id: str,
+        project_id: str,
+        blob_id: str,
+        subject_id: str,
+        ttl_seconds: int = 300,
+    ) -> str:
+        if action not in {"blob.read", "blob.write"}:
+            raise ArtifactError("invalid blob capability action")
+        payload = {
+            "action": action,
+            "tenantId": tenant_id,
+            "projectId": project_id,
+            "blobId": blob_id,
+            "subjectId": subject_id,
+            "exp": int(time.time()) + min(ttl_seconds, 300),
+            "jti": uuid4().hex,
+        }
+        encoded = _b64(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode())
+        signature = _b64(hmac.digest(self._secret, encoded.encode(), "sha256"))
+        return f"{encoded}.{signature}"
+
+    def verify(self, token: str) -> BlobCapability:
+        try:
+            encoded, signature = token.split(".", 1)
+            expected = _b64(hmac.digest(self._secret, encoded.encode(), "sha256"))
+            if not hmac.compare_digest(signature, expected):
+                raise ArtifactError("invalid blob capability")
+            payload = json.loads(_unb64(encoded))
+            capability = BlobCapability(
+                action=str(payload["action"]),
+                tenant_id=str(payload["tenantId"]),
+                project_id=str(payload["projectId"]),
+                blob_id=str(payload["blobId"]),
+                subject_id=str(payload["subjectId"]),
+                expires_at=int(payload["exp"]),
+                jti=str(payload["jti"]),
+            )
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise ArtifactError("invalid blob capability") from exc
+        if capability.expires_at <= int(time.time()):
+            raise ArtifactError("blob capability expired")
+        return capability
+
+
 class ArtifactCapabilityIssuer:
     def __init__(self, secret: bytes) -> None:
         if len(secret) < 32:
@@ -225,8 +290,9 @@ class LocalArtifactStore:
 
     async def put(self, object_key: str, content: bytes) -> None:
         target = self._path(object_key)
-        staging = target.with_suffix(f".staging-{uuid4().hex}")
+        staging = self._root / "staging" / uuid4().hex
         target.parent.mkdir(parents=True, exist_ok=True)
+        staging.parent.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(staging.write_bytes, content)
         await asyncio.to_thread(os.replace, staging, target)
 

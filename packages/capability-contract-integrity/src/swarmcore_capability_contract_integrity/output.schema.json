@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["passed", "ruleSetVersionId", "attachmentManifestHash", "checks", "findings"],
+  "properties": {
+    "passed": {"type": "boolean"},
+    "ruleSetVersionId": {"type": "string"},
+    "attachmentManifestHash": {"type": "string"},
+    "checks": {"type": "object"},
+    "findings": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

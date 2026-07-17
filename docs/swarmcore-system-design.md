@@ -507,6 +507,14 @@ erDiagram
 
 Temporal 对实时调度决策权威；PostgreSQL 对“命令已耐久接收”、对外查询和审计权威。查询返回 projectionSeq、projectionUpdatedAt 和 stale；控制命令的最终合法性由 Workflow 仲裁，API 不能只凭可能滞后的投影作最终拒绝。Workflow 关闭前必须等待终态投影成功。Reconciler 持续扫描 Temporal 已关闭但 PostgreSQL 未终态、长期 ACCEPTED 或投影停滞的 Run，并按 transition_id 幂等修复；永久 Schema/状态错误进入隔离队列并告警。
 
+### 8.4 业务智能体扩展模型
+
+业务扩展通过不可变 Capability Pack 声明 WorkItem/Input/Output Schema、Strategy、Agent、Tool、Rule、Report、权限、事件与 View Definition 引用，不允许 module、script、componentUrl 等代码入口。项目显式绑定 CapabilityPackVersion；发布时规范化 Manifest、解析全部版本引用并计算 SHA-256。
+
+Business Workbench 使用 WorkItem/WorkItemRevision、BlobObject/WorkItemAttachment、Evaluation、Finding/FindingAction 和 Report 通用模型。WorkItem 保存业务状态，Run 保存执行状态，Evaluation 只建立关联和版本快照，二者不能相互覆盖。RuleSet 是可选模块，草稿使用 revision/ETag，发布产生不可变 RuleSetVersion；条件匹配只支持受控字段等值与确定性检查，不执行 Python `eval`。
+
+运行前输入字节使用 BlobObject，Run 输出继续使用 Artifact。两者复用 Local/S3 Store、扫描、OPA、Capability Token、审计与保留机制，但不改变 Artifact 的 run_id 契约。数据库和事件兼容细节见 [业务智能体扩展 v1 兼容性说明](./swarmcore-business-agent-compatibility.md)。
+
 ## 9. SwarmSpec v1
 
 ### 9.1 顶层结构
@@ -1238,7 +1246,25 @@ RunSnapshot 至少包含 run、snapshotSeq、earliestAvailableSeq、projectionUp
 
 上述分页响应统一为 items、nextCursor 和可选 totalEstimate。未获得对应 capability 的路由从导航隐藏，但服务端仍必须独立鉴权。
 
-### 13.5 创建 Run
+### 13.5 Business Workbench API
+
+| 方法 | 路径 | Scope | 说明 |
+|---|---|---|---|
+| GET | /projects/{project_id}/capability-packs | capability.read | 查询可信版本和项目启用状态 |
+| POST | /projects/{project_id}/capability-packs/{version_id}:enable | capability.manage | 绑定不可变版本 |
+| POST/GET/PUT | /projects/{project_id}/work-items[/...] | work-item.write/read | 创建、查询和修订工作项 |
+| POST | /work-items/{work_item_id}/attachments:initiate | blob.write | 冻结 Blob 元数据并签发短期上传能力 |
+| POST | /attachments/{attachment_id}:complete | blob.write | 仅在 Gateway 哈希和扫描通过后绑定修订 |
+| POST | /work-items/{work_item_id}:execute | work-item.execute | 幂等创建 Evaluation 和既有 Run |
+| GET | /evaluations/{evaluation_id} | work-item.read | 查询业务结果和全部版本快照 |
+| GET/POST | /work-items/{work_item_id}/findings、/findings/{id}:act | finding.read/act | 查询并操作问题生命周期 |
+| GET | /evaluations/{evaluation_id}/reports | report.read | 查询 JSON/HTML 报告 |
+| POST/PUT | /rule-sets、/rule-set-drafts/{id} | rule.manage | 创建或更新规则草稿 |
+| POST | /rule-set-drafts/{id}:validate/:publish | rule.manage | 预览并发布不可变规则版本 |
+
+MCP 暴露 `list_capability_packs`、`create_work_item`、`execute_work_item`、`get_evaluation`、`list_findings`、`act_on_finding` 和 `get_report`，直接复用上述应用服务。控制台使用 Schema/View Definition 驱动通用页面，不加载能力包提供的脚本或远程组件。
+
+### 13.6 创建 Run
 
 请求：
 
@@ -1281,7 +1307,7 @@ RunSnapshot 至少包含 run、snapshotSeq、earliestAvailableSeq、projectionUp
 
 RunHandle 增加 snapshotSeq，初始值通常为 0。查询快照的 ETag 由 run.version 和 snapshotSeq 生成。
 
-### 13.6 最终结果契约
+### 13.7 最终结果契约
 
 GET /runs/{run_id}/result 返回：
 
@@ -1309,7 +1335,7 @@ GET /runs/{run_id}/result 返回：
 
 output 只有在 JSON 编码后不超过 256 KiB 时内联，否则为 null，并在 artifacts 中返回 kind=result 的 ArtifactRef。FAILED、CANCELLED 和 TIMED_OUT 也返回同一信封，error 使用稳定 code，保留已完成 Task 和 Artifact；非终态返回 RUN_NOT_TERMINAL。
 
-### 13.7 错误码
+### 13.8 错误码
 
 | code | HTTP | 说明 |
 |---|---|---|
@@ -1331,7 +1357,7 @@ output 只有在 JSON 编码后不超过 256 KiB 时内联，否则为 null，�
 
 POST /runs/{run_id}/inputs 必须包含 waitingRequestId、inputSchemaVersion、value 和 Idempotency-Key，并以 If-Match 绑定 Run Version；迟到、重复或指向新等待节点的输入由 Workflow 拒绝。
 
-### 13.8 SSE
+### 13.9 SSE
 
 请求：
 
@@ -1351,7 +1377,7 @@ SSE 的 id 字段等于 event_seq，event 字段等于事件 type，data 字段�
 
 GET /event-history?after={seq}&limit={n} 返回 application/json 分页历史，用于 gap 修复、审计和测试。前端使用 fetch + ReadableStream 解析 SSE，以支持 Bearer Header、Cookie/CSRF 会话、AbortController 和明确错误码；不使用原生 EventSource。
 
-### 13.9 Webhook
+### 13.10 Webhook
 
 - Webhook 只接收 durable event。
 - 只允许引用预注册 webhookRef；Endpoint 必须为 HTTPS，注册时和每次连接时都校验 DNS、实际 IP、Redirect，拒绝私网、Link-local、Metadata 和非白名单端口。
@@ -1362,7 +1388,7 @@ GET /event-history?after={seq}&limit={n} 返回 application/json 分页历史，
 - 2xx 为成功；409 只有在 Problem code=DELIVERY_ALREADY_PROCESSED 时视为成功，其他状态重试。
 - Endpoint 连续失败进入 disabled，产生治理告警。
 
-### 13.10 配置文件与 CLI
+### 13.11 配置文件与 CLI
 
 GitOps/本地配置采用与 REST 相同的 SwarmSpec YAML/JSON，不建立第二套执行语义：
 

@@ -63,6 +63,9 @@ Alembic migrations before using these endpoints.
 The MCP endpoint is `/mcp` and exposes the canonical tools
 `swarm.capabilities.get`, `swarm.strategy.validate`, `swarm.strategy.compile`,
 `swarm.run.create`, `swarm.run.status`, `swarm.run.result`, and `swarm.run.control`.
+Business Workbench also exposes `list_capability_packs`, `create_work_item`,
+`execute_work_item`, `get_evaluation`, `list_findings`, `act_on_finding`, and `get_report`; these
+tools call the same application services as REST.
 Run control actions, including cancellation, are submitted through `swarm.run.control`;
 the former `swarm.run.start`, `swarm.run.get`, and `swarm.run.cancel` aliases are not supported.
 
@@ -74,6 +77,14 @@ one published example strategy without secrets.
 Agent tools are exposed to Agno only as Gateway proxy functions. Side-effecting tools must be
 explicit `tool` nodes so Temporal can retain a stable effect ID across Activity retries; HIGH and
 CRITICAL tools enter the durable Approval flow before a capability token is issued.
+
+The first trusted business capability pack is `contract-integrity`. Its generic REST resources are
+under `/v1/projects/{project_id}/capability-packs`, `/work-items`, `/evaluations`, `/findings`,
+`/reports`, and `/rule-sets`. Input files are initiated through the API, uploaded to Artifact
+Gateway with a short-lived Blob capability, hash/scanned there, and only then attached to an
+immutable WorkItemRevision. Set `VITE_ARTIFACT_GATEWAY_URL` for browser uploads and include the
+Web console origin in `SWARMCORE_CORS_ORIGINS`. Apply migration
+`0008_business_workbench` before using these resources.
 
 To run the PostgreSQL RLS integration contract against a migrated test database, set
 `SWARMCORE_TEST_DATABASE_URL` before `uv run pytest`.

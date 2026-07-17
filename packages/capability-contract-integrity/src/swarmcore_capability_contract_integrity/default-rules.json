@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "schema://contract/checklist-rule@1",
+  "match": {"contractType": "purchase"},
+  "requirements": [
+    {
+      "key": "contract",
+      "documentType": "contract",
+      "mediaTypes": ["application/pdf"],
+      "severity": "CRITICAL"
+    },
+    {
+      "key": "business-license",
+      "documentType": "business-license",
+      "mediaTypes": ["application/pdf", "image/png", "image/jpeg"],
+      "severity": "HIGH"
+    },
+    {
+      "key": "authorization",
+      "documentType": "authorization",
+      "mediaTypes": ["application/pdf"],
+      "severity": "HIGH"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "ViewDefinition",
+  "list": {"columns": ["title", "contractType", "status", "owner"]},
+  "detail": {"sections": ["payload", "attachments", "evaluations", "findings", "reports"]},
+  "actions": ["work-item.execute", "finding.act"],
+  "icon": "file-check"
+}

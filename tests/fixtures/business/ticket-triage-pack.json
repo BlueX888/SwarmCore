@@ -1,0 +1,18 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "ticket-triage", "version": "1.0.0"},
+  "spec": {
+    "workItemType": "support-ticket",
+    "workItemSchema": "schema://ticket/item@1",
+    "inputSchema": "schema://ticket/triage-input@1",
+    "outputSchema": "schema://ticket/triage-result@1",
+    "strategies": {"execute": "strategy://ticket-triage/execute@1"},
+    "agents": ["agent://ticket/triage@1"],
+    "tools": ["tool://workbench/record-evaluation@1", "tool://report/render@1"],
+    "report": {"template": "report://ticket/triage@1"},
+    "permissions": ["work-item.read", "work-item.execute", "finding.act"],
+    "events": {"namespace": "capability.ticket-triage"},
+    "ui": {"viewDefinition": "view://ticket-triage/work-item@1"}
+  }
+}

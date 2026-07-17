@@ -1,0 +1,32 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChangeEvent, useState } from "react";
+import { useParams } from "react-router";
+import { api } from "@/api/client";
+import { Button } from "@/components/ui/button";
+import { useWorkspaceScope } from "@/lib/demo-scope";
+
+async function digest(file: File) { return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()))).map((value) => value.toString(16).padStart(2, "0")).join(""); }
+async function base64(file: File) { return new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { if (typeof reader.result !== "string") { reject(new Error("FileReader returned no data")); return; } resolve(reader.result.split(",")[1] ?? ""); }; reader.onerror = () => reject(reader.error ?? new Error("FileReader failed")); reader.readAsDataURL(file); }); }
+function itemTitle(payload: Record<string, unknown>) { return typeof payload.title === "string" ? payload.title : "工作项详情"; }
+
+export function WorkItemDetailPage() {
+  const { workItemId = "" } = useParams();
+  const { tenantId, projectId } = useWorkspaceScope();
+  const queryClient = useQueryClient();
+  const [documentType, setDocumentType] = useState("authorization");
+  const [evaluationId, setEvaluationId] = useState<string | null>(null);
+  const item = useQuery({ queryKey: ["work-item", workItemId], queryFn: () => api.getWorkItem(tenantId, projectId, workItemId), enabled: Boolean(workItemId) });
+  const findings = useQuery({ queryKey: ["findings", workItemId], queryFn: () => api.listFindings(tenantId, projectId, workItemId), enabled: Boolean(workItemId) });
+  const reports = useQuery({ queryKey: ["reports", evaluationId], queryFn: () => api.listReports(tenantId, projectId, evaluationId ?? ""), enabled: Boolean(evaluationId) });
+  const execute = useMutation({ mutationFn: () => api.executeWorkItem(tenantId, projectId, workItemId), onSuccess: (value) => { setEvaluationId(value.evaluationId); void queryClient.invalidateQueries({ queryKey: ["findings", workItemId] }); void queryClient.invalidateQueries({ queryKey: ["work-item", workItemId] }); } });
+  const upload = useMutation({ mutationFn: async (file: File) => { const sha256 = await digest(file); const handle = await api.initiateAttachment(tenantId, projectId, workItemId, { documentType, filename: file.name, mediaType: file.type || "application/octet-stream", sizeBytes: file.size, sha256 }); await api.uploadBlob(handle, await base64(file)); return api.completeAttachment(tenantId, projectId, handle, sha256); }, onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-item", workItemId] }) });
+  const act = useMutation({ mutationFn: ({ findingId, action }: { findingId: string; action: "ACKNOWLEDGE" | "WAIVE" | "RESOLVE" | "REOPEN" }) => api.actOnFinding(tenantId, projectId, findingId, action, action === "WAIVE" ? "控制台人工豁免" : undefined), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["findings", workItemId] }) });
+  const chooseFile = (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file) upload.mutate(file); };
+  if (item.isLoading) return <p className="text-sm text-gray-500">正在加载工作项…</p>;
+  if (!item.data) return <p role="alert" className="text-sm text-error-600">工作项不存在或加载失败。</p>;
+  return <section className="space-y-5"><header className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold text-gray-900 dark:text-white">{itemTitle(item.data.payload)}</h1><p className="mt-1 text-sm text-gray-500">{item.data.workItemType} · 修订 v{item.data.revision} · {item.data.status}</p></div><Button disabled={execute.isPending} onClick={() => execute.mutate()}>发起完整性校验</Button></header>
+    <div className="grid gap-4 lg:grid-cols-2"><article className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-800"><h2 className="font-semibold">输入与附件</h2><pre className="mt-3 overflow-auto rounded-lg bg-gray-50 p-3 text-xs dark:bg-gray-900">{JSON.stringify(item.data.payload, null, 2)}</pre><div className="mt-4 flex flex-wrap items-end gap-3"><label className="text-sm">资料类型<select className="mt-1 block rounded-lg border border-gray-300 bg-transparent px-3 py-2" value={documentType} onChange={(event) => setDocumentType(event.target.value)}><option value="contract">合同正文</option><option value="business-license">营业执照</option><option value="authorization">授权书</option></select></label><label className="text-sm">上传文件<input className="mt-1 block max-w-64 text-sm" type="file" onChange={chooseFile} /></label></div>{upload.isPending ? <p className="mt-2 text-xs text-gray-500">正在上传并扫描…</p> : null}</article>
+    <article className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-800"><h2 className="font-semibold">问题</h2><div className="mt-3 space-y-2">{findings.data?.items.map((finding) => <div key={finding.findingId} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><div className="flex justify-between gap-3"><strong>{finding.title}</strong><span className="text-xs">{finding.status}</span></div><p className="mt-1 text-sm text-gray-500">{finding.detail}</p><div className="mt-3 flex flex-wrap gap-2">{finding.status === "OPEN" ? <Button size="sm" variant="outline" onClick={() => act.mutate({ findingId: finding.findingId, action: "ACKNOWLEDGE" })}>确认</Button> : null}{finding.status === "OPEN" || finding.status === "ACKNOWLEDGED" ? <><Button size="sm" variant="outline" onClick={() => act.mutate({ findingId: finding.findingId, action: "RESOLVE" })}>解决</Button><Button size="sm" variant="outline" onClick={() => act.mutate({ findingId: finding.findingId, action: "WAIVE" })}>豁免</Button></> : <Button size="sm" variant="outline" onClick={() => act.mutate({ findingId: finding.findingId, action: "REOPEN" })}>重新打开</Button>}</div></div>)}{findings.data?.items.length === 0 ? <p className="text-sm text-gray-500">当前没有问题。</p> : null}</div></article></div>
+    {evaluationId ? <article className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-800"><h2 className="font-semibold">本次报告</h2><div className="mt-3 flex gap-3">{reports.data?.items.map((report) => <span key={report.reportId} className="rounded-full bg-brand-50 px-3 py-1 text-sm text-brand-600">{report.format} · {report.contentHash.slice(0, 10)}</span>)}</div></article> : null}
+  </section>;
+}

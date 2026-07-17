@@ -34,6 +34,7 @@ from swarmcore_application import (
     StrategyService,
     render_run_snapshot,
 )
+from swarmcore_capability_contract_integrity import MANIFEST
 from swarmcore_governance import (
     ArtifactCapabilityIssuer,
     WorkloadTls,
@@ -108,7 +109,7 @@ runs = RunService()
 commands = RunCommandService()
 run_queries = RunQueryService()
 run_results = RunResultService()
-capabilities = CapabilityCatalogService()
+capabilities = CapabilityCatalogService((MANIFEST,))
 project_configurations = ProjectConfigurationService()
 compilation = CompilationService(strategies)
 

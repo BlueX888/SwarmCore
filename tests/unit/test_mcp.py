@@ -37,6 +37,13 @@ def test_mcp_lists_phase_one_run_tools() -> None:
         "swarm.run.status",
         "swarm.run.result",
         "swarm.run.control",
+        "list_capability_packs",
+        "create_work_item",
+        "execute_work_item",
+        "get_evaluation",
+        "list_findings",
+        "act_on_finding",
+        "get_report",
     }
 
 

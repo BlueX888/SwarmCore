@@ -24,8 +24,9 @@
 ## 组件与交互
 
 - 新页面先复用 Button、Card、Badge、Skeleton 和 StatusBadge。
-- 主导航按 Operations、Build、Governance、Observe 分组；新建 Run、待办处理和
-  编排画布必须保持一级可达，外部观测入口明确标识为新窗口打开。
+- 主导航按总览、业务工作、执行管理、平台底座、系统治理、系统观测分组；业务工作项、
+  业务能力包和规则集归入业务工作，能力目录及智能体、工具、模型配置归入平台底座。
+  新建 Run、待办处理和编排画布必须保持一级可达，外部观测入口明确标识为新窗口打开。
 - 新增通用组件时放入 `apps/web/src/components/ui/`，同时补充相邻测试。
 - 禁止手写 Modal、Popover、Dropdown 的点击外部关闭和焦点管理。
 - 异步页面必须明确处理 loading、empty、error、partial、stale 和 retry。

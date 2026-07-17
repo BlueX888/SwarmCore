@@ -119,6 +119,22 @@ async def authorize_rest(
 
 
 def _rest_action(method: str, path: str) -> str:
+    if "/capability-packs" in path:
+        return "capability.read" if method == "GET" else "capability.manage"
+    if "/rule-set" in path:
+        return "rule.read" if method == "GET" else "rule.manage"
+    if "/findings" in path:
+        return "finding.read" if method == "GET" else "finding.act"
+    if "/reports" in path:
+        return "report.read"
+    if "/attachments" in path:
+        return "blob.read" if method == "GET" else "blob.write"
+    if "/work-items" in path:
+        if method == "GET":
+            return "work-item.read"
+        return "work-item.execute" if path.endswith(":execute") else "work-item.write"
+    if "/evaluations" in path:
+        return "work-item.read" if method == "GET" else "evaluation.write"
     if "/configurations/" in path:
         return "strategy.read" if method == "GET" else "strategy.write"
     if "/strategies" in path:

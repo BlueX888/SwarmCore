@@ -42,6 +42,7 @@ export interface CapabilityCatalog {
   models: ModelCapability[];
   limits: Record<string, unknown>;
   swarmSpecSchema: Record<string, unknown>;
+  capabilityPacks?: Array<{ name: string; version: string; workItemType: string; inputSchema: string; outputSchema: string; viewDefinition: string }>;
 }
 export type ConfigurationKind = "agent" | "tool" | "model";
 export interface SavedConfiguration {
@@ -145,3 +146,38 @@ export interface RunEvent {
 }
 export interface EventHistory { items: RunEvent[]; nextAfter: number; }
 export type ConnectionState = "CONNECTING" | "OPEN" | "RECONNECTING" | "STALE" | "CLOSED" | "ERROR";
+
+export interface CapabilityPackSnapshot {
+  packId: string; name: string; versionId: string; version: string; contentHash: string;
+  manifest: Record<string, unknown>; enabled: boolean; bindingStatus: string | null;
+}
+export interface CapabilityPackListResponse { items: CapabilityPackSnapshot[]; }
+export interface WorkItemSnapshot {
+  workItemId: string; workItemType: string; schemaVersion: string; payload: Record<string, unknown>;
+  status: string; owner: string | null; revisionId: string; revision: number; payloadHash: string;
+  createdAt: string; updatedAt: string;
+}
+export interface WorkItemListResponse { items: WorkItemSnapshot[]; total: number; }
+export interface EvaluationSnapshot {
+  evaluationId: string; workItemId: string; workItemRevisionId: string; runId: string; status: string;
+  result: Record<string, unknown> | null; capabilityPackVersionId: string; ruleSetVersionId: string | null;
+  planHash: string; attachmentManifestHash: string; registrySnapshot: Record<string, unknown>; createdAt: string;
+}
+export interface FindingSnapshot {
+  findingId: string; workItemId: string; evaluationId: string; ruleKey: string; code: string;
+  category: string; severity: string; status: string; title: string; detail: string;
+  evidence: Record<string, unknown>;
+}
+export interface FindingListResponse { items: FindingSnapshot[]; }
+export interface ReportSnapshot {
+  reportId: string; evaluationId: string; format: string; templateVersion: string;
+  resultSchemaVersion: string; content: Record<string, unknown> | null; contentHash: string; createdAt: string;
+}
+export interface ReportListResponse { items: ReportSnapshot[]; }
+export interface AttachmentUploadHandle {
+  attachmentId: string; blobId: string; uploadRef: string; capabilityToken: string | null;
+  objectKey: string; status: string;
+}
+export interface RuleSetDraftSnapshot { ruleSetId: string; draftId: string; revision: number; rules: Record<string, unknown>; }
+export interface RuleSetValidationResponse { valid: boolean; normalizedRules: Record<string, unknown>; preview: Record<string, unknown> | null; }
+export interface RuleSetVersionSnapshot { ruleSetId: string; ruleSetVersionId: string; version: number; schemaVersion: string; contentHash: string; rules: Record<string, unknown>; }

@@ -84,13 +84,28 @@ class RolePolicyEngine:
                 "audit.read",
                 "budget.*",
                 "webhook.*",
+                "capability.*",
+                "work-item.*",
+                "finding.*",
+                "rule.*",
+                "report.*",
+                "blob.*",
             }
         ),
         "strategy_author": frozenset({"strategy.*"}),
         "run_operator": frozenset({"run.*"}),
         "approver": frozenset({"approval.decide"}),
         "auditor": frozenset({"run.read", "artifact.read", "audit.read"}),
-        "viewer": frozenset({"run.read", "artifact.read"}),
+        "viewer": frozenset(
+            {
+                "run.read",
+                "artifact.read",
+                "capability.read",
+                "work-item.read",
+                "finding.read",
+                "report.read",
+            }
+        ),
         "workload": frozenset(
             {
                 "tool.execute",
@@ -100,6 +115,10 @@ class RolePolicyEngine:
                 "artifact.*",
                 "sandbox.execute",
                 "webhook.deliver",
+                "work-item.read",
+                "evaluation.write",
+                "blob.*",
+                "report.write",
             }
         ),
     }

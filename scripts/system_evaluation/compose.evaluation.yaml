@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:17.5-alpine
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - track_io_timing=on
+    environment:
+      POSTGRES_DB: swarmcore_eval
+      POSTGRES_USER: swarmcore
+      POSTGRES_PASSWORD: swarmcore
+    ports:
+      - "${EVAL_POSTGRES_PORT:-25433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U swarmcore -d swarmcore_eval"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  temporal:
+    image: temporalio/auto-setup:1.28.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: swarmcore
+      POSTGRES_PWD: swarmcore
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+      PROMETHEUS_ENDPOINT: 0.0.0.0:8000
+      PROMETHEUS_TIMER_TYPE: histogram
+    ports:
+      - "${EVAL_TEMPORAL_PORT:-27233}:7233"
+      - "${EVAL_TEMPORAL_METRICS_PORT:-28000}:8000"
+    volumes:
+      - ../../deployments/compose/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 2s
+      timeout: 5s
+      retries: 150
+      start_period: 15s
+
+  nats:
+    image: nats:2.11.6-alpine
+    command: ["--jetstream", "--store_dir=/data", "--http_port=8222"]
+    ports:
+      - "${EVAL_NATS_PORT:-24222}:4222"
+      - "${EVAL_NATS_MONITOR_PORT:-28222}:8222"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8222/healthz"]
+      interval: 2s
+      timeout: 3s
+      retries: 60

@@ -13,6 +13,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.cors import CORSMiddleware
 from swarmcore_application import (
+    CapabilityPackDeleteError,
     CapabilityPresetService,
     RunCommandConflictError,
     RunNotTerminalError,
@@ -124,6 +125,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(LookupError)
     async def not_found(request: Request, exc: LookupError) -> JSONResponse:
         return _problem(request, 404, "NOT_FOUND", str(exc))
+
+    @app.exception_handler(CapabilityPackDeleteError)
+    async def capability_pack_delete_denied(
+        request: Request, exc: CapabilityPackDeleteError
+    ) -> JSONResponse:
+        return _problem(request, 409, exc.code, exc.detail)
 
     @app.exception_handler(PersistenceConflictError)
     async def conflict(request: Request, exc: PersistenceConflictError) -> JSONResponse:

@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy.dialects import postgresql
 from swarmcore_application import (
     CapabilityCenterService,
+    CapabilityPackDeleteError,
     CapabilityPackDependencyError,
     CapabilityPackReadinessError,
     CapabilityPackService,
@@ -177,3 +178,88 @@ async def test_publish_binds_an_existing_published_strategy_version() -> None:
     added_types = {type(call.args[0]).__name__ for call in session.add.call_args_list}
     assert "CapabilityPackVersion" in added_types
     assert "StrategyVersion" not in added_types
+
+
+@pytest.mark.asyncio
+async def test_delete_version_rejects_missing_version() -> None:
+    service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(()))
+    session = MagicMock()
+    session.scalar = AsyncMock(side_effect=[uuid4(), None])
+
+    with pytest.raises(LookupError, match="能力包版本不存在或已被删除"):
+        await service.delete_version(
+            session,
+            tenant_id=uuid4(),
+            project_id=uuid4(),
+            version_id=uuid4(),
+            actor="test",
+        )
+
+
+@pytest.mark.asyncio
+async def test_delete_version_rejects_enabled_binding() -> None:
+    service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(()))
+    version = _version()
+    session = MagicMock()
+    session.scalar = AsyncMock(side_effect=[uuid4(), version, uuid4()])
+    session.execute = AsyncMock()
+    session.flush = AsyncMock()
+
+    with pytest.raises(CapabilityPackDeleteError) as captured:
+        await service.delete_version(
+            session,
+            tenant_id=uuid4(),
+            project_id=uuid4(),
+            version_id=version.id,
+            actor="test",
+        )
+
+    assert captured.value.code == "CAPABILITY_PACK_ENABLED"
+    session.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_version_rejects_historical_evaluations() -> None:
+    service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(()))
+    version = _version()
+    session = MagicMock()
+    session.scalar = AsyncMock(side_effect=[uuid4(), version, None, uuid4()])
+    session.execute = AsyncMock()
+    session.flush = AsyncMock()
+
+    with pytest.raises(CapabilityPackDeleteError) as captured:
+        await service.delete_version(
+            session,
+            tenant_id=uuid4(),
+            project_id=uuid4(),
+            version_id=version.id,
+            actor="test",
+        )
+
+    assert captured.value.code == "CAPABILITY_PACK_HAS_EVALUATIONS"
+    session.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_version_removes_unused_version_and_empty_pack() -> None:
+    service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(()))
+    version = _version()
+    pack = MagicMock()
+    pack.id = version.pack_id
+    session = MagicMock()
+    session.scalar = AsyncMock(side_effect=[uuid4(), version, None, None, 0, pack])
+    session.execute = AsyncMock()
+    session.flush = AsyncMock()
+    session.delete = AsyncMock()
+
+    await service.delete_version(
+        session,
+        tenant_id=uuid4(),
+        project_id=uuid4(),
+        version_id=version.id,
+        actor="test",
+    )
+
+    assert session.delete.await_count == 2
+    assert session.delete.await_args_list[0].args[0] is version
+    assert session.delete.await_args_list[1].args[0] is pack

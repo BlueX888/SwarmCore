@@ -6,13 +6,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from swarmcore_persistence import AuditRepository
 from swarmcore_persistence.errors import PersistenceConflictError
 from swarmcore_persistence.models import (
     CapabilityPack,
     CapabilityPackVersion,
+    Evaluation,
     IdempotencyKey,
     Project,
     ProjectCapabilityBinding,
@@ -55,6 +56,13 @@ class CapabilityPackDependencyError(ValueError):
         self.actual_agents = actual_agents
         self.declared_tools = declared_tools
         self.actual_tools = actual_tools
+
+
+class CapabilityPackDeleteError(ValueError):
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(code)
+        self.code = code
+        self.detail = detail
 
 
 class CapabilityPackService:
@@ -447,6 +455,100 @@ class CapabilityPackService:
             resource_id=str(version_id),
         )
         return binding
+
+    async def delete_version(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        version_id: UUID,
+        actor: str,
+    ) -> None:
+        project_exists = await session.scalar(
+            select(Project.id).where(
+                Project.id == project_id,
+                Project.tenant_id == tenant_id,
+            )
+        )
+        if project_exists is None:
+            raise LookupError("project not found")
+        version = await session.scalar(
+            select(CapabilityPackVersion)
+            .where(
+                CapabilityPackVersion.id == version_id,
+                CapabilityPackVersion.tenant_id == tenant_id,
+            )
+            .with_for_update()
+        )
+        if version is None:
+            raise LookupError("能力包版本不存在或已被删除。")
+        active_binding = await session.scalar(
+            select(ProjectCapabilityBinding.id)
+            .where(
+                ProjectCapabilityBinding.tenant_id == tenant_id,
+                ProjectCapabilityBinding.pack_version_id == version_id,
+                ProjectCapabilityBinding.status.in_({"ENABLED", "DEGRADED"}),
+            )
+            .limit(1)
+        )
+        if active_binding is not None:
+            raise CapabilityPackDeleteError(
+                "CAPABILITY_PACK_ENABLED",
+                "能力包版本仍处于启用状态。请先停用后再删除。",
+            )
+        evaluation_exists = await session.scalar(
+            select(Evaluation.id)
+            .where(
+                Evaluation.tenant_id == tenant_id,
+                Evaluation.capability_pack_version_id == version_id,
+            )
+            .limit(1)
+        )
+        if evaluation_exists is not None:
+            raise CapabilityPackDeleteError(
+                "CAPABILITY_PACK_HAS_EVALUATIONS",
+                "能力包版本仍有历史评估引用。无法删除。",
+            )
+        await session.execute(
+            delete(ProjectCapabilityBinding).where(
+                ProjectCapabilityBinding.tenant_id == tenant_id,
+                ProjectCapabilityBinding.pack_version_id == version_id,
+            )
+        )
+        pack_id = version.pack_id
+        content_hash = version.content_hash
+        pack_version = version.version
+        await session.delete(version)
+        await session.flush()
+        remaining = await session.scalar(
+            select(func.count())
+            .select_from(CapabilityPackVersion)
+            .where(
+                CapabilityPackVersion.tenant_id == tenant_id,
+                CapabilityPackVersion.pack_id == pack_id,
+            )
+        )
+        if remaining == 0:
+            pack = await session.scalar(
+                select(CapabilityPack).where(
+                    CapabilityPack.id == pack_id,
+                    CapabilityPack.tenant_id == tenant_id,
+                )
+            )
+            if pack is not None:
+                await session.delete(pack)
+                await session.flush()
+        await self._audit.append(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            actor_id=actor,
+            action="capability-pack.delete",
+            resource_type="capability_pack_version",
+            resource_id=str(version_id),
+            metadata={"version": pack_version, "contentHash": content_hash},
+        )
 
     async def list_project(
         self, session: AsyncSession, *, tenant_id: UUID, project_id: UUID

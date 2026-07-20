@@ -58,17 +58,44 @@ export function CapabilityPackCreateForm({ packs, strategies, loadingStrategies,
       <div className="flex gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15"><Boxes /></span><div><Dialog.Title asChild><h2 className="font-semibold text-gray-900 dark:text-white">新建业务能力包</h2></Dialog.Title><Dialog.Description className="mt-1 text-sm text-gray-500">绑定策略管理中已发布的运行策略版本，发布新的不可变能力包。</Dialog.Description></div></div>
       <Button type="button" variant="ghost" size="icon" aria-label="关闭新建能力包" onClick={onCancel}><X /></Button>
     </div>
-    <div className="grid min-h-0 flex-1 gap-6 overflow-y-auto p-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-      <div className="space-y-5">
-        <section><SectionTitle icon={<Boxes />} title="基本信息" description="名称与版本发布后不可修改；后续变更请发布新版本。" /><div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label="能力包名称"><input aria-label="能力包名称" value={name} onChange={(event) => setName(event.target.value)} className={inputClass} /></Field><Field label="版本"><input aria-label="能力包版本" value={version} onChange={(event) => setVersion(event.target.value)} className={inputClass} /></Field></div><div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label="工作项类型"><input aria-label="工作项类型" value={workItemType} onChange={(event) => setWorkItemType(event.target.value)} className={inputClass} /></Field><Field label="业务资产模板"><select aria-label="业务资产模板" value={templateVersionId} onChange={(event) => setTemplateVersionId(event.target.value)} className={inputClass}>{packs.map((pack) => <option key={pack.versionId} value={pack.versionId}>{pack.name} v{pack.version}</option>)}</select></Field></div></section>
-        <section className="border-t border-gray-100 pt-5 dark:border-gray-800"><SectionTitle icon={<Route />} title="运行策略" description="仅可选择策略管理中已经发布的不可变版本。" /><div className="mt-4"><Field label="已发布策略版本"><select aria-label="已发布策略版本" value={strategyVersionId} disabled={loadingStrategies || !strategies.length} onChange={(event) => setStrategyVersionId(event.target.value)} className={inputClass}><option value="">{loadingStrategies ? "正在加载策略…" : strategies.length ? "选择运行策略" : "暂无已发布策略"}</option>{strategies.map((item) => <option key={item.version.strategyVersionId} value={item.version.strategyVersionId}>{item.strategyName} · v{item.version.version} · {item.version.planHash.slice(0, 8)}</option>)}</select></Field></div>{selectedStrategy ? <div className="mt-4 rounded-xl bg-gray-50 p-4 text-xs text-gray-500 dark:bg-gray-800"><p>计划哈希：<span className="break-all font-mono text-gray-700 dark:text-gray-300">{selectedStrategy.version.planHash}</span></p><p className="mt-2">该版本的运行预算、Agent 和工具均来自已发布执行计划。需要调整时，请先在策略管理中修改并发布新版本。</p></div> : null}</section>
-      </div>
-      <div className="space-y-5 xl:border-l xl:border-gray-100 xl:pl-6 dark:xl:border-gray-800">
+    <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
+      <section>
+        <SectionTitle icon={<Boxes />} title="基本信息" description="名称与版本发布后不可修改；后续变更请发布新版本。" />
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Field label="能力包名称"><input aria-label="能力包名称" value={name} onChange={(event) => setName(event.target.value)} className={inputClass} /></Field>
+          <Field label="版本"><input aria-label="能力包版本" value={version} onChange={(event) => setVersion(event.target.value)} className={inputClass} /></Field>
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Field label="工作项类型"><input aria-label="工作项类型" value={workItemType} onChange={(event) => setWorkItemType(event.target.value)} className={inputClass} /></Field>
+          <Field label="业务资产模板"><select aria-label="业务资产模板" value={templateVersionId} onChange={(event) => setTemplateVersionId(event.target.value)} className={inputClass}>{packs.map((pack) => <option key={pack.versionId} value={pack.versionId}>{pack.name} v{pack.version}</option>)}</select></Field>
+        </div>
+      </section>
+
+      <section className="space-y-4 border-t border-gray-100 pt-6 dark:border-gray-800">
+        <SectionTitle icon={<Route />} title="运行策略与策略图" description="选择已发布的不可变策略版本，下方只读流程图会同步更新；修改请前往策略管理。" />
+        <Field label="已发布策略版本">
+          <select aria-label="已发布策略版本" value={strategyVersionId} disabled={loadingStrategies || !strategies.length} onChange={(event) => setStrategyVersionId(event.target.value)} className={inputClass}>
+            <option value="">{loadingStrategies ? "正在加载策略…" : strategies.length ? "选择运行策略" : "暂无已发布策略"}</option>
+            {strategies.map((item) => <option key={item.version.strategyVersionId} value={item.version.strategyVersionId}>{item.strategyName} · v{item.version.version} · {item.version.planHash.slice(0, 8)}</option>)}
+          </select>
+        </Field>
+        {selectedStrategy ? <>
+          <div className="rounded-xl bg-gray-50 p-4 text-xs text-gray-500 dark:bg-gray-800">
+            <p>计划哈希：<span className="break-all font-mono text-gray-700 dark:text-gray-300">{selectedStrategy.version.planHash}</span></p>
+            <p className="mt-2">该版本的运行预算、Agent 和工具均来自已发布执行计划。需要调整时，请先在策略管理中修改并发布新版本。</p>
+          </div>
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">策略图设计</h3>
+            <StrategyGraphPreview spec={selectedStrategy.version.spec} />
+          </div>
+        </> : <p className="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400 dark:border-gray-700">选择策略后显示策略图设计预览。</p>}
+      </section>
+
+      <div className="grid gap-5 border-t border-gray-100 pt-6 md:grid-cols-3 dark:border-gray-800">
         <DependencyList icon={<Gauge />} title="冻结的运行预算" items={budgetItems(dependencies.budget)} empty="选择策略后显示预算。" />
         <DependencyList icon={<Bot />} title="Agent 依赖" items={dependencies.agentDisplay} empty="该策略未包含 Agent。" mono />
         <DependencyList icon={<Wrench />} title="工具依赖" items={dependencies.tools} empty="该策略未引用工具。" mono />
       </div>
-      {selectedStrategy ? <section className="space-y-3 xl:col-span-2"><SectionTitle icon={<Route />} title="策略图设计" description="所选已发布策略版本的只读流程图；修改请前往策略管理。" /><StrategyGraphPreview spec={selectedStrategy.version.spec} /></section> : null}
     </div>
     {(formError || error) ? <p role="alert" className="mx-5 mb-4 rounded-xl bg-error-50 p-3 text-sm text-error-600 dark:bg-error-500/10">{formError || `创建失败：${error}`}</p> : null}
     <div className="flex shrink-0 justify-end gap-2 border-t border-gray-100 px-5 py-4 dark:border-gray-800"><Button type="button" variant="outline" onClick={onCancel}>取消</Button><Button type="submit" loading={pending} disabled={!packs.length || loadingStrategies || !strategies.length}>发布能力包</Button></div>

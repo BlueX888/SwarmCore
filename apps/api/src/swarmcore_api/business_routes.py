@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -261,6 +261,25 @@ async def disable_capability_pack(
         configuration=dict(binding.configuration),
         blockers=[],
     )
+
+
+@router.delete(
+    "/projects/{project_id}/capability-packs/{version_id}",
+    status_code=204,
+)
+async def delete_capability_pack(
+    version_id: UUID,
+    scope: Scope,
+    session: Session,
+) -> Response:
+    await capability_packs.delete_version(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        version_id=version_id,
+        actor=scope.actor_id,
+    )
+    return Response(status_code=204)
 
 
 @router.post(

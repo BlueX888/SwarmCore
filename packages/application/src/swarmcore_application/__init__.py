@@ -1,6 +1,7 @@
 from .capabilities import CapabilityCatalog, CapabilityCatalogService
 from .capability_center import CapabilityCenterService
 from .capability_packs import (
+    CapabilityPackDeleteError,
     CapabilityPackDependencyError,
     CapabilityPackReadinessError,
     CapabilityPackService,
@@ -79,6 +80,7 @@ __all__ = [
     "CapabilityCatalog",
     "CapabilityCatalogService",
     "CapabilityCenterService",
+    "CapabilityPackDeleteError",
     "CapabilityPackDependencyError",
     "CapabilityPackReadinessError",
     "CapabilityPackService",

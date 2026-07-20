@@ -2,17 +2,24 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "@/api/client";
+import { ApiError, api } from "@/api/client";
 import { CapabilityPacksPage } from "./capability-packs-page";
 
-vi.mock("@/api/client", () => ({ api: {
-  listCapabilityPacks: vi.fn(),
-  listStrategies: vi.fn(),
-  listVersions: vi.fn(),
-  getVersion: vi.fn(),
-  createCapabilityPack: vi.fn(),
-  enableCapabilityPack: vi.fn(),
-} }));
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return {
+    ...actual,
+    api: {
+      listCapabilityPacks: vi.fn(),
+      listStrategies: vi.fn(),
+      listVersions: vi.fn(),
+      getVersion: vi.fn(),
+      createCapabilityPack: vi.fn(),
+      enableCapabilityPack: vi.fn(),
+      deleteCapabilityPack: vi.fn(),
+    },
+  };
+});
 
 describe("capability packs page", () => {
   afterEach(() => {
@@ -38,6 +45,7 @@ describe("capability packs page", () => {
       blockers: [],
     }] });
     vi.mocked(api.enableCapabilityPack).mockResolvedValue(undefined);
+    vi.mocked(api.deleteCapabilityPack).mockResolvedValue(undefined);
     vi.mocked(api.listStrategies).mockResolvedValue({ items: [{ strategyId: "strategy-1", name: "contract-review", lifecycle: "ACTIVE", createdAt: "2026-01-01", updatedAt: "2026-01-01", draftId: null, draftRevision: null, latestVersion: 2 }], total: 1 });
     vi.mocked(api.listVersions).mockResolvedValue({ items: [{ strategyVersionId: "strategy-version-2", strategyId: "strategy-1", version: 2, lifecycle: "PUBLISHED", planHash: "c".repeat(64), schemaVersion: "swarmcore.io/v1", runtimeVersion: "1.1.0", createdAt: "2026-01-01" }], total: 1 });
     vi.mocked(api.getVersion).mockResolvedValue({
@@ -59,11 +67,16 @@ describe("capability packs page", () => {
     render(<QueryClientProvider client={client}><MemoryRouter><CapabilityPacksPage /></MemoryRouter></QueryClientProvider>);
 
     expect(await screen.findByText("Agent（2）")).toBeVisible();
-    expect(screen.getByText("agent://contract/classifier@1")).toBeVisible();
-    expect(screen.getByText("agent://contract/extractor@1")).toBeVisible();
+    expect(screen.getByText("classifier")).toBeVisible();
+    expect(screen.getByText("extractor")).toBeVisible();
+    expect(screen.getByTitle("agent://contract/classifier@1")).toBeVisible();
+    expect(screen.getByTitle("agent://contract/extractor@1")).toBeVisible();
     expect(screen.getByText("工具（2）")).toBeVisible();
-    expect(screen.getByText("tool://document/read@1")).toBeVisible();
-    expect(screen.getByText("tool://rules/evaluate@1")).toBeVisible();
+    expect(screen.getByText("read")).toBeVisible();
+    expect(screen.getByText("evaluate")).toBeVisible();
+    expect(screen.getByTitle("tool://document/read@1")).toBeVisible();
+    expect(screen.getByTitle("tool://rules/evaluate@1")).toBeVisible();
+    expect(screen.getByText("已启用")).toBeVisible();
   });
 
   it("edits project binding configuration without changing the immutable version", async () => {
@@ -109,7 +122,7 @@ describe("capability packs page", () => {
     expect(screen.getByText("最大 Token：250000")).toBeVisible();
     expect(screen.getByTestId("strategy-graph-preview")).toBeVisible();
     expect(screen.getByText("review")).toBeInTheDocument();
-    expect(screen.getByText("evaluate")).toBeInTheDocument();
+    expect(screen.getAllByText("evaluate").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "发布能力包" }));
 
     await waitFor(() => expect(api.createCapabilityPack).toHaveBeenCalledTimes(1));
@@ -125,5 +138,42 @@ describe("capability packs page", () => {
     });
     expect(request?.strategyVersionId).toBe("strategy-version-2");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建业务能力包" })).not.toBeInTheDocument());
+  });
+
+  it("deletes a capability pack version after confirmation", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MemoryRouter><CapabilityPacksPage /></MemoryRouter></QueryClientProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "删除 contract-integrity v1.1.0" }));
+    expect(confirm).toHaveBeenCalled();
+    await waitFor(() => expect(api.deleteCapabilityPack).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      "version-1",
+    ));
+    confirm.mockRestore();
+  });
+
+    it("shows delete errors from the API", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.deleteCapabilityPack).mockRejectedValue(new ApiError(409, "能力包版本仍处于启用状态。请先停用后再删除。", "CAPABILITY_PACK_ENABLED"));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MemoryRouter><CapabilityPacksPage /></MemoryRouter></QueryClientProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "删除 contract-integrity v1.1.0" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("删除失败：能力包版本仍处于启用状态。请先停用后再删除。");
+    confirm.mockRestore();
+  });
+
+  it("maps not-found delete failures to Chinese copy", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.deleteCapabilityPack).mockRejectedValue(new ApiError(404, "Not Found", "NOT_FOUND"));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MemoryRouter><CapabilityPacksPage /></MemoryRouter></QueryClientProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "删除 contract-integrity v1.1.0" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("删除失败：能力包版本不存在或已被删除。");
+    confirm.mockRestore();
   });
 });

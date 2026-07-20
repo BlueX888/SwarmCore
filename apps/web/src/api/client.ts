@@ -90,6 +90,7 @@ export const api = {
   listCapabilityPacks: (tenantId: string, projectId: string) => request<CapabilityPackListResponse>(`/v1/projects/${projectId}/capability-packs`, tenantId),
   createCapabilityPack: (tenantId: string, projectId: string, body: CreateCapabilityPackRequest) => request<CapabilityPackSnapshot>(`/v1/projects/${projectId}/capability-packs`, tenantId, { method: "POST", body: JSON.stringify(body) }),
   enableCapabilityPack: (tenantId: string, projectId: string, versionId: string, configuration: Record<string, unknown> = {}) => request(`/v1/projects/${projectId}/capability-packs/${versionId}:enable`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ configuration }) }),
+  deleteCapabilityPack: (tenantId: string, projectId: string, versionId: string) => request<undefined>(`/v1/projects/${projectId}/capability-packs/${versionId}`, tenantId, { method: "DELETE" }),
   listWorkItems: (tenantId: string, projectId: string) => request<WorkItemListResponse>(`/v1/projects/${projectId}/work-items`, tenantId),
   getWorkItem: (tenantId: string, projectId: string, workItemId: string) => request<WorkItemSnapshot>(`/v1/projects/${projectId}/work-items/${workItemId}`, tenantId),
   createWorkItem: (tenantId: string, projectId: string, body: { workItemType: string; payload: Record<string, unknown>; owner?: string }) => request<WorkItemSnapshot>(`/v1/projects/${projectId}/work-items`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),

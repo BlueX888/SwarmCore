@@ -20,6 +20,8 @@ class CapabilityPackSnapshot(BusinessModel):
     manifest: dict[str, Any]
     enabled: bool
     binding_status: str | None = Field(default=None, alias="bindingStatus")
+    configuration: dict[str, Any] = Field(default_factory=dict)
+    blockers: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CapabilityPackListResponse(BusinessModel):
@@ -28,6 +30,11 @@ class CapabilityPackListResponse(BusinessModel):
 
 class EnableCapabilityPackRequest(BusinessModel):
     configuration: dict[str, Any] = Field(default_factory=dict)
+
+
+class CreateCapabilityPackRequest(BusinessModel):
+    manifest: dict[str, Any]
+    strategy_version_id: UUID = Field(alias="strategyVersionId")
 
 
 class CreateWorkItemRequest(BusinessModel):

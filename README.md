@@ -60,6 +60,14 @@ immutable built-in Registry, remain isolated by tenant and project RLS, and crea
 create, update, and delete. Updates retain the configuration ID and increment its revision. Apply
 Alembic migrations before using these endpoints.
 
+The unified Capability Center is enabled by default and can be disabled with
+`SWARMCORE_CAPABILITY_CENTER_V2=false`. It adds
+`/v1/projects/{project_id}/capability-center`, `/capability-runs`, and `/presets` while retaining the
+configuration APIs above. Readiness is projected from Tool Gateway executors, Model Gateway route,
+secret and endpoint checks, and the Agent Worker adapter probe on port 8094; unavailable resources
+remain visible only when explicitly requested and cannot be run. MCP exposes
+`swarm.capability-center.list` and `swarm.capability.run` under the same feature flag.
+
 The MCP endpoint is `/mcp` and exposes the canonical tools
 `swarm.capabilities.get`, `swarm.strategy.validate`, `swarm.strategy.compile`,
 `swarm.run.create`, `swarm.run.status`, `swarm.run.result`, and `swarm.run.control`.
@@ -80,7 +88,13 @@ CRITICAL tools enter the durable Approval flow before a capability token is issu
 
 The first trusted business capability pack is `contract-integrity`. Its generic REST resources are
 under `/v1/projects/{project_id}/capability-packs`, `/work-items`, `/evaluations`, `/findings`,
-`/reports`, and `/rule-sets`. Input files are initiated through the API, uploaded to Artifact
+`/reports`, and `/rule-sets`. Capability-pack list and enable responses include the current
+project binding `configuration`; updating it re-enables the same immutable version with new
+project-scoped parameters. `POST /v1/projects/{project_id}/capability-packs` publishes a custom
+Manifest bound to an existing published `StrategyVersion`; the server reads the frozen plan and
+rejects Agent/Tool declarations that differ from that version. The Web console builds this request
+from a trusted business-asset template and a version selected from Strategy Management. Input files
+are initiated through the API, uploaded to Artifact
 Gateway with a short-lived Blob capability, hash/scanned there, and only then attached to an
 immutable WorkItemRevision. Set `VITE_ARTIFACT_GATEWAY_URL` for browser uploads and include the
 Web console origin in `SWARMCORE_CORS_ORIGINS`. Apply migration

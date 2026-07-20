@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     event_heartbeat_seconds: float = Field(default=15, ge=5, le=60)
     otlp_endpoint: str = "http://localhost:4317"
     telemetry_enabled: bool = True
+    capability_center_v2: bool = True
+    environment: str = "development"
+    tool_gateway_url: str = "http://localhost:8090"
+    model_gateway_url: str = "http://localhost:8093"
+    agent_readiness_url: str = "http://localhost:8094"
+    readiness_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
     auth_mode: str = "local"
     jwt_issuer: str = ""
     jwt_audience: str = "swarmcore-api"

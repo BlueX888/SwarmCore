@@ -7,9 +7,8 @@ import { Navigate, RouterProvider, createBrowserRouter, useLocation, useParams }
 import { AppShell } from "@/components/layout/app-shell";
 import { ActionCenterPage } from "@/pages/action-center-page";
 import { AuditLogsPage } from "@/pages/audit-logs-page";
-import { CapabilitiesPage } from "@/pages/capabilities-page";
+import { AgentCapabilitiesPage, ModelCapabilitiesPage, PolicyCapabilitiesPage, ToolCapabilitiesPage } from "@/pages/capabilities-page";
 import { CapabilityPacksPage } from "@/pages/capability-packs-page";
-import { AgentConfigurationPage, ModelConfigurationPage, ToolConfigurationPage } from "@/pages/registry-config-page";
 import { ThemeProvider } from "@/context/theme-context";
 import { RunsPage } from "@/pages/runs-page";
 import { NewRunPage } from "@/pages/new-run-page";
@@ -18,6 +17,7 @@ import { StrategiesPage } from "@/pages/strategies-page";
 import { StrategyCreatePage } from "@/pages/strategy-create-page";
 import { StrategyDetailPage } from "@/pages/strategy-detail-page";
 import { RuleSetsPage } from "@/pages/rule-sets-page";
+import { AgentConfigurationPage } from "@/pages/registry-config-page";
 import { WorkItemDetailPage } from "@/pages/work-item-detail-page";
 import { WorkItemsPage } from "@/pages/work-items-page";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,16 +40,20 @@ const workspaceChildren = () => [
   ] },
   { path: "canvas", element: <StrategyCreatePage standalone /> },
   { path: "actions", element: <ActionCenterPage /> },
-  { path: "capabilities", element: <CapabilitiesPage /> },
+  { path: "capabilities", element: <Navigate to="../agents" replace /> },
   { path: "capability-packs", element: <CapabilityPacksPage /> },
   { path: "work-items", children: [
     { index: true, element: <WorkItemsPage /> },
     { path: ":workItemId", element: <WorkItemDetailPage /> },
   ] },
   { path: "rule-sets", element: <RuleSetsPage /> },
-  { path: "agents", element: <AgentConfigurationPage /> },
-  { path: "tools", element: <ToolConfigurationPage /> },
-  { path: "models", element: <ModelConfigurationPage /> },
+  { path: "agents", children: [
+    { index: true, element: <AgentCapabilitiesPage /> },
+    { path: "configure", element: <AgentConfigurationPage /> },
+  ] },
+  { path: "tools", element: <ToolCapabilitiesPage /> },
+  { path: "models", element: <ModelCapabilitiesPage /> },
+  { path: "policies", element: <PolicyCapabilitiesPage /> },
   { path: "audit-logs", element: <AuditLogsPage /> },
 ];
 

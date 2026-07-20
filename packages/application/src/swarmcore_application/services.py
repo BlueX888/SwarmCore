@@ -39,6 +39,91 @@ class StrategyService:
         )
         return strategy, plan
 
+    async def ensure_trusted_version(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        reference: str,
+        raw_spec: dict[str, Any],
+        registry_snapshot: str,
+        policy_revision: str,
+        actor: str,
+    ) -> StrategyVersion:
+        if not reference.startswith("strategy://") or "@" not in reference:
+            raise ValueError(f"invalid immutable strategy reference: {reference}")
+        resource, version_text = reference.removeprefix("strategy://").rsplit("@", 1)
+        try:
+            version_number = int(version_text)
+        except ValueError as exc:
+            raise ValueError(f"strategy reference version must be an integer: {reference}") from exc
+        if version_number < 1:
+            raise ValueError(f"strategy reference version must be positive: {reference}")
+        name = f"trusted-{resource.replace('/', '-')}"
+        spec, plan = self.compile(
+            raw_spec,
+            registry_snapshot=registry_snapshot,
+            policy_revision=policy_revision,
+        )
+        strategy = await session.scalar(
+            select(Strategy)
+            .where(
+                Strategy.tenant_id == tenant_id,
+                Strategy.project_id == project_id,
+                Strategy.name == name,
+            )
+            .with_for_update()
+        )
+        if strategy is None:
+            strategy = Strategy(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                name=name,
+                lifecycle="TRUSTED",
+            )
+            session.add(strategy)
+            await session.flush()
+        existing = await session.scalar(
+            select(StrategyVersion).where(
+                StrategyVersion.tenant_id == tenant_id,
+                StrategyVersion.strategy_id == strategy.id,
+                StrategyVersion.version == version_number,
+            )
+        )
+        if existing is not None:
+            if existing.plan_hash != plan.plan_hash:
+                raise PersistenceConflictError(
+                    "trusted strategy version is immutable and has different content"
+                )
+            return existing
+        saved = StrategyVersion(
+            tenant_id=tenant_id,
+            strategy_id=strategy.id,
+            version=version_number,
+            lifecycle="TRUSTED",
+            raw_spec=raw_spec,
+            normalized_spec=spec.model_dump(mode="json", by_alias=True, exclude_none=True),
+            plan=plan.model_dump(mode="json", by_alias=True),
+            plan_hash=plan.plan_hash,
+            schema_version=spec.api_version,
+            runtime_version=plan.runtime_version,
+        )
+        session.add(saved)
+        await session.flush()
+        await self._audit.append(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            actor_id=actor,
+            action="strategy.trusted-register",
+            resource_type="strategy_version",
+            resource_id=str(saved.id),
+            policy_revision=policy_revision,
+            metadata={"reference": reference, "planHash": saved.plan_hash},
+        )
+        return saved
+
     async def create_draft(
         self,
         session: AsyncSession,

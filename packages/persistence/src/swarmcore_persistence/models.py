@@ -805,6 +805,9 @@ class BlobObject(Base, IdMixin, TenantMixin, TimestampMixin):
     __tablename__ = "blob_objects"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_blob_objects_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "project_id", "id", name="uq_blob_objects_scope_id"
+        ),
         UniqueConstraint("object_key", name="uq_blob_objects_object_key"),
         ForeignKeyConstraint(
             ["tenant_id", "project_id"],
@@ -841,8 +844,8 @@ class WorkItemAttachment(Base, IdMixin, TenantMixin):
             ondelete="CASCADE",
         ),
         ForeignKeyConstraint(
-            ["tenant_id", "blob_id"],
-            ["blob_objects.tenant_id", "blob_objects.id"],
+            ["tenant_id", "project_id", "blob_id"],
+            ["blob_objects.tenant_id", "blob_objects.project_id", "blob_objects.id"],
             ondelete="RESTRICT",
         ),
         Index("ix_work_item_attachments_revision", "revision_id"),
@@ -854,6 +857,41 @@ class WorkItemAttachment(Base, IdMixin, TenantMixin):
     blob_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     document_type: Mapped[str] = mapped_column(String(128), nullable=False)
     label: Mapped[str | None] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DocumentExtraction(Base, IdMixin, TenantMixin):
+    __tablename__ = "document_extractions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_document_extractions_tenant_id"),
+        UniqueConstraint(
+            "project_id",
+            "blob_id",
+            "source_sha256",
+            "pipeline_version",
+            name="uq_document_extractions_pipeline",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "cache_key",
+            name="uq_document_extractions_cache_key",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "blob_id"],
+            ["blob_objects.tenant_id", "blob_objects.id"],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_document_extractions_blob", "blob_id", "created_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    blob_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    pipeline_version: Mapped[str] = mapped_column(String(512), nullable=False)
+    cache_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

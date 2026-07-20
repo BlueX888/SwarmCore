@@ -37,7 +37,7 @@ export function OverviewPage() {
     { label: "全部运行", value: runs.data?.total, detail: `${activeRuns} 个正在执行`, to: `${workspacePath}/runs`, icon: Activity, tone: "brand" },
     { label: "项目策略", value: strategies.data?.total, detail: `${publishedStrategies} 个已有发布版本`, to: `${workspacePath}/strategies`, icon: Workflow, tone: "success" },
     { label: "待办事项", value: pendingApprovals + pendingInputs, detail: `${pendingApprovals} 项审批 · ${pendingInputs} 项输入`, to: `${workspacePath}/actions`, icon: Inbox, tone: "warning" },
-    { label: "能力资源", value: capabilityTotal, detail: capabilities.data ? `${capabilities.data.agents.length} 个智能体 · ${capabilities.data.tools.length} 个工具 · ${capabilities.data.models.length} 个模型` : "正在读取能力目录", to: `${workspacePath}/capabilities`, icon: Boxes, tone: "brand" },
+    { label: "能力资源", value: capabilityTotal, detail: capabilities.data ? `${capabilities.data.agents.length} 个智能体 · ${capabilities.data.tools.length} 个工具 · ${capabilities.data.models.length} 个模型` : "正在读取能力目录", to: `${workspacePath}/agents`, icon: Boxes, tone: "brand" },
   ];
 
   return <div className="min-w-0 space-y-6">
@@ -88,10 +88,10 @@ function NavigationHub({ workspacePath }: { workspacePath: string }) {
     { label: "策略与配置", items: [
       { label: "策略管理", detail: "维护草稿和发布版本", to: `${workspacePath}/strategies`, icon: Workflow },
       { label: "编排画布", detail: "可视化设计执行流程", to: `${workspacePath}/canvas`, icon: Network },
-      { label: "智能体配置", detail: "生成智能体节点声明", to: `${workspacePath}/agents`, icon: Bot },
-      { label: "工具配置", detail: "选择受控工具并配置输入", to: `${workspacePath}/tools`, icon: Wrench },
-      { label: "模型配置", detail: "设置策略默认逻辑模型", to: `${workspacePath}/models`, icon: Cpu },
-      { label: "能力目录", detail: "查看当前注册表能力", to: `${workspacePath}/capabilities`, icon: Boxes },
+      { label: "智能体", detail: "查看并运行已注册智能体", to: `${workspacePath}/agents`, icon: Bot },
+      { label: "工具", detail: "查看并运行受控工具", to: `${workspacePath}/tools`, icon: Wrench },
+      { label: "模型", detail: "查看并运行逻辑模型", to: `${workspacePath}/models`, icon: Cpu },
+      { label: "策略能力", detail: "查看能力治理策略", to: `${workspacePath}/policies`, icon: Boxes },
     ] },
     { label: "治理", items: [
       { label: "审计日志", detail: "查询并导出项目活动记录", to: `${workspacePath}/audit-logs`, icon: ScrollText },

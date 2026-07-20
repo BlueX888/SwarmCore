@@ -6,7 +6,7 @@ import json
 from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from jsonschema import Draft202012Validator, ValidationError
 from pydantic import BaseModel, ConfigDict, Field
@@ -118,13 +118,38 @@ class NullAuditSink:
 ToolExecutor = Callable[[dict[str, Any], str], Awaitable[dict[str, Any]]]
 
 
+@dataclass(frozen=True, slots=True)
+class ToolExecutionContext:
+    tenant_id: str
+    project_id: str
+    run_id: str
+    node_key: str
+    tool_ref: str
+    execution_id: str
+
+
+@runtime_checkable
+class ContextualToolExecutor(Protocol):
+    async def execute(
+        self,
+        input_value: dict[str, Any],
+        effect_id: str,
+        context: ToolExecutionContext,
+    ) -> dict[str, Any]: ...
+
+
+@runtime_checkable
+class HealthyToolExecutor(Protocol):
+    async def healthy(self) -> bool: ...
+
+
 class ToolGateway:
     def __init__(
         self,
         registry: RegistrySnapshot,
         tokens: CapabilityTokenIssuer,
         journal: EffectJournal,
-        executors: dict[str, ToolExecutor],
+        executors: dict[str, ToolExecutor | ContextualToolExecutor],
         audit: AuditSink | None = None,
         policy: PolicyEngine | None = None,
         secrets: SecretProvider | None = None,
@@ -136,6 +161,23 @@ class ToolGateway:
         self._audit = audit or NullAuditSink()
         self._policy = policy or RolePolicyEngine()
         self._secrets = secrets
+
+    async def readiness(self) -> tuple[dict[str, Any], ...]:
+        rows: list[dict[str, Any]] = []
+        for registration in self._registry.tools:
+            executor = self._executors.get(registration.operation)
+            healthy = executor is not None
+            if isinstance(executor, HealthyToolExecutor):
+                healthy = await executor.healthy()
+            rows.append(
+                {
+                    "ref": registration.ref,
+                    "operation": registration.operation,
+                    "executorRegistered": executor is not None,
+                    "healthy": healthy,
+                }
+            )
+        return tuple(rows)
 
     async def invoke(self, invocation: ToolInvocation) -> dict[str, Any]:
         try:
@@ -214,7 +256,21 @@ class ToolGateway:
                     stack=stack,
                     claims=claims,
                 )
-                content = await executor(materialized, invocation.effect_id)
+                if isinstance(executor, ContextualToolExecutor):
+                    content = await executor.execute(
+                        materialized,
+                        invocation.effect_id,
+                        ToolExecutionContext(
+                            tenant_id=claims.tenant_id,
+                            project_id=claims.project_id,
+                            run_id=claims.run_id,
+                            node_key=claims.node_key,
+                            tool_ref=claims.tool_ref,
+                            execution_id=claims.execution_id,
+                        ),
+                    )
+                else:
+                    content = await executor(materialized, invocation.effect_id)
                 if scanner is not None:
                     scanner.assert_clean(
                         json.dumps(content, ensure_ascii=False, default=str).encode()
@@ -339,7 +395,21 @@ class ToolGateway:
             return reservation.output
         try:
             executor = self._executors[registration.compensation_operation]
-            content = await executor(invocation.input, invocation.effect_id)
+            if isinstance(executor, ContextualToolExecutor):
+                content = await executor.execute(
+                    invocation.input,
+                    invocation.effect_id,
+                    ToolExecutionContext(
+                        tenant_id=claims.tenant_id,
+                        project_id=claims.project_id,
+                        run_id=claims.run_id,
+                        node_key=claims.node_key,
+                        tool_ref=claims.tool_ref,
+                        execution_id=claims.execution_id,
+                    ),
+                )
+            else:
+                content = await executor(invocation.input, invocation.effect_id)
             output = {
                 "content": content,
                 "tool": registration.ref,
@@ -362,9 +432,7 @@ class ToolGateway:
                 error=f"{type(exc).__name__}: {exc}"[:2000],
             )
             raise
-        await self._audit.record(
-            self._event("tool.compensated", claims, invocation.effect_id, {})
-        )
+        await self._audit.record(self._event("tool.compensated", claims, invocation.effect_id, {}))
         return output
 
     @staticmethod
@@ -443,9 +511,7 @@ class InMemoryEffectJournal:
 def _secret_refs(value: Any) -> set[str]:
     if isinstance(value, dict):
         refs = {
-            validate_secret_ref(str(value["secretRef"]))
-            for key in ("secretRef",)
-            if key in value
+            validate_secret_ref(str(value["secretRef"])) for key in ("secretRef",) if key in value
         }
         for item in value.values():
             refs.update(_secret_refs(item))

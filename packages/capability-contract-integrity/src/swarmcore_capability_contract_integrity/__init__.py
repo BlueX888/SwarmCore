@@ -18,14 +18,22 @@ SCHEMAS = {
     "schema://contract/validation-input@1": _load("input.schema.json"),
     "schema://contract/validation-result@1": _load("output.schema.json"),
     "schema://contract/checklist-rule@1": _load("rule.schema.json"),
+    "schema://contract/document-extraction@1": _load("extraction.schema.json"),
 }
 DEFAULT_RULES = _load("default-rules.json")
 VIEW_DEFINITION = _load("view-definition.json")
+STRATEGIES = {
+    "strategy://contract-integrity/validate@1": _load("strategy.json"),
+}
 REFERENCES = frozenset(
     {
         *SCHEMAS,
-        "strategy://contract-integrity/validate@1",
+        *STRATEGIES,
+        "agent://contract/document-classifier@1",
+        "agent://contract/field-extractor@1",
+        "tool://document/read@1",
         "tool://rules/evaluate@1",
+        "tool://contract/cross-file-consistency@1",
         "tool://workbench/record-evaluation@1",
         "tool://report/render@1",
         "report://contract/validation@1",
@@ -33,4 +41,11 @@ REFERENCES = frozenset(
     }
 )
 
-__all__ = ["DEFAULT_RULES", "MANIFEST", "REFERENCES", "SCHEMAS", "VIEW_DEFINITION"]
+__all__ = [
+    "DEFAULT_RULES",
+    "MANIFEST",
+    "REFERENCES",
+    "SCHEMAS",
+    "STRATEGIES",
+    "VIEW_DEFINITION",
+]

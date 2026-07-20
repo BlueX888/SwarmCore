@@ -11,6 +11,7 @@ from swarmcore_tool_gateway import (
     EffectConflict,
     GatewayError,
     InMemoryEffectJournal,
+    ToolExecutionContext,
     ToolGateway,
     ToolInvocation,
 )
@@ -49,9 +50,7 @@ def token(
 async def test_confirmed_effect_is_returned_without_repeating_side_effect() -> None:
     calls: list[str] = []
     audit = Audit()
-    issuer = CapabilityTokenIssuer(
-        SECRET, clock=lambda: datetime(2026, 7, 16, tzinfo=UTC)
-    )
+    issuer = CapabilityTokenIssuer(SECRET, clock=lambda: datetime(2026, 7, 16, tzinfo=UTC))
 
     async def executor(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
         calls.append(effect_id)
@@ -64,9 +63,7 @@ async def test_confirmed_effect_is_returned_without_repeating_side_effect() -> N
         {"builtin.search": executor},
         audit,
     )
-    invocation = ToolInvocation(
-        token=token(issuer), effectId="effect-1", input={"query": "swarm"}
-    )
+    invocation = ToolInvocation(token=token(issuer), effectId="effect-1", input={"query": "swarm"})
 
     first = await gateway.invoke(invocation)
     second = await gateway.invoke(invocation)
@@ -105,9 +102,7 @@ async def test_effect_id_cannot_be_reused_with_different_input() -> None:
 @pytest.mark.asyncio
 async def test_high_risk_tool_requires_approved_capability() -> None:
     issuer = CapabilityTokenIssuer(SECRET)
-    gateway = ToolGateway(
-        builtin_registry(), issuer, InMemoryEffectJournal(), executors={}
-    )
+    gateway = ToolGateway(builtin_registry(), issuer, InMemoryEffectJournal(), executors={})
     invocation = ToolInvocation(
         token=token(issuer, tool_ref="tool://publish-report@1"),
         effectId="effect-1",
@@ -121,14 +116,77 @@ async def test_high_risk_tool_requires_approved_capability() -> None:
 @pytest.mark.asyncio
 async def test_token_scope_and_input_schema_are_enforced() -> None:
     issuer = CapabilityTokenIssuer(SECRET)
-    gateway = ToolGateway(
-        builtin_registry(), issuer, InMemoryEffectJournal(), executors={}
-    )
+    gateway = ToolGateway(builtin_registry(), issuer, InMemoryEffectJournal(), executors={})
     with pytest.raises(GatewayError, match="effect id"):
         await gateway.invoke(
             ToolInvocation(token=token(issuer), effectId="other", input={"query": "ok"})
         )
     with pytest.raises(GatewayError, match="input schema"):
+        await gateway.invoke(ToolInvocation(token=token(issuer), effectId="effect-1", input={}))
+
+
+@pytest.mark.asyncio
+async def test_contextual_executor_uses_authorized_scope_and_is_idempotent() -> None:
+    issuer = CapabilityTokenIssuer(SECRET)
+    contexts: list[ToolExecutionContext] = []
+
+    class Recorder:
+        async def execute(
+            self,
+            input_value: dict[str, Any],
+            effect_id: str,
+            context: ToolExecutionContext,
+        ) -> dict[str, Any]:
+            contexts.append(context)
+            return {
+                "evaluationId": input_value["evaluationId"],
+                "recorded": True,
+                "effectId": effect_id,
+                "resultHash": "0" * 64,
+            }
+
+    gateway = ToolGateway(
+        builtin_registry(),
+        issuer,
+        InMemoryEffectJournal(),
+        {"workbench.record_evaluation": Recorder()},
+    )
+    input_value = {
+        "evaluationId": "00000000-0000-0000-0000-000000000004",
+        "result": {
+            "passed": True,
+            "ruleSetVersionId": "rules-1",
+            "attachmentManifestHash": "manifest",
+            "checks": {"requirements": 0, "attachments": 0},
+            "findings": [],
+        },
+    }
+    unauthorized = issuer.issue(
+        tenant_id="00000000-0000-0000-0000-000000000001",
+        project_id="00000000-0000-0000-0000-000000000002",
+        run_id="00000000-0000-0000-0000-000000000003",
+        node_key="tool",
+        tool_ref="tool://workbench/record-evaluation@1",
+        execution_id="execution-1",
+        effect_id="effect-1",
+        approved=False,
+        action="tool.compensate",
+    )
+    with pytest.raises(GatewayError, match="does not allow"):
         await gateway.invoke(
-            ToolInvocation(token=token(issuer), effectId="effect-1", input={})
+            ToolInvocation(token=unauthorized, effectId="effect-1", input=input_value)
         )
+
+    authorized = token(issuer, tool_ref="tool://workbench/record-evaluation@1")
+    invocation = ToolInvocation(token=authorized, effectId="effect-1", input=input_value)
+    assert await gateway.invoke(invocation) == await gateway.invoke(invocation)
+    assert contexts == [
+        ToolExecutionContext(
+            tenant_id="00000000-0000-0000-0000-000000000001",
+            project_id="00000000-0000-0000-0000-000000000002",
+            run_id="00000000-0000-0000-0000-000000000003",
+            node_key="tool",
+            tool_ref="tool://workbench/record-evaluation@1",
+            execution_id="execution-1",
+        )
+    ]

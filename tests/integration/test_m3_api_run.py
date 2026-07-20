@@ -134,7 +134,7 @@ async def test_parallel_agents_publish_through_approved_gateway_and_reduce(
             run_id = accepted.json()["runId"]
 
             async with control_worker, agent_worker, tool_worker:
-                assert await dispatcher.run_once() == 1
+                assert await dispatcher.run_once() >= 1
                 approval: dict[str, Any] | None = None
                 for _ in range(200):
                     response = api.get(

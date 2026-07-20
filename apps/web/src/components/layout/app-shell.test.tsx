@@ -37,10 +37,10 @@ describe("workspace navigation", () => {
     expect(within(execution).getByRole("link", { name: "编排画布" })).toHaveAttribute("aria-current", "page");
 
     const platform = screen.getByRole("region", { name: "平台底座" });
-    expect(within(platform).getByRole("link", { name: "能力目录" })).toBeInTheDocument();
-    expect(within(platform).getByRole("link", { name: "智能体配置" })).toHaveAttribute("href", "/agents");
-    expect(within(platform).getByRole("link", { name: "工具配置" })).toHaveAttribute("href", "/tools");
-    expect(within(platform).getByRole("link", { name: "模型配置" })).toHaveAttribute("href", "/models");
+    expect(within(platform).getByRole("link", { name: "智能体" })).toHaveAttribute("href", "/agents");
+    expect(within(platform).getByRole("link", { name: "工具" })).toHaveAttribute("href", "/tools");
+    expect(within(platform).getByRole("link", { name: "模型" })).toHaveAttribute("href", "/models");
+    expect(within(platform).getByRole("link", { name: "策略" })).toHaveAttribute("href", "/policies");
 
     expect(within(screen.getByRole("region", { name: "系统治理" })).getByRole("link", { name: "审计日志" })).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "系统观测" })).getByRole("link", { name: "Temporal（在新标签页打开）" })).toHaveAttribute("target", "_blank");

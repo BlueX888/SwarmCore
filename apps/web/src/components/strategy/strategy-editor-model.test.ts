@@ -3,6 +3,7 @@ import type { Diagnostic } from "@/api/types";
 import {
   EMPTY_EDITOR_STATE,
   addNode,
+  applySavedConfiguration,
   connectNodes,
   createBlankSpec,
   deleteNode,
@@ -13,6 +14,29 @@ import {
 } from "./strategy-editor-model";
 
 describe("Strategy Editor model", () => {
+  it("applies saved agent, tool, and model configurations to an executable spec", () => {
+    let spec = createBlankSpec();
+    const common = { revision: 1, createdBy: "test", updatedBy: "test", createdAt: "2026-01-01", updatedAt: "2026-01-01" };
+    spec = applySavedConfiguration(spec, {
+      ...common, configurationId: "agent", kind: "agent", name: "审核员", sourceRef: "inline/agno",
+      configuration: { spec: { agents: { reviewer: { role: "审核员", instructions: "审核输入", model: "model://general@1", tools: ["tool://search@1"] } } } },
+    });
+    spec = applySavedConfiguration(spec, {
+      ...common, configurationId: "tool", kind: "tool", name: "搜索", sourceRef: "tool://search@1",
+      configuration: { search: { type: "tool", tool: "tool://search@1", input: { query: "{{ input.query }}" } } },
+    });
+    spec = applySavedConfiguration(spec, {
+      ...common, configurationId: "model", kind: "model", name: "默认模型", sourceRef: "model://general@1",
+      configuration: { spec: { defaults: { model: "model://general@1" } } },
+    });
+
+    expect(spec.spec.agents?.reviewer).toMatchObject({ role: "审核员", model: "model://general@1" });
+    expect(spec.spec.graph.nodes.reviewer).toMatchObject({ type: "agent", agent: "reviewer" });
+    expect(spec.spec.graph.nodes.search).toMatchObject({ type: "tool", tool: "tool://search@1" });
+    expect(spec.spec.defaults).toEqual({ model: "model://general@1" });
+    expect(spec.spec.graph.entrypoint).toBe("reviewer");
+  });
+
   it("maps normal and parallel connections without creating a second strategy format", () => {
     let spec = createBlankSpec();
     let state = structuredClone(EMPTY_EDITOR_STATE);

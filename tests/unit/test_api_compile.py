@@ -5,6 +5,11 @@ from swarmcore_api.settings import Settings
 from .test_spec import VALID_SPEC
 
 
+def test_capability_center_v2_is_enabled_by_default_and_can_be_disabled() -> None:
+    assert Settings(_env_file=None).capability_center_v2 is True
+    assert Settings(_env_file=None, capability_center_v2=False).capability_center_v2 is False
+
+
 def test_compile_endpoint_returns_immutable_plan() -> None:
     import yaml
 

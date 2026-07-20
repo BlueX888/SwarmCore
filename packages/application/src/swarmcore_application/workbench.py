@@ -164,13 +164,13 @@ class WorkbenchService:
         idempotency_key: str,
         actor: str,
     ) -> tuple[WorkItem, WorkItemRevision]:
-        pack_version, manifest = await self._capability_packs.resolve_enabled(
+        pack_version, manifest, binding = await self._capability_packs.resolve_enabled(
             session,
             tenant_id=tenant_id,
             project_id=project_id,
             work_item_type=work_item_type,
         )
-        del pack_version
+        del pack_version, binding
         schema_ref = manifest.spec.work_item_schema
         self._validate_schema(schema_ref, payload)
         request_hash = canonical_hash(
@@ -486,7 +486,7 @@ class WorkbenchService:
             session, tenant_id=tenant_id, project_id=project_id, work_item_id=work_item_id
         )
         revision = await self._current_revision(session, item)
-        pack_version, manifest = await self._capability_packs.resolve_enabled(
+        pack_version, manifest, binding = await self._capability_packs.resolve_enabled(
             session,
             tenant_id=tenant_id,
             project_id=project_id,
@@ -522,18 +522,33 @@ class WorkbenchService:
                 project_id=project_id,
                 payload=revision.payload,
             )
-        input_data = {
+        evaluation_id = uuid7()
+        input_data: dict[str, Any] = {
             "workItemId": str(item.id),
             "workItemRevisionId": str(revision.id),
+            "evaluationId": str(evaluation_id),
             "payload": revision.payload,
             "attachments": [self._attachment_payload(value) for value in attachments],
+            "attachmentManifestHash": attachment_hash,
+            "configuration": dict(binding.configuration),
         }
+        if rule_version is not None:
+            input_data.update(
+                {
+                    "ruleSetVersionId": str(rule_version.id),
+                    "rules": dict(rule_version.rules),
+                }
+            )
         self._validate_schema(manifest.spec.input_schema, input_data)
-        run, command = await self._runs.create_inline(
+        strategy_snapshot = pack_version.dependency_snapshot.get("strategy", {})
+        strategy_version_id = strategy_snapshot.get("strategyVersionId")
+        if not isinstance(strategy_version_id, str):
+            raise RuntimeError("capability pack strategy version snapshot is missing")
+        run, command = await self._runs.create(
             session,
             tenant_id=tenant_id,
             project_id=project_id,
-            raw_spec=_workbench_strategy(manifest.spec.strategies.execute),
+            strategy_version_id=UUID(strategy_version_id),
             input_data=input_data,
             idempotency_key=f"workbench:{idempotency_key}",
             initiated_by=actor,
@@ -545,9 +560,11 @@ class WorkbenchService:
                 "revisionId": str(revision.id),
                 "packVersionId": str(pack_version.id),
                 "attachmentManifestHash": attachment_hash,
+                "bindingConfigurationHash": canonical_hash(binding.configuration),
             }
         )
         evaluation = Evaluation(
+            id=evaluation_id,
             tenant_id=tenant_id,
             project_id=project_id,
             work_item_id=item.id,
@@ -560,7 +577,11 @@ class WorkbenchService:
             status="RUNNING",
             strategy_version_id=run.strategy_version_id,
             plan_hash=run.plan_hash,
-            registry_snapshot=pack_version.dependency_snapshot,
+            registry_snapshot={
+                **dict(pack_version.dependency_snapshot),
+                "bindingConfiguration": dict(binding.configuration),
+                "bindingConfigurationHash": canonical_hash(binding.configuration),
+            },
             attachment_manifest_hash=attachment_hash,
             input_schema_version=manifest.spec.input_schema,
             output_schema_version=manifest.spec.output_schema,
@@ -1173,36 +1194,6 @@ class WorkbenchService:
             )
         )
         await session.flush()
-
-
-def _workbench_strategy(strategy_ref: str) -> dict[str, Any]:
-    return {
-        "apiVersion": "swarmcore.io/v1",
-        "kind": "SwarmStrategy",
-        "metadata": {"name": f"workbench-{strategy_ref.rsplit('/', 1)[-1].replace('@', '-') }"},
-        "spec": {
-            "inputSchema": {"type": "object"},
-            "outputSchema": {"type": "object"},
-            "agents": {
-                "evaluate": {
-                    "role": "deterministic-workbench-dispatch",
-                    "instructions": "Return the supplied immutable evaluation request.",
-                    "model": "model://fake-deterministic@1",
-                }
-            },
-            "graph": {
-                "entrypoint": "evaluate",
-                "nodes": {
-                    "evaluate": {
-                        "type": "agent",
-                        "agent": "evaluate",
-                        "input": {"request": "{{ input }}"},
-                    }
-                },
-                "output": {"result": "{{ tasks.evaluate.output }}"},
-            },
-        },
-    }
 
 
 def _render_html_report(

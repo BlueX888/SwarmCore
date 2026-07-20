@@ -7,7 +7,13 @@
     "ruleSetVersionId": {"type": "string"},
     "attachmentManifestHash": {"type": "string"},
     "checks": {"type": "object"},
-    "findings": {"type": "array", "items": {"type": "object"}}
+    "findings": {"type": "array", "items": {"type": "object"}},
+    "documentIntelligence": {
+      "type": "array",
+      "items": {"$ref": "extraction.schema.json"}
+    },
+    "reviewRequired": {"type": "boolean"},
+    "evidence": {"type": "array", "items": {"type": "object"}}
   },
   "additionalProperties": false
 }

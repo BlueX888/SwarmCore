@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from swarmcore_application import capability_executors
 from swarmcore_governance import OpaPolicyEngine, RolePolicyEngine, VaultSecretProvider
 from swarmcore_observability import configure_json_logging, configure_telemetry
 from swarmcore_persistence import Database, PostgresEffectJournal
@@ -48,7 +49,7 @@ async def serve() -> None:
         builtin_registry(),
         CapabilityTokenIssuer(settings.tool_capability_secret),
         PostgresEffectJournal(database.sessions),
-        builtin_executors(),
+        {**builtin_executors(), **capability_executors(database.sessions)},
         secrets=(
             VaultSecretProvider(
                 settings.vault_address,

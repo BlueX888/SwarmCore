@@ -22,6 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from swarmcore_application import (
     CapabilityCatalog,
     CapabilityCatalogService,
+    CapabilityCenterService,
+    CapabilityPresetService,
     CommandHandle,
     CompilationService,
     ConfigurationKind,
@@ -35,6 +37,7 @@ from swarmcore_application import (
     render_run_snapshot,
 )
 from swarmcore_capability_contract_integrity import MANIFEST
+from swarmcore_domain import CapabilitySummary
 from swarmcore_governance import (
     ArtifactCapabilityIssuer,
     WorkloadTls,
@@ -73,6 +76,12 @@ from .schemas import (
     ArtifactSnapshot,
     AuditListResponse,
     AuditSnapshot,
+    CapabilityCenterResponse,
+    CapabilityPresetCopyRequest,
+    CapabilityPresetListResponse,
+    CapabilityPresetRequest,
+    CapabilityPresetSnapshot,
+    CapabilityRunRequest,
     CompileRequest,
     CompileResponse,
     CreateProjectConfigurationRequest,
@@ -121,6 +130,191 @@ Session = Annotated[AsyncSession, Depends(db_session)]
 async def get_capabilities(scope: Scope) -> CapabilityCatalog:
     del scope
     return capabilities.get()
+
+
+@router.get(
+    "/projects/{project_id}/capability-center", response_model=CapabilityCenterResponse
+)
+async def get_capability_center(request: Request, scope: Scope) -> CapabilityCenterResponse:
+    settings = request.app.state.settings
+    if not settings.capability_center_v2:
+        raise HTTPException(status_code=404, detail="capability center v2 is disabled")
+    center: CapabilityCenterService = request.app.state.capability_center
+    items = await center.list(
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        environment=settings.environment,
+    )
+    return CapabilityCenterResponse(
+        registrySnapshot=center.registry_snapshot_id,
+        items=items,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/capability-runs", response_model=RunHandle, status_code=202
+)
+async def create_capability_run(
+    request: Request,
+    body: CapabilityRunRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: Annotated[str, Depends(require_idempotency_key)],
+) -> RunHandle:
+    settings = request.app.state.settings
+    if not settings.capability_center_v2:
+        raise HTTPException(status_code=404, detail="capability center v2 is disabled")
+    center: CapabilityCenterService = request.app.state.capability_center
+    run, command = await center.run(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        environment=settings.environment,
+        capability_ref=body.capability_ref,
+        input_data=body.input,
+        preset_id=body.preset_id,
+        idempotency_key=idempotency_key,
+        initiated_by=scope.actor_id,
+        submitted_scopes=scope.scopes,
+        auth_context_hash=scope.auth_context_hash,
+    )
+    return RunHandle(
+        runId=run.id,
+        status=run.status,
+        commandId=command.id,
+        commandStatus=command.status,
+        planHash=run.plan_hash,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/presets", response_model=CapabilityPresetListResponse
+)
+async def list_capability_presets(
+    request: Request,
+    scope: Scope,
+    session: Session,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> CapabilityPresetListResponse:
+    _require_capability_center_v2(request)
+    service: CapabilityPresetService = request.app.state.capability_presets
+    rows, total = await service.list(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        environment=request.app.state.settings.environment,
+        limit=limit,
+        offset=offset,
+    )
+    return CapabilityPresetListResponse(
+        items=[_capability_preset_snapshot(row, summary) for row, summary in rows],
+        total=total,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/presets",
+    response_model=CapabilityPresetSnapshot,
+    status_code=201,
+)
+async def create_capability_preset(
+    request: Request,
+    body: CapabilityPresetRequest,
+    scope: Scope,
+    session: Session,
+) -> CapabilityPresetSnapshot:
+    _require_capability_center_v2(request)
+    service: CapabilityPresetService = request.app.state.capability_presets
+    saved = await service.create(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        environment=request.app.state.settings.environment,
+        name=body.name,
+        capability_ref=body.capability_ref,
+        parameters=body.parameters,
+        actor=scope.actor_id,
+    )
+    return _capability_preset_snapshot(
+        saved, await _find_capability_summary(request, scope, saved.source_ref)
+    )
+
+
+@router.put(
+    "/projects/{project_id}/presets/{preset_id}",
+    response_model=CapabilityPresetSnapshot,
+)
+async def update_capability_preset(
+    preset_id: UUID,
+    request: Request,
+    body: CapabilityPresetRequest,
+    scope: Scope,
+    session: Session,
+) -> CapabilityPresetSnapshot:
+    _require_capability_center_v2(request)
+    service: CapabilityPresetService = request.app.state.capability_presets
+    saved = await service.update(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        environment=request.app.state.settings.environment,
+        preset_id=preset_id,
+        name=body.name,
+        capability_ref=body.capability_ref,
+        parameters=body.parameters,
+        actor=scope.actor_id,
+    )
+    return _capability_preset_snapshot(
+        saved, await _find_capability_summary(request, scope, saved.source_ref)
+    )
+
+
+@router.post(
+    "/projects/{project_id}/presets/{preset_id}:copy",
+    response_model=CapabilityPresetSnapshot,
+    status_code=201,
+)
+async def copy_capability_preset(
+    preset_id: UUID,
+    request: Request,
+    body: CapabilityPresetCopyRequest,
+    scope: Scope,
+    session: Session,
+) -> CapabilityPresetSnapshot:
+    _require_capability_center_v2(request)
+    service: CapabilityPresetService = request.app.state.capability_presets
+    saved = await service.copy(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        environment=request.app.state.settings.environment,
+        preset_id=preset_id,
+        name=body.name,
+        actor=scope.actor_id,
+    )
+    return _capability_preset_snapshot(
+        saved, await _find_capability_summary(request, scope, saved.source_ref)
+    )
+
+
+@router.delete("/projects/{project_id}/presets/{preset_id}", status_code=204)
+async def delete_capability_preset(
+    preset_id: UUID,
+    request: Request,
+    scope: Scope,
+    session: Session,
+) -> Response:
+    _require_capability_center_v2(request)
+    service: CapabilityPresetService = request.app.state.capability_presets
+    await service.delete(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        preset_id=preset_id,
+        actor=scope.actor_id,
+    )
+    return Response(status_code=204)
 
 
 @router.get(
@@ -1375,6 +1569,41 @@ def _project_configuration_snapshot(
         updatedBy=item.updated_by,
         createdAt=item.created_at,
         updatedAt=item.updated_at,
+    )
+
+
+def _require_capability_center_v2(request: Request) -> None:
+    if not request.app.state.settings.capability_center_v2:
+        raise HTTPException(status_code=404, detail="capability center v2 is disabled")
+
+
+async def _find_capability_summary(
+    request: Request, scope: RequestScope, capability_ref: str
+) -> CapabilitySummary | None:
+    center: CapabilityCenterService = request.app.state.capability_center
+    items = await center.list(
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        environment=request.app.state.settings.environment,
+    )
+    return next((item for item in items if item.ref == capability_ref), None)
+
+
+def _capability_preset_snapshot(
+    preset: ProjectConfiguration, summary: CapabilitySummary | None
+) -> CapabilityPresetSnapshot:
+    return CapabilityPresetSnapshot(
+        presetId=preset.id,
+        kind=cast(Literal["agent", "tool", "model"], preset.kind),
+        name=preset.name,
+        capabilityRef=preset.source_ref,
+        parameters=preset.configuration,
+        revision=preset.revision,
+        readiness=summary.readiness if summary is not None else None,
+        createdBy=preset.created_by,
+        updatedBy=preset.updated_by,
+        createdAt=preset.created_at,
+        updatedAt=preset.updated_at,
     )
 
 

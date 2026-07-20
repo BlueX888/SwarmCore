@@ -47,7 +47,13 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://swarmcore:swarmcore@localhost:5433/swarmcore"
     model_capability_secret: str = "development-model-capability-secret-32-bytes"
-    model_routes: dict[str, str] = {"model://general": "openai/gpt-4o-mini"}
+    model_routes: dict[str, str] = {
+        "model://general": "openai/gpt-4o-mini",
+        "model://deepseek-v4-flash": "DeepSeek-V4-Flash",
+        "model://deepseek-v4-pro": "DeepSeek-V4-Pro",
+        "model://kimi-k2.5": "kimi-k2.5",
+        "model://kimi-k2.7-code": "kimi-k2.7-code",
+    }
     model_price_version: str = "local-price:v1"
     litellm_url: str = "http://localhost:4000"
     litellm_timeout_seconds: float = 120
@@ -291,6 +297,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         }
 
+    @app.get("/internal/v1/readiness")
+    async def readiness() -> dict[str, Any]:
+        secret_available = secrets is None
+        health_api_key = ""
+        if secrets is not None:
+            try:
+                async with secrets.lease(configured.litellm_secret_ref) as lease:
+                    leased_api_key = lease.values.get("apiKey")
+                    secret_available = isinstance(leased_api_key, str) and bool(leased_api_key)
+                    health_api_key = leased_api_key if isinstance(leased_api_key, str) else ""
+            except Exception:
+                secret_available = False
+        endpoint_healthy = await asyncio.to_thread(
+            _probe_litellm,
+            configured.litellm_url,
+            configured.litellm_timeout_seconds,
+            health_api_key,
+        )
+        return {
+            "models": [
+                {
+                    "logicalModel": logical_model,
+                    "providerModel": provider_model,
+                    "routeRegistered": True,
+                    "secretAvailable": secret_available,
+                    "endpointHealthy": endpoint_healthy,
+                }
+                for logical_model, provider_model in sorted(configured.model_routes.items())
+            ]
+        }
+
     @app.post("/v1/chat/completions")
     async def openai_invoke(
         body: OpenAiInvokeBody,
@@ -474,6 +511,27 @@ async def _commit(
                 payload={"tokens": usage["tokens"], "costUsd": usage["costUsd"]},
                 occurred_at=datetime.now(UTC),
             )
+
+
+def _probe_litellm(url: str, timeout_seconds: float, api_key: str = "") -> bool:
+    timeout = min(timeout_seconds, 5.0)
+    probes = (
+        Request(f"{url.rstrip('/')}/health/liveliness", method="GET"),
+        Request(
+            f"{url.rstrip('/')}/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+            method="GET",
+        ),
+    )
+    for request in probes:
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                status = int(response.status)
+                if 200 <= status < 300:
+                    return True
+        except Exception:
+            continue
+    return False
 
 
 def _litellm(

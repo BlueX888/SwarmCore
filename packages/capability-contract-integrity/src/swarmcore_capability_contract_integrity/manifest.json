@@ -1,16 +1,21 @@
 {
   "apiVersion": "swarmcore.io/v1",
   "kind": "CapabilityPack",
-  "metadata": {"name": "contract-integrity", "version": "1.0.0"},
+  "metadata": {"name": "contract-integrity", "version": "1.2.0"},
   "spec": {
     "workItemType": "contract-case",
     "workItemSchema": "schema://contract/case@1",
     "inputSchema": "schema://contract/validation-input@1",
     "outputSchema": "schema://contract/validation-result@1",
     "strategies": {"execute": "strategy://contract-integrity/validate@1"},
-    "agents": [],
+    "agents": [
+      "agent://contract/document-classifier@1",
+      "agent://contract/field-extractor@1"
+    ],
     "tools": [
+      "tool://document/read@1",
       "tool://rules/evaluate@1",
+      "tool://contract/cross-file-consistency@1",
       "tool://workbench/record-evaluation@1",
       "tool://report/render@1"
     ],

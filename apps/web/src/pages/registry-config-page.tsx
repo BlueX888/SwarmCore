@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Bot, Boxes, Check, Copy, Cpu, Network, Plus, RefreshCw, Save, Trash2, Wrench } from "lucide-react";
 import * as React from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { api } from "@/api/client";
-import type { CapabilityCatalog, ConfigurationKind, CreateSavedConfiguration, SavedConfiguration, ToolCapability } from "@/api/types";
+import type { AgentCapability, CapabilityCatalog, ConfigurationKind, CreateSavedConfiguration, SavedConfiguration, ToolCapability } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,13 +13,16 @@ const fieldClass = "mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transp
 const textAreaClass = "mt-1 min-h-28 w-full rounded-lg border border-gray-300 bg-transparent p-3 text-sm outline-none focus:border-brand-500 dark:border-gray-700";
 
 export function AgentConfigurationPage() {
+  const [searchParams] = useSearchParams();
+  const copyRef = searchParams.get("copy") ?? "";
   return <ConfigurationShell
     kind="agent"
     icon={<Bot />}
     title="智能体配置"
-    description="选择智能体来源，配置节点声明，并生成可直接用于策略画布的 JSON 片段。"
+    description="编辑提示词、逻辑模型和可用工具，保存为当前项目可复用的版本化配置。"
+    editorOnly
   >
-    {(catalog, selected, save, saving) => <AgentConfigurator key={selected?.configurationId ?? "new"} catalog={catalog} initial={selected} onSave={save} saving={saving} submitLabel={selected ? "保存修改" : "创建智能体配置"} />}
+    {(catalog, selected, save, saving) => <AgentConfigurator key={(selected?.configurationId ?? copyRef) || "new"} catalog={catalog} initial={selected} copyFrom={selected ? undefined : catalog.agents.find((item) => item.id === copyRef)} onSave={save} saving={saving} submitLabel={selected ? "保存修改" : "创建智能体"} />}
   </ConfigurationShell>;
 }
 
@@ -45,12 +48,12 @@ export function ModelConfigurationPage() {
   </ConfigurationShell>;
 }
 
-function ConfigurationShell({ kind, icon, title, description, children }: { kind: ConfigurationKind; icon: React.ReactNode; title: string; description: string; children: (catalog: CapabilityCatalog, selected: SavedConfiguration | undefined, save: (body: CreateSavedConfiguration) => void, saving: boolean) => React.ReactNode }) {
+function ConfigurationShell({ kind, icon, title, description, initialCreate = false, editorOnly = false, children }: { kind: ConfigurationKind; icon: React.ReactNode; title: string; description: string; initialCreate?: boolean; editorOnly?: boolean; children: (catalog: CapabilityCatalog, selected: SavedConfiguration | undefined, save: (body: CreateSavedConfiguration) => void, saving: boolean) => React.ReactNode }) {
   const { tenantId, projectId, workspacePath } = useWorkspaceScope();
   const queryClient = useQueryClient();
   const [notice, setNotice] = React.useState("");
-  const [selectedId, setSelectedId] = React.useState("");
-  const query = useQuery({ queryKey: ["capabilities", tenantId, projectId], queryFn: () => api.getCapabilities(tenantId, projectId), enabled: Boolean(selectedId) });
+  const [selectedId, setSelectedId] = React.useState(initialCreate || editorOnly ? "new" : "");
+  const query = useQuery({ queryKey: ["capabilities", tenantId, projectId], queryFn: () => api.getCapabilities(tenantId, projectId) });
   const savedQuery = useQuery({ queryKey: ["saved-configurations", tenantId, projectId, kind], queryFn: () => api.listConfigurations(tenantId, projectId, kind) });
   const items = React.useMemo(() => savedQuery.data?.items ?? [], [savedQuery.data?.items]);
   const selected = items.find((item) => item.configurationId === selectedId);
@@ -63,7 +66,7 @@ function ConfigurationShell({ kind, icon, title, description, children }: { kind
     onSuccess: async (saved) => {
       setNotice(selected ? `“${saved.name}”的修改已保存。` : `“${saved.name}”已创建。`);
       await queryClient.invalidateQueries({ queryKey: ["saved-configurations", tenantId, projectId, kind] });
-      setSelectedId(selected ? saved.configurationId : "");
+      setSelectedId(selected || editorOnly ? saved.configurationId : "");
     },
     onError: (error) => setNotice(`保存失败：${error.message}`),
   });
@@ -84,11 +87,17 @@ function ConfigurationShell({ kind, icon, title, description, children }: { kind
   return <div className="min-w-0 space-y-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex items-start gap-3"><span className="mt-1 grid size-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15">{icon}</span><div><p className="text-sm font-medium text-brand-500">构建</p><h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{title}</h1><p className="mt-1 max-w-3xl text-sm text-gray-500">{description}</p></div></div>
-      <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh} loading={query.isFetching || savedQuery.isFetching}><RefreshCw />刷新</Button><Button asChild variant="outline"><Link to={`${workspacePath}/capabilities`}><Boxes />能力目录</Link></Button><Button asChild variant="outline"><Link to={`${workspacePath}/canvas`}><Network />打开画布</Link></Button><Button onClick={startCreating}><Plus />新建{itemLabel}配置</Button></div>
+      {editorOnly ? <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh} loading={query.isFetching || savedQuery.isFetching}><RefreshCw />刷新</Button><Button asChild variant="outline"><Link to={`${workspacePath}/agents`}><ArrowLeft />返回智能体</Link></Button></div> : <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh} loading={query.isFetching || savedQuery.isFetching}><RefreshCw />刷新</Button><Button asChild variant="outline"><Link to={`${workspacePath}/capabilities`}><Boxes />能力目录</Link></Button><Button asChild variant="outline"><Link to={`${workspacePath}/canvas`}><Network />打开画布</Link></Button><Button onClick={startCreating}><Plus />新建{itemLabel}配置</Button></div>}
     </div>
     <p className="rounded-xl border border-warning-200 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10">内置能力目录保持只读；你在这里保存的是当前项目可复用的配置，不会修改系统注册表。</p>
     {notice ? <p role="status" className="rounded-xl bg-brand-50 p-3 text-sm text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">{notice}</p> : null}
-    {!editing ? <ConfigurationLibrary itemLabel={itemLabel} itemIcon={icon} items={items} loading={savedQuery.isPending} error={savedQuery.error?.message} deleting={deleteMutation.isPending} onSelect={setSelectedId} onDelete={(configurationId) => deleteMutation.mutate(configurationId)} /> : <div className="min-w-0 space-y-5">
+    {editorOnly ? <div className="min-w-0 space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900"><div><h2 className="font-semibold text-gray-900 dark:text-white">{selected ? `编辑“${selected.name}”` : "新建智能体配置"}</h2><p className="mt-1 text-sm text-gray-500">直接编辑并保存；此页面不再重复展示能力目录。</p></div><label className="text-sm font-medium text-gray-700 dark:text-gray-300">打开已有配置<select aria-label="打开已有智能体配置" className={`${fieldClass} min-w-64`} value={selectedId} onChange={(event) => { setNotice(""); setSelectedId(event.target.value); }}><option value="new">新建智能体配置</option>{items.map((item) => <option key={item.configurationId} value={item.configurationId}>{item.name}</option>)}</select></label></div>
+      {savedQuery.isError ? <p role="alert" className="rounded-xl bg-error-50 p-3 text-sm text-error-600">无法加载已有配置：{savedQuery.error.message}</p> : null}
+      {query.isPending ? <Skeleton className="h-[520px]" /> : null}
+      {query.isError ? <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-error-600">无法加载能力配置</p><p className="text-sm text-gray-500">{query.error.message}</p><Button onClick={() => void query.refetch()}>重试</Button></CardContent></Card> : null}
+      {query.data && (selected || selectedId === "new") ? children(query.data, selected, (body) => saveMutation.mutate(body), saveMutation.isPending) : null}
+    </div> : !editing ? <div className="space-y-8"><RuntimeCapabilityLibrary kind={kind} catalog={query.data} loading={query.isPending} error={query.error?.message} /><ConfigurationLibrary itemLabel={itemLabel} itemIcon={icon} items={items} loading={savedQuery.isPending} error={savedQuery.error?.message} deleting={deleteMutation.isPending} onSelect={setSelectedId} onDelete={(configurationId) => deleteMutation.mutate(configurationId)} /></div> : <div className="min-w-0 space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="outline" onClick={() => setSelectedId("")}><ArrowLeft />返回已配置{itemLabel}</Button>
         <div><h2 className="font-semibold text-gray-900 dark:text-white">{selected ? `编辑“${selected.name}”` : `新建${itemLabel}配置`}</h2><p className="mt-1 text-sm text-gray-500">{selected ? "修改参数后保存，将更新当前配置。" : "填写参数并保存后，配置会出现在列表中。"}</p></div>
@@ -102,18 +111,20 @@ function ConfigurationShell({ kind, icon, title, description, children }: { kind
   </div>;
 }
 
-function AgentConfigurator({ catalog, initial, onSave, saving, submitLabel }: ConfiguratorProps) {
+function AgentConfigurator({ catalog, initial, copyFrom, onSave, saving, submitLabel }: ConfiguratorProps & { copyFrom?: AgentCapability }) {
   const savedSpec = asObject(initial?.configuration["spec"]);
   const savedAgents = asObject(savedSpec["agents"]);
   const savedEntry = Object.entries(savedAgents)[0];
   const savedAgent = asObject(savedEntry?.[1]);
-  const [name, setName] = React.useState(initial?.name ?? "我的智能体配置");
+  const savedTools = stringArray(savedAgent["tools"]);
+  const hasCopyDefinition = Boolean(copyFrom?.role && copyFrom.instructions && copyFrom.model);
+  const [name, setName] = React.useState(initial?.name ?? (copyFrom?.role ? `${copyFrom.role} 项目配置` : "我的智能体"));
   const [source, setSource] = React.useState(initial ? (initial.sourceRef.startsWith("agent://") ? initial.sourceRef : "inline") : "inline");
-  const [nodeKey, setNodeKey] = React.useState(savedEntry?.[0] ?? "agent-1");
-  const [role, setRole] = React.useState(stringValue(savedAgent["role"], "执行助手"));
-  const [instructions, setInstructions] = React.useState(stringValue(savedAgent["instructions"], "完成分配的任务，并返回结构化结果。"));
-  const [model, setModel] = React.useState(stringValue(savedAgent["model"], initial ? "" : catalog.models[0]?.ref ?? ""));
-  const [tools, setTools] = React.useState<string[]>(stringArray(savedAgent["tools"]));
+  const [nodeKey, setNodeKey] = React.useState(savedEntry?.[0] ?? agentNodeKey(copyFrom?.role));
+  const [role, setRole] = React.useState(stringValue(savedAgent["role"], copyFrom?.role ?? "执行助手"));
+  const [instructions, setInstructions] = React.useState(stringValue(savedAgent["instructions"], copyFrom?.instructions ?? "完成分配的任务，并返回结构化结果。"));
+  const [model, setModel] = React.useState(stringValue(savedAgent["model"], copyFrom?.model ?? (initial ? "" : catalog.models[0]?.ref ?? "")));
+  const [tools, setTools] = React.useState<string[]>(savedTools.length ? savedTools : copyFrom?.tools ?? []);
   const selectedSource = source || "inline";
   const selectedModel = model || catalog.models[0]?.ref || "";
   const capability = catalog.agents.find((item) => item.id === selectedSource);
@@ -130,15 +141,16 @@ function AgentConfigurator({ catalog, initial, onSave, saving, submitLabel }: Co
   };
   const toggleTool = (ref: string) => setTools((current) => current.includes(ref) ? current.filter((item) => item !== ref) : [...current, ref]);
   return <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]">
-    <Card><CardHeader><CardTitle>节点参数</CardTitle><span className="text-xs text-gray-500">{catalog.registrySnapshot.slice(0, 18)}</span></CardHeader><CardContent className="space-y-4">
+    <Card><CardHeader><CardTitle>智能体定义</CardTitle><span className="text-xs text-gray-500">{catalog.registrySnapshot.slice(0, 18)}</span></CardHeader><CardContent className="space-y-5">
+      {copyFrom && hasCopyDefinition ? <p className="rounded-xl bg-brand-50 p-3 text-sm text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">已从“{copyFrom.role}”复制模型、工具和提示词；保存后会成为独立配置。</p> : null}
+      {copyFrom && !hasCopyDefinition ? <p className="rounded-xl bg-warning-50 p-3 text-sm text-warning-700 dark:bg-warning-500/10">当前服务尚未返回该智能体的完整定义，已打开空白配置；刷新后可重试复制。</p> : null}
       <Field label="配置名称"><input aria-label="配置名称" className={fieldClass} value={name} onChange={(event) => setName(event.target.value)} /></Field>
       <Field label="智能体来源"><select aria-label="智能体来源" className={fieldClass} value={selectedSource} onChange={(event) => setSource(event.target.value)}><option value="inline">内联智能体声明</option>{catalog.agents.filter((item) => item.id.startsWith("agent://")).map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}</select></Field>
       <Field label="节点标识" hint="小写字母开头，可使用数字、短横线和下划线"><input className={fieldClass} value={nodeKey} onChange={(event) => setNodeKey(event.target.value)} />{validKey ? null : <p role="alert" className="mt-1 text-xs text-error-600">节点标识格式无效。</p>}</Field>
       {registered ? <InfoGrid items={[["运行时", capability?.runtime ?? "—"], ["可用环境", capability?.environments.join("、") || "—"]]} /> : <>
-        <Field label="角色"><input className={fieldClass} value={role} onChange={(event) => setRole(event.target.value)} /></Field>
-        <Field label="指令"><textarea className={textAreaClass} value={instructions} onChange={(event) => setInstructions(event.target.value)} /></Field>
-        <Field label="模型"><select aria-label="模型" className={fieldClass} value={selectedModel} onChange={(event) => setModel(event.target.value)}><option value="">使用策略默认模型</option>{catalog.models.map((item) => <option key={item.ref} value={item.ref}>{item.ref}</option>)}</select></Field>
-        <fieldset><legend className="text-sm font-medium text-gray-700 dark:text-gray-300">允许使用的工具</legend><div className="mt-2 grid gap-2 sm:grid-cols-2">{catalog.tools.length ? catalog.tools.map((item) => <label key={item.ref} className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 text-xs dark:border-gray-700"><input type="checkbox" checked={tools.includes(item.ref)} onChange={() => toggleTool(item.ref)} /> <span className="break-all font-mono">{item.ref}</span></label>) : <p className="text-sm text-gray-500">暂无可用工具。</p>}</div></fieldset>
+        <section className="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800"><div><h3 className="font-semibold text-gray-900 dark:text-white">提示词</h3><p className="mt-1 text-xs text-gray-500">这里定义稳定的系统指令；每次运行的任务输入仍在运行页填写。</p></div><Field label="角色与目标"><input aria-label="角色与目标" className={fieldClass} value={role} onChange={(event) => setRole(event.target.value)} /></Field><Field label="系统指令" hint="说明工作方式、边界和输出要求"><textarea aria-label="系统指令" className={`${textAreaClass} min-h-40`} value={instructions} onChange={(event) => setInstructions(event.target.value)} /></Field></section>
+        <section className="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-gray-800"><div><h3 className="font-semibold text-gray-900 dark:text-white">模型</h3><p className="mt-1 text-xs text-gray-500">选择平台提供的逻辑模型；Provider 和凭证由平台统一管理。</p></div><Field label="首选逻辑模型"><select aria-label="首选逻辑模型" className={fieldClass} value={selectedModel} onChange={(event) => setModel(event.target.value)}><option value="">使用策略默认模型</option>{catalog.models.map((item) => <option key={item.ref} value={item.ref}>{item.ref}</option>)}</select></Field></section>
+        <fieldset className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"><legend className="px-1 font-semibold text-gray-900 dark:text-white">允许使用的工具</legend><p className="mb-3 text-xs text-gray-500">智能体只能调用这里明确授权的工具；高风险操作仍受审批策略控制。</p><div className="grid gap-2 sm:grid-cols-2">{catalog.tools.length ? catalog.tools.map((item) => <label key={item.ref} className="flex items-start gap-2 rounded-lg border border-gray-200 p-3 text-xs dark:border-gray-700"><input className="mt-0.5" type="checkbox" checked={tools.includes(item.ref)} onChange={() => toggleTool(item.ref)} /> <span className="min-w-0"><span className="block break-all font-mono">{item.ref}</span><span className="mt-1 block text-gray-400">{riskLabel(item.risk)}</span></span></label>) : <p className="text-sm text-gray-500">暂无可用工具。</p>}</div></fieldset>
       </>}
     </CardContent></Card>
     <PreviewCard title="智能体节点配置" value={preview} disabled={!name.trim() || !validKey || !selectedSource || (!registered && (!role.trim() || !instructions.trim()))} saving={saving} submitLabel={submitLabel} onSave={() => onSave({ name, sourceRef: registered ? selectedSource : "inline/agno", configuration: preview })} />
@@ -207,6 +219,20 @@ function ConfigurationLibrary({ itemLabel, itemIcon, items, loading, error, dele
   </section>;
 }
 
+function RuntimeCapabilityLibrary({ kind, catalog, loading, error }: { kind: ConfigurationKind; catalog?: CapabilityCatalog; loading: boolean; error?: string }) {
+  const itemLabel = { agent: "智能体", tool: "工具", model: "模型" }[kind];
+  const entries = kind === "agent"
+    ? (catalog?.agents ?? []).map((item) => ({ key: item.id, name: item.id, detail: `${item.runtime} · ${item.environments.join("、")}` }))
+    : kind === "tool"
+      ? (catalog?.tools ?? []).map((item) => ({ key: item.ref, name: item.ref, detail: `${riskLabel(item.risk)} · ${item.risk}` }))
+      : (catalog?.models ?? []).map((item) => ({ key: item.ref, name: item.ref, detail: `${item.runtime} · ${item.environments.join("、")}` }));
+  return <section aria-labelledby="runtime-capabilities-title" className="space-y-4"><div><h2 id="runtime-capabilities-title" className="text-lg font-semibold text-gray-900 dark:text-white">运行时可用{itemLabel}</h2><p className="mt-1 text-sm text-gray-500">系统注册表共 {entries.length} 项；点击“新建{itemLabel}配置”可保存当前项目参数。</p></div>
+    {loading ? <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3"><Skeleton className="h-24" /><Skeleton className="h-24" /></div> : null}
+    {error ? <div className="rounded-xl border border-error-200 bg-error-50 p-4 text-sm text-error-700">无法加载运行时{itemLabel}：{error}</div> : null}
+    {!loading && !error ? <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">{entries.map((item) => <Card key={item.key}><CardContent className="min-w-0 pt-5"><p className="break-all font-mono text-sm font-medium text-gray-800 dark:text-gray-200">{item.name}</p><p className="mt-2 text-xs text-gray-500">{item.detail}</p></CardContent></Card>)}</div> : null}
+  </section>;
+}
+
 function ToolSchemas({ tool }: { tool: ToolCapability }) {
   return <Card><CardHeader><CardTitle>工具结构</CardTitle></CardHeader><CardContent className="grid gap-4 md:grid-cols-2"><SchemaPanel label="输入结构" value={tool.inputSchema} /><SchemaPanel label="输出结构" value={tool.outputSchema} /></CardContent></Card>;
 }
@@ -216,9 +242,13 @@ function SchemaPanel({ label, value }: { label: string; value: Record<string, un
 }
 
 function RiskBadge({ risk }: { risk: string }) {
-  const labels: Record<string, string> = { LOW: "低风险", MEDIUM: "中风险", HIGH: "高风险", CRITICAL: "严重风险" };
   const tone = risk === "LOW" ? "bg-success-50 text-success-700 dark:bg-success-500/15" : risk === "HIGH" || risk === "CRITICAL" ? "bg-error-50 text-error-700 dark:bg-error-500/15" : "bg-warning-50 text-warning-700 dark:bg-warning-500/15";
-  return <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${tone}`}>{labels[risk] ?? risk}</span>;
+  return <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${tone}`}>{riskLabel(risk)}</span>;
+}
+
+function riskLabel(risk: string): string {
+  const labels: Record<string, string> = { LOW: "低风险", MEDIUM: "中风险", HIGH: "高风险", CRITICAL: "严重风险" };
+  return labels[risk] ?? risk;
 }
 
 function InfoGrid({ items }: { items: Array<[string, string]> }) {
@@ -251,4 +281,9 @@ function stringValue(value: unknown, fallback: string): string {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function agentNodeKey(role: string | null | undefined): string {
+  const normalized = (role ?? "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return /^[a-z]/.test(normalized) ? normalized : "agent-1";
 }

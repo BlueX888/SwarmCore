@@ -25,7 +25,8 @@ class GatewayModelResolver:
         self._workload_tls = workload_tls or WorkloadTls()
 
     def resolve(self, reference: str, context: Mapping[str, Any]) -> OpenAIChat:
-        if reference not in self._allowed_models:
+        logical_model = reference.rsplit("@", 1)[0]
+        if logical_model not in self._allowed_models:
             raise ValueError(f"model reference is not configured: {reference}")
         run = context["run"]
         token = self._tokens.issue(
@@ -34,10 +35,10 @@ class GatewayModelResolver:
             run_id=str(run["runId"]),
             task_execution_id=str(context["taskExecutionId"]),
             subject_id=f"agent-worker:{context['agentInstanceId']}",
-            logical_model=reference,
+            logical_model=logical_model,
         )
         return OpenAIChat(
-            id=reference,
+            id=logical_model,
             api_key=token,
             base_url=f"{self._gateway_url}/v1",
             http_client=httpx.AsyncClient(

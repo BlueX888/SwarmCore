@@ -21,6 +21,11 @@ export interface AgentCapability {
   runtime: string;
   environments: string[];
   declarationSchema: Record<string, unknown>;
+  role?: string | null;
+  instructions?: string | null;
+  model?: string | null;
+  tools?: string[];
+  inputSchema?: Record<string, unknown>;
 }
 export interface ToolCapability {
   ref: string;
@@ -44,6 +49,34 @@ export interface CapabilityCatalog {
   swarmSpecSchema: Record<string, unknown>;
   capabilityPacks?: Array<{ name: string; version: string; workItemType: string; inputSchema: string; outputSchema: string; viewDefinition: string }>;
 }
+export type CapabilityKind = "agent" | "tool" | "model" | "policy";
+export type ReadinessReasonCode =
+  | "EXECUTOR_MISSING" | "ADAPTER_MISSING" | "MODEL_ROUTE_MISSING"
+  | "SECRET_MISSING" | "DEPENDENCY_NOT_READY" | "DEPENDENCY_CYCLE"
+  | "HEALTH_CHECK_FAILED" | "ENVIRONMENT_NOT_ALLOWED"
+  | "CAPABILITY_PACK_DISABLED" | "SCHEMA_INVALID" | "POLICY_DENIED";
+export interface ReadinessReason { code: ReadinessReasonCode; message: string; dependencyRef?: string | null; }
+export interface CapabilityReadiness { status: "READY" | "NOT_READY"; reasons: ReadinessReason[]; }
+export interface CapabilitySummary {
+  ref: string;
+  kind: CapabilityKind;
+  name: string;
+  description: string;
+  source: string;
+  readiness: CapabilityReadiness;
+  risk?: string | null;
+  inputSchema?: Record<string, unknown> | null;
+  outputSchema?: Record<string, unknown> | null;
+}
+export interface CapabilityCenterResponse { registrySnapshot: string; items: CapabilitySummary[]; }
+export interface CapabilityPreset {
+  presetId: string; kind: "agent" | "tool" | "model"; name: string; capabilityRef: string;
+  parameters: Record<string, unknown>; revision: number; readiness: CapabilityReadiness | null;
+  createdBy: string; updatedBy: string; createdAt: string; updatedAt: string;
+}
+export interface CapabilityPresetListResponse { items: CapabilityPreset[]; total: number; }
+export interface CapabilityPresetRequest { name: string; capabilityRef: string; parameters: Record<string, unknown>; }
+export interface CanvasCapabilitySelection { capability: CapabilitySummary; input: Record<string, unknown>; }
 export type ConfigurationKind = "agent" | "tool" | "model";
 export interface SavedConfiguration {
   configurationId: string;
@@ -150,8 +183,14 @@ export type ConnectionState = "CONNECTING" | "OPEN" | "RECONNECTING" | "STALE" |
 export interface CapabilityPackSnapshot {
   packId: string; name: string; versionId: string; version: string; contentHash: string;
   manifest: Record<string, unknown>; enabled: boolean; bindingStatus: string | null;
+  configuration: Record<string, unknown>;
+  blockers: Array<{ ref: string; reasons: string[] }>;
 }
 export interface CapabilityPackListResponse { items: CapabilityPackSnapshot[]; }
+export interface CreateCapabilityPackRequest {
+  manifest: Record<string, unknown>;
+  strategyVersionId: string;
+}
 export interface WorkItemSnapshot {
   workItemId: string; workItemType: string; schemaVersion: string; payload: Record<string, unknown>;
   status: string; owner: string | null; revisionId: string; revision: number; payloadHash: string;

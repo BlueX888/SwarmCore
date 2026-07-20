@@ -64,58 +64,47 @@ test("opens pending human work from the action inbox", async ({ page }) => {
   await expect(page.getByRole("link", { name: "打开 review 所在运行" })).toHaveAttribute("href", `/runs/${runId}`);
 });
 
-test("opens agent, tool and model configuration from dedicated routes", async ({ page }) => {
-  const savedByKind: Record<string, Array<Record<string, unknown>>> = {
-    agent: [],
-    tool: [],
-    model: [{ configurationId: "00000000-0000-0000-0000-000000000101", kind: "model", name: "生产模型", sourceRef: "model://general@1", configuration: { spec: { defaults: { model: "model://general@1" } } }, revision: 1, createdBy: "e2e", updatedBy: "e2e", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() }],
-  };
+test("splits the capability center into agent, tool, model and policy pages", async ({ page }) => {
+  const runId = "00000000-0000-0000-0000-000000000103";
+  await page.route("**/api/v1/projects/*/capability-center", (route) => route.fulfill({ json: capabilityCenter() }));
+  await page.route("**/api/v1/projects/*/presets", (route) => route.fulfill({ json: { total: 0, items: [] } }));
+  await page.route("**/api/v1/projects/*/capability-runs", (route) => route.fulfill({ status: 202, json: { runId, status: "ACCEPTED", commandId: "command-1", commandStatus: "ACCEPTED", planHash: "a".repeat(64) } }));
+  await page.route("**/api/v1/projects/*/runs/*", (route) => route.fulfill({ json: { runId, status: "ACCEPTED", input: {}, output: null, outputRef: null, snapshotSeq: 0, earliestAvailableSeq: 0, planHash: "a".repeat(64), usage: {}, taskCounts: {}, allowedActions: [], tasks: [] } }));
   await page.route("**/api/v1/projects/*/capabilities", (route) => route.fulfill({ json: configurationCatalog() }));
-  await page.route("**/api/v1/projects/*/configurations/**", async (route) => {
-    const parts = new URL(route.request().url()).pathname.split("/");
-    const kind = parts[parts.indexOf("configurations") + 1] ?? "model";
-    const savedConfigurations = savedByKind[kind] ?? [];
-    if (route.request().method() === "POST") {
-      const body = route.request().postDataJSON() as Record<string, unknown>;
-      const saved = { ...body, configurationId: "00000000-0000-0000-0000-000000000102", kind, revision: 1, createdBy: "e2e", updatedBy: "e2e", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() };
-      savedConfigurations.push(saved);
-      await route.fulfill({ status: 201, json: saved });
-    } else if (route.request().method() === "PUT") {
-      const body = route.request().postDataJSON() as Record<string, unknown>;
-      const saved = { ...savedConfigurations[0], ...body, revision: 2, updatedAt: new Date().toISOString() };
-      savedConfigurations[0] = saved;
-      await route.fulfill({ json: saved });
-    } else if (route.request().method() === "DELETE") {
-      savedConfigurations.length = 0;
-      await route.fulfill({ status: 204, body: "" });
-    } else {
-      await route.fulfill({ json: { total: savedConfigurations.length, items: savedConfigurations } });
-    }
-  });
+  await page.route("**/api/v1/projects/*/configurations/agent", (route) => route.fulfill({ json: { total: 0, items: [] } }));
   await page.goto("/agents");
+  await expect(page.getByRole("heading", { name: "智能体", exact: true })).toBeVisible();
+  await expect(page.getByLabel("能力类型")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "编辑 合同分类 配置" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /受控检索/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "编辑 合同分类 配置" }).click();
   await expect(page.getByRole("heading", { name: "智能体配置", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "已配置智能体", exact: true })).toBeVisible();
-  await expect(page.getByLabel("智能体节点配置预览")).toHaveCount(0);
-  await page.getByRole("button", { name: "新建智能体配置" }).click();
-  await expect(page.getByLabel("智能体节点配置预览")).toContainText("执行助手");
+  await expect(page.getByRole("heading", { name: "运行时可用智能体" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "已配置智能体" })).toHaveCount(0);
+  await expect(page.getByLabel("配置名称")).toHaveValue("contract-document-classifier 项目配置");
+  await expect(page.getByLabel("角色与目标")).toHaveValue("contract-document-classifier");
+  await expect(page.getByLabel("首选逻辑模型")).toHaveValue("model://general@1");
+  await expect(page.getByRole("checkbox", { name: /tool:\/\/document\/read@1/ })).toBeChecked();
   await page.goto("/tools");
-  await expect(page.getByRole("heading", { name: "工具配置", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "已配置工具", exact: true })).toBeVisible();
-  await expect(page.getByLabel("工具节点配置预览")).toHaveCount(0);
-  await page.getByRole("button", { name: "新建工具配置" }).click();
-  await expect(page.getByLabel("工具节点配置预览")).toContainText("tool://search@1");
+  await expect(page.getByRole("heading", { name: "工具", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /受控检索/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /未接入工具/ })).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "显示未就绪" }).check();
+  await page.getByRole("button", { name: /未接入工具/ }).click();
+  await expect(page.getByText("缺少执行器")).toBeVisible();
+  await expect(page.getByRole("button", { name: "立即运行" })).toBeDisabled();
+  await page.getByRole("button", { name: /受控检索/ }).click();
+  await page.getByLabel("检索词").fill("capability e2e");
+  await page.getByRole("button", { name: "立即运行" }).click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
   await page.goto("/models");
-  await expect(page.getByRole("heading", { name: "模型配置", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "已配置模型", exact: true })).toBeVisible();
-  await expect(page.getByLabel("策略默认模型配置预览")).toHaveCount(0);
-  await page.getByRole("button", { name: "打开：生产模型" }).click();
-  await expect(page.getByLabel("策略默认模型配置预览")).toContainText("model://general@1");
-  await page.getByLabel("配置名称").fill("生产模型（更新）");
-  await page.getByRole("button", { name: "保存修改" }).click();
-  await expect(page.getByText("“生产模型（更新）”的修改已保存。", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "返回已配置模型" }).click();
-  await expect(page.getByRole("button", { name: "打开：生产模型（更新）" })).toBeVisible();
-  await expect(page.getByText("版本 2", { exact: false })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "模型", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /通用模型/ })).toBeVisible();
+  await page.goto("/policies");
+  await expect(page.getByRole("heading", { name: "策略", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /默认策略/ })).toBeVisible();
+  await page.goto("/capabilities");
+  await expect(page).toHaveURL("/agents");
 });
 
 const runId = "00000000-0000-0000-0000-000000000003";
@@ -150,10 +139,30 @@ function configurationCatalog() {
     schemaVersion: "swarmcore.io/capabilities/v1",
     registrySnapshot: "registry:e2e",
     nodeTypes: [],
-    agents: [{ id: "inline/agno", runtime: "agno", environments: ["development"], declarationSchema: {} }],
-    tools: [{ ref: "tool://search@1", risk: "LOW", inputSchema: { type: "object" }, outputSchema: { type: "object" } }],
+    agents: [
+      { id: "inline/agno", runtime: "agno", environments: ["development"], declarationSchema: {} },
+      { id: "agent://contract/document-classifier@1", runtime: "registry/agno", environments: ["development"], declarationSchema: {}, role: "contract-document-classifier", instructions: "Classify contract documents from evidence.", model: "model://general@1", tools: ["tool://document/read@1"] },
+    ],
+    tools: [
+      { ref: "tool://search@1", risk: "LOW", inputSchema: { type: "object" }, outputSchema: { type: "object" } },
+      { ref: "tool://document/read@1", risk: "LOW", inputSchema: { type: "object" }, outputSchema: { type: "object" } },
+    ],
     models: [{ ref: "model://general@1", runtime: "agno", environments: ["development"] }],
     limits: {},
     swarmSpecSchema: {},
+  };
+}
+
+function capabilityCenter() {
+  const ready = { status: "READY", reasons: [] };
+  return {
+    registrySnapshot: "registry:e2e",
+    items: [
+      { ref: "agent://contract/document-classifier@1", kind: "agent", name: "合同分类", description: "识别合同类型。", source: "system", readiness: ready, inputSchema: { type: "object" }, outputSchema: { type: "object" } },
+      { ref: "tool://search@1", kind: "tool", name: "受控检索", description: "搜索项目知识。", source: "system", readiness: ready, risk: "LOW", inputSchema: { type: "object", required: ["query"], properties: { query: { type: "string", title: "检索词" } }, additionalProperties: false }, outputSchema: { type: "object" } },
+      { ref: "tool://missing@1", kind: "tool", name: "未接入工具", description: "尚无执行器。", source: "system", readiness: { status: "NOT_READY", reasons: [{ code: "EXECUTOR_MISSING", message: "missing" }] }, risk: "LOW", inputSchema: { type: "object" }, outputSchema: { type: "object" } },
+      { ref: "model://general@1", kind: "model", name: "通用模型", description: "通用模型路由。", source: "system", readiness: ready, inputSchema: { type: "object" }, outputSchema: { type: "object" } },
+      { ref: "policy://default@1", kind: "policy", name: "默认策略", description: "默认能力治理策略。", source: "system", readiness: ready, inputSchema: { type: "object" }, outputSchema: { type: "object" } },
+    ],
   };
 }

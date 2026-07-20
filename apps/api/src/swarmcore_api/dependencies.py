@@ -119,6 +119,12 @@ async def authorize_rest(
 
 
 def _rest_action(method: str, path: str) -> str:
+    if path.endswith("/capability-center"):
+        return "capability.read"
+    if path.endswith("/capability-runs"):
+        return "run.create"
+    if "/presets" in path:
+        return "strategy.read" if method == "GET" else "strategy.write"
     if "/capability-packs" in path:
         return "capability.read" if method == "GET" else "capability.manage"
     if "/rule-set" in path:

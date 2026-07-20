@@ -24,11 +24,22 @@ class CapabilityModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
+def _empty_input_schema() -> dict[str, object]:
+    return {"type": "object"}
+
+
 class AgentCapability(CapabilityModel):
     id: str
     runtime: str
     environments: list[str]
     declaration_schema: dict[str, object] = Field(alias="declarationSchema")
+    role: str | None = None
+    instructions: str | None = None
+    model: str | None = None
+    tools: list[str] = Field(default_factory=list)
+    input_schema: dict[str, object] = Field(
+        default_factory=_empty_input_schema, alias="inputSchema"
+    )
 
 
 class ModelCapability(CapabilityModel):
@@ -106,6 +117,11 @@ class CapabilityCatalogService:
                         runtime="registry/agno",
                         environments=["development", "production"],
                         declarationSchema=AgentSpec.model_json_schema(by_alias=True),
+                        role=item.role,
+                        instructions=item.instructions,
+                        model=item.model,
+                        tools=list(item.tools),
+                        inputSchema=item.input_schema,
                     )
                     for item in registry.agents
                 ],

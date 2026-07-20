@@ -12,7 +12,11 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.cors import CORSMiddleware
-from swarmcore_application import RunCommandConflictError, RunNotTerminalError
+from swarmcore_application import (
+    CapabilityPresetService,
+    RunCommandConflictError,
+    RunNotTerminalError,
+)
 from swarmcore_compiler import CompileError
 from swarmcore_governance import OpaPolicyEngine, PolicyDenied, PolicyError, RolePolicyEngine
 from swarmcore_observability import (
@@ -24,7 +28,9 @@ from swarmcore_observability import (
 from swarmcore_persistence import Database
 from swarmcore_persistence.errors import PersistenceConflictError
 
+from .business_routes import capability_packs
 from .business_routes import router as business_router
+from .capability_readiness import create_capability_center
 from .mcp import router as mcp_router
 from .routes import router
 from .schemas import Problem
@@ -43,6 +49,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if resolved.policy_mode == "opa"
             else RolePolicyEngine()
         )
+        center = create_capability_center(resolved)
+        presets = CapabilityPresetService(center)
+        center.attach_preset_resolver(presets)
+        capability_packs.attach_readiness(center, environment=resolved.environment)
+        app.state.capability_center = center
+        app.state.capability_presets = presets
         yield
         await app.state.database.dispose()
 
@@ -54,6 +66,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if resolved.policy_mode == "opa"
         else RolePolicyEngine()
     )
+    center = create_capability_center(resolved)
+    presets = CapabilityPresetService(center)
+    center.attach_preset_resolver(presets)
+    capability_packs.attach_readiness(center, environment=resolved.environment)
+    app.state.capability_center = center
+    app.state.capability_presets = presets
     if resolved.cors_origins:
         app.add_middleware(
             CORSMiddleware,

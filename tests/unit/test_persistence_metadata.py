@@ -38,6 +38,7 @@ def test_business_workbench_tables_exist() -> None:
         "findings",
         "finding_actions",
         "reports",
+        "document_extractions",
     }
     assert expected <= set(Base.metadata.tables)
 
@@ -52,6 +53,10 @@ def test_business_idempotency_constraints_exist() -> None:
         "evaluations": {"uq_evaluations_idempotency"},
         "findings": {"uq_findings_rule_key"},
         "reports": {"uq_reports_evaluation_format"},
+        "document_extractions": {
+            "uq_document_extractions_cache_key",
+            "uq_document_extractions_pipeline",
+        },
     }
     for table_name, names in expected.items():
         actual = {

@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "pydantic-settings==2.14.2",
+  "swarmcore-application",
   "swarmcore-domain",
   "swarmcore-observability",
   "swarmcore-persistence",
@@ -17,6 +18,7 @@ dependencies = [
 swarmcore-worker-tool = "swarmcore_worker_tool.main:run"
 
 [tool.uv.sources]
+swarmcore-application = { workspace = true }
 swarmcore-domain = { workspace = true }
 swarmcore-observability = { workspace = true }
 swarmcore-persistence = { workspace = true }

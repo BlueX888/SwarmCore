@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "document-intelligence-baseline.v1",
+  "description": "Synthetic and de-identified contract field extraction baseline",
+  "samples": [
+    {
+      "sampleId": "purchase-001",
+      "expected": [["party", "ACME"]],
+      "predicted": [["party", "ACME"]],
+      "reviewRequired": false
+    },
+    {
+      "sampleId": "purchase-002",
+      "expected": [["party", "Example Trading"]],
+      "predicted": [["party", "Example Trading"]],
+      "reviewRequired": true
+    },
+    {
+      "sampleId": "purchase-003",
+      "expected": [["party", "Demo Manufacturing"]],
+      "predicted": [["party", "Demo Manufacturing Co."]],
+      "reviewRequired": false
+    }
+  ],
+  "baseline": {
+    "precision": 0.6666666666666666,
+    "recall": 0.6666666666666666,
+    "reviewRate": 0.3333333333333333
+  }
+}

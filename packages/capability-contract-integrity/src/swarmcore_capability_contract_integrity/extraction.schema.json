@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://contract/document-extraction@1",
+  "type": "object",
+  "required": ["schemaVersion", "classification", "fields"],
+  "properties": {
+    "schemaVersion": {"const": "schema://contract/document-extraction@1"},
+    "classification": {
+      "type": "object",
+      "required": ["documentType", "confidence", "evidence"],
+      "properties": {
+        "documentType": {"type": "string", "minLength": 1},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "evidence": {"$ref": "#/$defs/evidenceList"}
+      },
+      "additionalProperties": false
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "value", "confidence", "evidence"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "value": {"type": ["string", "number", "integer", "boolean", "null"]},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "evidence": {"$ref": "#/$defs/evidenceList"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "evidenceList": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["page", "text"],
+        "properties": {
+          "page": {"type": "integer", "minimum": 1},
+          "boundingBox": {
+            "type": "array",
+            "prefixItems": [
+              {"type": "number"}, {"type": "number"},
+              {"type": "number"}, {"type": "number"}
+            ],
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "text": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

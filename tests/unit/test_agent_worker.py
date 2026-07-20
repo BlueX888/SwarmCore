@@ -17,7 +17,7 @@ def test_gateway_model_resolver_scopes_agno_to_run_and_logical_model() -> None:
         "http://model-gateway:8093", tokens, frozenset({"model://general"})
     )
     model = resolver.resolve(
-        "model://general",
+        "model://general@1",
         {
             "run": {
                 "tenantId": "tenant-1",
@@ -32,4 +32,5 @@ def test_gateway_model_resolver_scopes_agno_to_run_and_logical_model() -> None:
     assert capability.run_id == "run-1"
     assert capability.task_execution_id == "task-1"
     assert capability.logical_model == "model://general"
+    assert model.id == "model://general"
     assert str(model.base_url) == "http://model-gateway:8093/v1"

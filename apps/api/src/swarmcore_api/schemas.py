@@ -5,6 +5,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from swarmcore_domain import CapabilityReadiness, CapabilitySummary
 from swarmcore_registry import builtin_registry
 
 _REGISTRY_SNAPSHOT = builtin_registry().snapshot_id
@@ -159,6 +160,46 @@ class CreateRunRequest(ApiModel):
         if (self.strategy_version_id is None) == (self.spec is None):
             raise ValueError("exactly one of strategyVersionId or spec is required")
         return self
+
+
+class CapabilityCenterResponse(ApiModel):
+    registry_snapshot: str = Field(alias="registrySnapshot")
+    items: tuple[CapabilitySummary, ...]
+
+
+class CapabilityRunRequest(ApiModel):
+    capability_ref: str = Field(alias="capabilityRef", min_length=1)
+    input: dict[str, Any] = Field(default_factory=dict)
+    preset_id: UUID | None = Field(default=None, alias="presetId")
+
+
+class CapabilityPresetRequest(ApiModel):
+    name: str = Field(min_length=1, max_length=128)
+    capability_ref: str = Field(alias="capabilityRef", min_length=1)
+    parameters: dict[str, Any]
+
+
+class CapabilityPresetCopyRequest(ApiModel):
+    name: str = Field(min_length=1, max_length=128)
+
+
+class CapabilityPresetSnapshot(ApiModel):
+    preset_id: UUID = Field(alias="presetId")
+    kind: Literal["agent", "tool", "model"]
+    name: str
+    capability_ref: str = Field(alias="capabilityRef")
+    parameters: dict[str, Any]
+    revision: int
+    readiness: CapabilityReadiness | None = None
+    created_by: str = Field(alias="createdBy")
+    updated_by: str = Field(alias="updatedBy")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+
+class CapabilityPresetListResponse(ApiModel):
+    items: list[CapabilityPresetSnapshot]
+    total: int
 
 
 class RunHandle(ApiModel):

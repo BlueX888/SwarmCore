@@ -1,7 +1,8 @@
-import type { Diagnostic } from "@/api/types";
+import type { Diagnostic, SavedConfiguration } from "@/api/types";
 
 export const SUPPORTED_NODE_TYPES = [
   "agent",
+  "tool",
   "parallel",
   "join",
   "reducer",
@@ -81,6 +82,54 @@ export function createBlankSpec(name = "untitled-strategy"): SwarmSpecDocument {
 
 export function cloneSpec(spec: SwarmSpecDocument): SwarmSpecDocument {
   return structuredClone(spec);
+}
+
+export function applySavedConfiguration(spec: SwarmSpecDocument, saved: SavedConfiguration): SwarmSpecDocument {
+  const next = cloneSpec(spec);
+  if (saved.kind === "model") {
+    const savedSpec = objectValue(saved.configuration["spec"]);
+    const defaults = objectValue(savedSpec["defaults"]);
+    const model = defaults["model"];
+    if (typeof model !== "string" || !model) throw new Error("模型配置缺少逻辑模型引用。");
+    next.spec.defaults = { ...objectValue(next.spec.defaults), model };
+    return next;
+  }
+
+  if (saved.kind === "agent") {
+    const savedSpec = objectValue(saved.configuration["spec"]);
+    const declarations = Object.entries(objectValue(savedSpec["agents"]));
+    const [sourceKey, declaration] = declarations[0] ?? [];
+    if (!sourceKey || !declaration || typeof declaration !== "object" || Array.isArray(declaration)) {
+      throw new Error("智能体配置缺少智能体声明。");
+    }
+    const nodeKey = uniqueNodeKey(sourceKey, next.spec.graph.nodes);
+    next.spec.agents = { ...next.spec.agents, [nodeKey]: structuredClone(declaration as Record<string, unknown>) };
+    next.spec.graph.nodes[nodeKey] = { type: "agent", agent: nodeKey, dependsOn: [] };
+    if (!next.spec.graph.entrypoint) next.spec.graph.entrypoint = nodeKey;
+    return next;
+  }
+
+  const entries = Object.entries(saved.configuration);
+  const [sourceKey, node] = entries[0] ?? [];
+  const toolNode = objectValue(node);
+  if (!sourceKey || toolNode["type"] !== "tool") {
+    throw new Error("工具配置缺少工具节点声明。");
+  }
+  const nodeKey = uniqueNodeKey(sourceKey, next.spec.graph.nodes);
+  next.spec.graph.nodes[nodeKey] = { ...structuredClone(toolNode as StrategyNode), dependsOn: [] };
+  if (!next.spec.graph.entrypoint) next.spec.graph.entrypoint = nodeKey;
+  return next;
+}
+
+function uniqueNodeKey(preferred: string, nodes: Record<string, StrategyNode>): string {
+  if (!nodes[preferred]) return preferred;
+  let suffix = 2;
+  while (nodes[`${preferred}-${suffix}`]) suffix += 1;
+  return `${preferred}-${suffix}`;
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 export function isSupportedNode(node: StrategyNode): node is StrategyNode & { type: SupportedNodeType } {
@@ -270,6 +319,7 @@ export function diagnosticNodeKey(diagnostic: Diagnostic, spec: SwarmSpecDocumen
 function defaultNode(type: SupportedNodeType, nodeKey: string): StrategyNode {
   switch (type) {
     case "agent": return { type, agent: nodeKey, dependsOn: [] };
+    case "tool": return { type, tool: "tool://search@1", input: {}, dependsOn: [] };
     case "parallel": return { type, branches: [], dependsOn: [] };
     case "join": return { type, strategy: "all", dependsOn: [] };
     case "reducer": return { type, reducer: "merge_object", dependsOn: [] };

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from swarmcore_application import (
     CapabilityCatalogService,
+    CapabilityCenterService,
     CompilationService,
     RunCommandConflictError,
     RunCommandService,
@@ -242,6 +243,27 @@ _TOOLS = [
     },
 ]
 
+_CAPABILITY_CENTER_TOOLS = [
+    {
+        "name": "swarm.capability-center.list",
+        "description": "List project capabilities with runtime readiness.",
+        "inputSchema": _business_schema(),
+    },
+    {
+        "name": "swarm.capability.run",
+        "description": "Create a standard durable Run for one ready capability.",
+        "inputSchema": _business_schema(
+            required=("capabilityRef", "input", "idempotencyKey"),
+            properties={
+                "capabilityRef": {"type": "string", "minLength": 1},
+                "input": {"type": "object"},
+                "presetId": {"type": "string", "format": "uuid"},
+                "idempotencyKey": {"type": "string", "minLength": 1, "maxLength": 256},
+            },
+        ),
+    },
+]
+
 
 @router.post("/mcp")
 async def mcp_post(
@@ -290,7 +312,12 @@ async def mcp_post(
     if body.method == "notifications/initialized":
         return JSONResponse(content={}, status_code=202)
     if body.method == "tools/list":
-        return _result(body.id, {"tools": _TOOLS})
+        tools = (
+            [*_TOOLS, *_CAPABILITY_CENTER_TOOLS]
+            if settings.capability_center_v2
+            else _TOOLS
+        )
+        return _result(body.id, {"tools": tools})
     if body.method != "tools/call":
         return _error(body.id, -32601, "method not found")
 
@@ -352,6 +379,8 @@ async def _call_tool(
     effective_scopes = identity.scopes_for(project_id)
     action = {
         "swarm.capabilities.get": "run.read",
+        "swarm.capability-center.list": "capability.read",
+        "swarm.capability.run": "run.create",
         "swarm.strategy.validate": "strategy.read",
         "swarm.strategy.compile": "strategy.write",
         "swarm.run.create": "run.create",
@@ -368,6 +397,10 @@ async def _call_tool(
     }.get(name)
     if action is None:
         raise ValueError(f"unknown tool: {name}")
+    if name in {"swarm.capability-center.list", "swarm.capability.run"} and not (
+        request.app.state.settings.capability_center_v2
+    ):
+        raise ValueError("capability center v2 is disabled")
     policy_request = PolicyRequest(
         subject=PolicySubject(
             id=identity.subject_id,
@@ -406,6 +439,17 @@ async def _call_tool(
     decision.enforce()
     if name == "swarm.capabilities.get":
         return _capabilities.get().model_dump(mode="json", by_alias=True)
+    if name == "swarm.capability-center.list":
+        center: CapabilityCenterService = request.app.state.capability_center
+        items = await center.list(
+            tenant_id=tenant_id,
+            project_id=project_id,
+            environment=request.app.state.settings.environment,
+        )
+        return {
+            "registrySnapshot": center.registry_snapshot_id,
+            "items": [item.model_dump(mode="json", by_alias=True) for item in items],
+        }
     if name == "swarm.strategy.validate":
         return _compilation.validate(arguments["spec"]).model_dump(mode="json", by_alias=True)
     if name == "swarm.strategy.compile":
@@ -419,6 +463,29 @@ async def _call_tool(
     async with tenant_transaction(
         database.sessions, tenant_id=tenant_id, project_id=project_id
     ) as session:
+        if name == "swarm.capability.run":
+            center = request.app.state.capability_center
+            preset_id = arguments.get("presetId")
+            run, command = await center.run(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                environment=request.app.state.settings.environment,
+                capability_ref=str(arguments["capabilityRef"]),
+                input_data=dict(arguments["input"]),
+                preset_id=UUID(str(preset_id)) if preset_id is not None else None,
+                idempotency_key=str(arguments["idempotencyKey"]),
+                initiated_by=identity.subject_id,
+                submitted_scopes=effective_scopes,
+                auth_context_hash=identity.context_hash,
+            )
+            return {
+                "runId": str(run.id),
+                "status": run.status,
+                "commandId": str(command.id),
+                "commandStatus": command.status,
+                "planHash": run.plan_hash,
+            }
         if name == "list_capability_packs":
             await _capability_packs.ensure_trusted(
                 session, tenant_id=tenant_id, project_id=project_id
@@ -426,8 +493,14 @@ async def _call_tool(
             rows = await _capability_packs.list_project(
                 session, tenant_id=tenant_id, project_id=project_id
             )
-            return {
-                "items": [
+            pack_items: list[dict[str, Any]] = []
+            for pack, version, binding in rows:
+                blockers = await _capability_packs.blockers_for_version(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    version=version,
+                )
+                pack_items.append(
                     {
                         "packId": str(pack.id),
                         "name": pack.name,
@@ -435,12 +508,16 @@ async def _call_tool(
                         "version": version.version,
                         "contentHash": version.content_hash,
                         "manifest": version.manifest,
-                        "enabled": binding is not None and binding.status == "ENABLED",
+                        "enabled": binding is not None
+                        and binding.status in {"ENABLED", "DEGRADED"},
                         "bindingStatus": binding.status if binding is not None else None,
+                        "configuration": (
+                            dict(binding.configuration) if binding is not None else {}
+                        ),
+                        "blockers": blockers,
                     }
-                    for pack, version, binding in rows
-                ]
-            }
+                )
+            return {"items": pack_items}
         if name == "create_work_item":
             item, revision = await _workbench.create_work_item(
                 session,

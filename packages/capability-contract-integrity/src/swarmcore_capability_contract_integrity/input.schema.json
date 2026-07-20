@@ -1,12 +1,27 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["workItemId", "workItemRevisionId", "payload", "attachments"],
+  "required": [
+    "workItemId",
+    "workItemRevisionId",
+    "evaluationId",
+    "payload",
+    "attachments",
+    "ruleSetVersionId",
+    "rules",
+    "attachmentManifestHash",
+    "configuration"
+  ],
   "properties": {
     "workItemId": {"type": "string", "format": "uuid"},
     "workItemRevisionId": {"type": "string", "format": "uuid"},
+    "evaluationId": {"type": "string", "format": "uuid"},
     "payload": {"type": "object"},
-    "attachments": {"type": "array", "items": {"type": "object"}}
+    "attachments": {"type": "array", "items": {"type": "object"}},
+    "ruleSetVersionId": {"type": "string"},
+    "rules": {"type": "object"},
+    "attachmentManifestHash": {"type": "string"},
+    "configuration": {"type": "object"}
   },
   "additionalProperties": false
 }

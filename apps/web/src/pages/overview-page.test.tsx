@@ -37,7 +37,8 @@ describe("overview page", () => {
     expect(screen.getByText("2 项审批 · 1 项输入")).toBeVisible();
     expect(screen.getByText("1 个智能体 · 1 个工具 · 1 个模型")).toBeVisible();
     expect(screen.getByRole("link", { name: /run-active/ })).toHaveAttribute("href", "/runs/run-active");
-    expect(screen.getByRole("link", { name: /智能体配置/ })).toHaveAttribute("href", "/agents");
+    expect(screen.getByRole("link", { name: /查看并运行已注册智能体/ })).toHaveAttribute("href", "/agents");
+    expect(screen.getByRole("link", { name: /查看能力治理策略/ })).toHaveAttribute("href", "/policies");
     expect(screen.getByRole("link", { name: /审计日志/ })).toHaveAttribute("href", "/audit-logs");
   });
 });

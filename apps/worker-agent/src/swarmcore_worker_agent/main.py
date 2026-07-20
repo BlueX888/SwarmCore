@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Literal
+from typing import Any, Literal
 
+import uvicorn
+from fastapi import FastAPI
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from swarmcore_adapter_agno import AgnoAdapter
@@ -25,7 +27,13 @@ class Settings(BaseSettings):
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"
     models: dict[str, str] = Field(
-        default_factory=lambda: {"model://general": "openai:gpt-4o-mini"}
+        default_factory=lambda: {
+            "model://general": "openai:gpt-4o-mini",
+            "model://deepseek-v4-flash": "DeepSeek-V4-Flash",
+            "model://deepseek-v4-pro": "DeepSeek-V4-Pro",
+            "model://kimi-k2.5": "kimi-k2.5",
+            "model://kimi-k2.7-code": "kimi-k2.7-code",
+        }
     )
     otlp_endpoint: str = "http://localhost:4317"
     telemetry_enabled: bool = True
@@ -33,6 +41,8 @@ class Settings(BaseSettings):
     tool_gateway_url: str = "http://localhost:8090"
     model_gateway_url: str = "http://localhost:8093"
     model_capability_secret: str = "development-model-capability-secret-32-bytes"
+    agent_readiness_host: str = "127.0.0.1"
+    agent_readiness_port: int = 8094
     deployment_mode: Literal["local", "production"] = "local"
     workload_tls_ca_file: str = ""
     workload_tls_cert_file: str = ""
@@ -92,10 +102,40 @@ async def serve() -> None:
         task_queue="agent-general",
         activities=[activities.execute_agent, activities.execute_team],
     )
+    readiness_server = uvicorn.Server(
+        uvicorn.Config(
+            create_readiness_app(adapter),
+            host=settings.agent_readiness_host,
+            port=settings.agent_readiness_port,
+            log_level="warning",
+        )
+    )
+    readiness_task = asyncio.create_task(readiness_server.serve())
     try:
         await worker.run()
     finally:
+        readiness_server.should_exit = True
+        await readiness_task
         telemetry.shutdown()
+
+
+def create_readiness_app(adapter: Any) -> FastAPI:
+    app = FastAPI(title="SwarmCore Agent Adapter Readiness")
+
+    @app.get("/internal/v1/readiness")
+    async def readiness() -> dict[str, Any]:
+        return {
+            "adapters": [
+                {
+                    "runtime": "fake-deterministic"
+                    if isinstance(adapter, DeterministicFakeAgentAdapter)
+                    else "agno",
+                    "healthy": True,
+                }
+            ]
+        }
+
+    return app
 
 
 def run() -> None:

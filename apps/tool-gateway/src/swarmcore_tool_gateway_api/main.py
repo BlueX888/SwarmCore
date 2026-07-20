@@ -10,6 +10,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from swarmcore_application import capability_executors
 from swarmcore_domain import uuid7
 from swarmcore_governance import (
     OpaPolicyEngine,
@@ -125,7 +126,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             builtin_registry(),
             token_issuer,
             PostgresEffectJournal(database.sessions),
-            builtin_executors(),
+            {**builtin_executors(), **capability_executors(database.sessions)},
             PostgresToolAuditSink(database),
             secrets=(
                 VaultSecretProvider(
@@ -194,6 +195,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/healthz")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/internal/v1/readiness")
+    async def readiness(request: Request) -> dict[str, Any]:
+        gateway: ToolGateway = request.app.state.gateway
+        return {"tools": await gateway.readiness()}
 
     return app
 

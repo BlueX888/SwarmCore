@@ -5,14 +5,28 @@ from .business import (
     WorkItemStatus,
     can_transition_finding,
 )
+from .capabilities import (
+    CapabilityKind,
+    CapabilityReadiness,
+    CapabilityReadinessStatus,
+    CapabilitySummary,
+    ReadinessReason,
+    ReadinessReasonCode,
+)
 from .states import AttemptStatus, RunStatus, TaskStatus, can_transition_run
 from .types import uuid7
 
 __all__ = [
     "AttemptStatus",
     "BlobStatus",
+    "CapabilityKind",
+    "CapabilityReadiness",
+    "CapabilityReadinessStatus",
+    "CapabilitySummary",
     "EvaluationStatus",
     "FindingStatus",
+    "ReadinessReason",
+    "ReadinessReasonCode",
     "RunStatus",
     "TaskStatus",
     "WorkItemStatus",

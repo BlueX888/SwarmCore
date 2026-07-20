@@ -1,15 +1,23 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from swarmcore_application import CapabilityPackService, RuleSetService, WorkbenchService
-from swarmcore_capability_contract_integrity import MANIFEST, REFERENCES, SCHEMAS
+from swarmcore_application import (
+    CapabilityPackReadinessError,
+    CapabilityPackService,
+    RuleSetService,
+    WorkbenchService,
+)
+from swarmcore_capability_contract_integrity import MANIFEST, REFERENCES, SCHEMAS, STRATEGIES
 from swarmcore_governance import BlobCapabilityIssuer
 from swarmcore_persistence.models import (
+    CapabilityPack,
+    CapabilityPackVersion,
     Evaluation,
     Finding,
     RuleSetDraft,
@@ -23,6 +31,7 @@ from .business_schemas import (
     CapabilityPackListResponse,
     CapabilityPackSnapshot,
     CompleteAttachmentRequest,
+    CreateCapabilityPackRequest,
     CreateRuleSetRequest,
     CreateWorkItemRequest,
     EnableCapabilityPackRequest,
@@ -54,6 +63,7 @@ router = APIRouter(prefix="/v1", dependencies=[Depends(authorize_rest)])
 capability_packs = CapabilityPackService(
     CapabilityReferenceCatalog.from_iterable(REFERENCES),
     trusted_manifests=(MANIFEST,),
+    trusted_strategies=STRATEGIES,
 )
 rule_sets = RuleSetService()
 workbench = WorkbenchService(capability_packs, schemas=SCHEMAS, rule_sets=rule_sets)
@@ -61,6 +71,29 @@ workbench = WorkbenchService(capability_packs, schemas=SCHEMAS, rule_sets=rule_s
 Scope = Annotated[RequestScope, Depends(request_scope)]
 Session = Annotated[AsyncSession, Depends(db_session)]
 IdempotencyKey = Annotated[str, Depends(require_idempotency_key)]
+
+
+def _pack_snapshot(
+    pack: CapabilityPack,
+    version: CapabilityPackVersion,
+    *,
+    enabled: bool,
+    binding_status: str | None,
+    configuration: dict[str, Any] | None = None,
+    blockers: list[dict[str, Any]] | None = None,
+) -> CapabilityPackSnapshot:
+    return CapabilityPackSnapshot(
+        packId=pack.id,
+        name=pack.name,
+        versionId=version.id,
+        version=version.version,
+        contentHash=version.content_hash,
+        manifest=version.manifest,
+        enabled=enabled,
+        bindingStatus=binding_status,
+        configuration=configuration or {},
+        blockers=blockers or [],
+    )
 
 
 @router.get(
@@ -76,8 +109,14 @@ async def list_capability_packs(
     rows = await capability_packs.list_project(
         session, tenant_id=scope.tenant_id, project_id=scope.project_id
     )
-    return CapabilityPackListResponse(
-        items=[
+    items: list[CapabilityPackSnapshot] = []
+    for pack, version, binding in rows:
+        blockers = await capability_packs.blockers_for_version(
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            version=version,
+        )
+        items.append(
             CapabilityPackSnapshot(
                 packId=pack.id,
                 name=pack.name,
@@ -85,11 +124,52 @@ async def list_capability_packs(
                 version=version.version,
                 contentHash=version.content_hash,
                 manifest=version.manifest,
-                enabled=binding is not None and binding.status == "ENABLED",
+                enabled=binding is not None and binding.status in {"ENABLED", "DEGRADED"},
                 bindingStatus=binding.status if binding is not None else None,
+                configuration=dict(binding.configuration) if binding is not None else {},
+                blockers=blockers,
             )
-            for pack, version, binding in rows
-        ]
+        )
+    return CapabilityPackListResponse(items=items)
+
+
+@router.post(
+    "/projects/{project_id}/capability-packs",
+    response_model=CapabilityPackSnapshot,
+    status_code=201,
+)
+async def create_capability_pack(
+    body: CreateCapabilityPackRequest,
+    scope: Scope,
+    session: Session,
+) -> CapabilityPackSnapshot:
+    await capability_packs.ensure_trusted(
+        session, tenant_id=scope.tenant_id, project_id=scope.project_id
+    )
+    version = await capability_packs.publish(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        manifest=body.manifest,
+        strategy_version_id=body.strategy_version_id,
+        actor=scope.actor_id,
+    )
+    rows = await capability_packs.list_project(
+        session, tenant_id=scope.tenant_id, project_id=scope.project_id
+    )
+    pack, _, binding = next(row for row in rows if row[1].id == version.id)
+    blockers = await capability_packs.blockers_for_version(
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        version=version,
+    )
+    return _pack_snapshot(
+        pack,
+        version,
+        enabled=binding is not None and binding.status in {"ENABLED", "DEGRADED"},
+        binding_status=binding.status if binding is not None else None,
+        configuration=dict(binding.configuration) if binding is not None else {},
+        blockers=blockers,
     )
 
 
@@ -103,19 +183,32 @@ async def enable_capability_pack(
     scope: Scope,
     session: Session,
     idempotency_key: IdempotencyKey,
-) -> CapabilityPackSnapshot:
+) -> CapabilityPackSnapshot | JSONResponse:
     await capability_packs.ensure_trusted(
         session, tenant_id=scope.tenant_id, project_id=scope.project_id
     )
-    binding = await capability_packs.enable(
-        session,
-        tenant_id=scope.tenant_id,
-        project_id=scope.project_id,
-        version_id=version_id,
-        configuration=body.configuration,
-        idempotency_key=idempotency_key,
-        actor=scope.actor_id,
-    )
+    try:
+        binding = await capability_packs.enable(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            version_id=version_id,
+            configuration=body.configuration,
+            idempotency_key=idempotency_key,
+            actor=scope.actor_id,
+        )
+    except CapabilityPackReadinessError as exc:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "title": "Capability Pack Not Ready",
+                "status": 409,
+                "code": "CAPABILITY_PACK_NOT_READY",
+                "detail": str(exc),
+                "blockers": exc.blockers,
+            },
+            media_type="application/problem+json",
+        )
     rows = await capability_packs.list_project(
         session, tenant_id=scope.tenant_id, project_id=scope.project_id
     )
@@ -129,6 +222,8 @@ async def enable_capability_pack(
         manifest=version.manifest,
         enabled=True,
         bindingStatus=binding.status,
+        configuration=dict(binding.configuration),
+        blockers=[],
     )
 
 
@@ -163,6 +258,8 @@ async def disable_capability_pack(
         manifest=version.manifest,
         enabled=False,
         bindingStatus=binding.status,
+        configuration=dict(binding.configuration),
+        blockers=[],
     )
 
 

@@ -1,7 +1,7 @@
 import type {
-  ApprovalListResponse, AuditListResponse, CapabilityCatalog, CommandHandle, CompileResponse, ConfigurationKind, CreateSavedConfiguration,
+  ApprovalListResponse, AuditListResponse, CapabilityCatalog, CapabilityCenterResponse, CapabilityPreset, CapabilityPresetListResponse, CapabilityPresetRequest, CommandHandle, CompileResponse, ConfigurationKind, CreateSavedConfiguration,
   DraftSnapshot, EditorState, EventHistory, ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, SavedConfiguration,
-  AttachmentUploadHandle, CapabilityPackListResponse, EvaluationSnapshot, FindingListResponse, ReportListResponse,
+  AttachmentUploadHandle, CapabilityPackListResponse, CapabilityPackSnapshot, CreateCapabilityPackRequest, EvaluationSnapshot, FindingListResponse, ReportListResponse,
   RuleSetDraftSnapshot, RuleSetValidationResponse, RuleSetVersionSnapshot, WorkItemListResponse, WorkItemSnapshot,
   SavedConfigurationListResponse, StrategyHandle,
   StrategyListResponse, StrategyVersionDetail,
@@ -51,8 +51,15 @@ async function requestFile(path: string, tenantId: string, init?: RequestInit): 
 }
 
 export const api = {
-  listStrategies: (tenantId: string, projectId: string) => request<StrategyListResponse>(`/v1/projects/${projectId}/strategies`, tenantId),
+  listStrategies: (tenantId: string, projectId: string, limit = 50) => request<StrategyListResponse>(`/v1/projects/${projectId}/strategies?limit=${limit}`, tenantId),
   getCapabilities: (tenantId: string, projectId: string) => request<CapabilityCatalog>(`/v1/projects/${projectId}/capabilities`, tenantId),
+  getCapabilityCenter: (tenantId: string, projectId: string) => request<CapabilityCenterResponse>(`/v1/projects/${projectId}/capability-center`, tenantId),
+  runCapability: (tenantId: string, projectId: string, capabilityRef: string, input: Record<string, unknown>, presetId?: string) => request<RunHandle>(`/v1/projects/${projectId}/capability-runs`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ capabilityRef, input, presetId }) }),
+  listPresets: (tenantId: string, projectId: string) => request<CapabilityPresetListResponse>(`/v1/projects/${projectId}/presets`, tenantId),
+  createPreset: (tenantId: string, projectId: string, body: CapabilityPresetRequest) => request<CapabilityPreset>(`/v1/projects/${projectId}/presets`, tenantId, { method: "POST", body: JSON.stringify(body) }),
+  updatePreset: (tenantId: string, projectId: string, presetId: string, body: CapabilityPresetRequest) => request<CapabilityPreset>(`/v1/projects/${projectId}/presets/${presetId}`, tenantId, { method: "PUT", body: JSON.stringify(body) }),
+  copyPreset: (tenantId: string, projectId: string, presetId: string, name: string) => request<CapabilityPreset>(`/v1/projects/${projectId}/presets/${presetId}:copy`, tenantId, { method: "POST", body: JSON.stringify({ name }) }),
+  deletePreset: (tenantId: string, projectId: string, presetId: string) => request<undefined>(`/v1/projects/${projectId}/presets/${presetId}`, tenantId, { method: "DELETE" }),
   listConfigurations: (tenantId: string, projectId: string, kind: ConfigurationKind) => request<SavedConfigurationListResponse>(`/v1/projects/${projectId}/configurations/${kind}`, tenantId),
   createConfiguration: (tenantId: string, projectId: string, kind: ConfigurationKind, body: CreateSavedConfiguration) => request<SavedConfiguration>(`/v1/projects/${projectId}/configurations/${kind}`, tenantId, { method: "POST", body: JSON.stringify(body) }),
   updateConfiguration: (tenantId: string, projectId: string, kind: ConfigurationKind, configurationId: string, body: CreateSavedConfiguration) => request<SavedConfiguration>(`/v1/projects/${projectId}/configurations/${kind}/${configurationId}`, tenantId, { method: "PUT", body: JSON.stringify(body) }),
@@ -81,7 +88,8 @@ export const api = {
   exportAuditLogs: (tenantId: string, projectId: string) => requestFile(`/v1/projects/${projectId}/audit-logs:export`, tenantId, { method: "POST" }),
   retryTask: (tenantId: string, projectId: string, runId: string, taskId: string) => request<CommandHandle>(`/v1/projects/${projectId}/runs/${runId}/tasks/${taskId}:retry`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   listCapabilityPacks: (tenantId: string, projectId: string) => request<CapabilityPackListResponse>(`/v1/projects/${projectId}/capability-packs`, tenantId),
-  enableCapabilityPack: (tenantId: string, projectId: string, versionId: string) => request(`/v1/projects/${projectId}/capability-packs/${versionId}:enable`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ configuration: {} }) }),
+  createCapabilityPack: (tenantId: string, projectId: string, body: CreateCapabilityPackRequest) => request<CapabilityPackSnapshot>(`/v1/projects/${projectId}/capability-packs`, tenantId, { method: "POST", body: JSON.stringify(body) }),
+  enableCapabilityPack: (tenantId: string, projectId: string, versionId: string, configuration: Record<string, unknown> = {}) => request(`/v1/projects/${projectId}/capability-packs/${versionId}:enable`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ configuration }) }),
   listWorkItems: (tenantId: string, projectId: string) => request<WorkItemListResponse>(`/v1/projects/${projectId}/work-items`, tenantId),
   getWorkItem: (tenantId: string, projectId: string, workItemId: string) => request<WorkItemSnapshot>(`/v1/projects/${projectId}/work-items/${workItemId}`, tenantId),
   createWorkItem: (tenantId: string, projectId: string, body: { workItemType: string; payload: Record<string, unknown>; owner?: string }) => request<WorkItemSnapshot>(`/v1/projects/${projectId}/work-items`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),

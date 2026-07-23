@@ -3,10 +3,10 @@
 | 属性 | 值 |
 |---|---|
 | 状态 | Living Document |
-| 版本 | 3.0 |
-| 最近更新 | 2026-07-20 |
+| 版本 | 3.1 |
+| 最近更新 | 2026-07-23 |
 | 已提交基线 | `eb75ac3`（受控 Tool 与有界编排） |
-| 当前候选 | M3/M4、业务扩展 E0-E4、能力中心统一化位于未提交工作树 |
+| 当前候选 | M3/M4、业务扩展 E0-E4、业务上下文/决策、业务资料库、能力中心统一化位于未提交工作树 |
 | 当前焦点 | M5 / G0；B1 剩余 E5 |
 | 唯一下一门禁 | G0：形成干净、不可变、CI 可复现的候选基线 |
 | 架构事实源 | [SwarmCore 系统设计](./swarmcore-system-design.md) |
@@ -34,8 +34,12 @@
 | REST/MCP 与策略控制台 | IMPLEMENTED / LOCAL | E1 | G0：远端 CI 与 Fake Agent E2E |
 | 受控 Tool、Router、Loop | VERIFIED / LOCAL | `eb75ac3`，E2 | 持续回归 |
 | 治理、安全和 Provider 候选 | IMPLEMENTED / LOCAL | E3 | G0、真实 K8s/Provider |
-| Capability Pack、Workbench、文档智能 E0-E4 | IMPLEMENTED / LOCAL | BA-E4、BA-E4.1 | E5、真实 OCR/模型、环境级人工复核 |
+| Capability Pack、Workbench、文档智能 E0-E4 | IMPLEMENTED / LOCAL | BA-E4、BA-E4.1、WB-E1 | E5、真实 OCR/模型、环境级人工复核 |
 | 能力中心统一化 | IMPLEMENTED / LOCAL | CC-E1 | G0、真实 Provider 资格 |
+| 业务上下文与决策资产 | IMPLEMENTED / LOCAL | BCRP-E1 | G0；真实 OPA/Temporal 资格 |
+| 业务资料库与运行文件快照 | IN_PROGRESS / LOCAL | DLIB-E1 | 完整本地回归、PostgreSQL/RLS/API 集成和 G0 |
+| 合同七维后评价能力包 | IN_PROGRESS / LOCAL | CPE-E1、CPE-E2、CPE-E3、DLIB-E1 | 文件链替换后的完整回归；有效模型 Provider 凭据、二进制文档 OCR 与生产环境资格验收 |
+| 业务工作信息架构与九项规划扩展 | IMPLEMENTED / LOCAL | BW-E1 | 九项真实 Agent、Tool、规则、资料处理和执行链均未实现 |
 
 证据索引：
 
@@ -49,6 +53,15 @@
 | BA-E4.1 | 能力包真实 StrategyVersion、依赖一致性、绑定配置 provenance；Ruff、mypy、169 单元、41 Vitest、Web lint/build | PostgreSQL 集成因未配置测试数据库跳过；Playwright 30/33，移动端波动用例单独重跑通过，2 项既有运行页截图基线差异未通过；真实 Temporal/模型链未验收 |
 | BA-E4.2 | 自定义能力包绑定策略管理中的已发布 StrategyVersion，并预览冻结预算与 Agent/Tool 依赖；Ruff、mypy、170 单元、42 Vitest、Web lint/build、本地浏览器交互验收 | PostgreSQL/RLS 集成因未配置测试数据库跳过；未执行真实 Temporal/Agent/Tool 运行链 |
 | CC-E1 | Ruff、mypy、165 单元、18 集成、33 Vitest、33 Playwright、Web lint/build | 未绑定提交/CI；未作真实 Provider 资格 |
+| BCRP-E1 | Capability Pack v1/v2、BusinessObject/Case/Assessment、DecisionAsset、Connection/Resource/Snapshot 纵向闭环；Ruff、mypy、186 单元、5 项定向 PostgreSQL/RLS/API 集成、47 Vitest、33 Playwright、Web lint/build | 本地 Compose 与确定性 Fake Connector；未绑定提交/CI，未作真实 Vault/OPA/Temporal、外部连接器和生产健康投影资格 |
+| CPE-E1 | `contract-post-evaluation@1.0.0`、五类资源绑定、七维确定性评分、关注项和 JSON/PDF 报告；Ruff、mypy、192 单元 | 2 项 PostgreSQL/API 集成因未配置测试数据库跳过；未执行 Temporal、外部文件/履约/偏差/发票/风险数据源和真实 Tool Worker 链 |
+| CPE-E2 | `contract-post-evaluation@1.2.0`：五类绑定资源由 Tool Activity 真实读取并追加内容哈希快照、标准化合并后评分；业务能力包新增一键创建资源/绑定/合同对象/案件、执行轮询、七维结果与 PDF 下载工作台；Ruff、mypy、196 单元、49 Vitest、Web lint/build、本地 Temporal/Tool Worker 浏览器闭环 | 本地 Fake Connector 接收标准化 JSON；3 项 PostgreSQL 集成因未配置 `TEST_DATABASE_URL` 跳过；生产文件库、ERP、发票、风险系统连接器及真实 Secret/Vault 仍待资格验收 |
+| CPE-E3 | `contract-post-evaluation@1.5.0`：工作台收敛为上传文本文件、自然语言定义流程、执行 Agent；新增后评价分析 Agent，后台自动创建一个上传资源并绑定五类槽位；浏览器验证完成文件选择、资源读取、Temporal Agent 节点提交 | 本地模型代理已启动，但现有 Provider 凭据返回 401，真实 Agent 最终输出未通过；PDF/Word/Excel OCR 尚未接入，不标记 VERIFIED |
+| CPE-E4 | 业务能力包页面调整为项目配置面：统一呈现编排策略、Agent、工具、模型解析、权限和资源槽位，支持项目运行参数及资源绑定；移除上传文件、自然语言流程和直接执行入口，并取消侧栏硬编码具体业务 | VERIFIED：Web lint、54 Vitest、build 通过；本地浏览器确认能力包配置路由、真实绑定回显及页面无横向溢出；未重跑 Python 与集成测试（未修改后端） |
+| WB-E1 | 已启用业务能力包新增独立工作台入口；v1 复用 WorkItem 执行，v2 自动建立 Manifest 必需 Subject、检查必需资源槽位并复用 Case Assessment，提交后进入统一 Run 详情 | Web lint、63 Vitest、build、工作台定向 Playwright 3/3 通过；全量 Playwright 27/33，6 项既有运行/能力中心用例因本地 API `127.0.0.1:8000` 未启动超时；未修改 Python，未重跑后端测试或真实 Kimi/Temporal/Tool Worker 链 |
+| CC-E2 | Agent 项目配置投影为版本化 `agent://project/{id}@{revision}` 能力，进入统一 Readiness、REST/MCP 能力目录、直接运行和画布链路；项目 Agent 复用系统能力就绪投影，避免重复探测全部依赖；Agno Adapter 在任务执行时实例化 | VERIFIED：Ruff、mypy、221 单元、Agent 配置/能力中心定向 Vitest 24/24、Web lint/build 通过；全量 Vitest 74/75，1 项既有模型连接表单在并发执行时初始化时序失败（单文件重跑 12/12）；本地浏览器完成创建、目录可见、编辑保存、刷新后字段持久化验收；E2E 32/36，3 项既有能力中心脚本未关闭模态框而超时，1 项既有移动端画布拖拽位于视口外；PostgreSQL/API 集成因未配置 `SWARMCORE_TEST_DATABASE_URL` 跳过，未执行真实模型/Temporal 链 |
+| BW-E1 | “业务工作”作为侧栏分类，保留工作总览并新增基础 AI 与评测、文件结构化、文件完整性、履约计划与采集、发票一致性、偏差分析、报告生成、调度校准、招采与供应商风控九项独立规划入口和详情骨架 | Web lint、84 Vitest、build 通过；九项统一标记“规划中”；未执行 Playwright、Python 或集成测试，未接入任何真实业务功能 |
+| DLIB-E1 | 业务资料库替换新产品调用链中的 Connection/Resource：复用 BlobObject/Artifact Gateway，新增不可变文件版本、业务对象关联、业务工作绑定、处理结果与 Assessment/Run 使用快照；`/documents` 为主路由，`/resources` 仅前端兼容重定向；REST/MCP 复用 DocumentLibraryService | Ruff、mypy（114 source files）、229 单元、80 Vitest、Web lint/build 通过，Alembic head 为 `0013_business_document_library`；5 项相关 PostgreSQL/RLS/API 集成因未配置 `SWARMCORE_TEST_DATABASE_URL` 跳过。只完成资料绑定和执行读取骨架，真实解析、OCR、抽取和人工确认能力未实现；旧 Connection/Resource ORM、migration 与 REST API 暂保留历史兼容 |
 
 以上是历史记录，不表示本次文档更新重新执行了测试。
 
@@ -137,7 +150,7 @@
 | 编排 | `team`、`transform`、`subflow`、`emit`、动态派生、Map/Review/Vote |
 | 生态 | A2A RemoteAgent、其他 Agent SDK Adapter、配置/CLI 入站 |
 | 数据 | 完整 Knowledge/Memory、必要时 Qdrant |
-| 业务 | 履约、发票、偏差、七维报告、招采一致性、供应商风险 Pack |
+| 业务 | 合同七维后评价 Pack 已 IMPLEMENTED / LOCAL；招采一致性、供应商风险 Pack 仍为候选 |
 | 基础设施 | 多区域 Artifact、Kafka 导出、Kata 高风险 Runtime |
 | 前端 | 以真实性能数据驱动的拆包和治理体验 |
 
@@ -160,3 +173,6 @@
 |---|---|---|
 | 2026-07-17 | 2.x | 重构 M5-M9 门禁并纳入业务智能体扩展 B1 |
 | 2026-07-20 | 3.0 | 合并业务扩展、兼容性和能力中心计划，压缩为状态、门禁、证据与里程碑事实源 |
+| 2026-07-21 | 3.1 | 完成业务上下文、DecisionAsset、资源连接平面和 contract-integrity v2 的本地实现与定向验收；保留生产资格门禁 |
+| 2026-07-22 | 3.1 | 能力中心模型页：未在 `SWARMCORE_MODEL_ROUTES` 登记的逻辑模型从目录隐藏（Registry 内置定义保留） |
+| 2026-07-22 | 3.2 | 项目智能体成为可发现、可检查、可直接运行的版本化能力，REST/MCP 保持同一投影 |

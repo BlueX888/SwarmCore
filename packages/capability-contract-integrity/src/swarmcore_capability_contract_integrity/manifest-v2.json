@@ -1,0 +1,56 @@
+{
+  "apiVersion": "swarmcore.io/v2",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "contract-integrity", "version": "2.0.0"},
+  "spec": {
+    "case": {
+      "type": "contract-case",
+      "schema": "schema://contract/case@1",
+      "subjectsRequired": true,
+      "subjectRoles": [
+        {"key": "contract", "objectType": "contract", "role": "PRIMARY", "min": 1, "max": 1}
+      ]
+    },
+    "inputSchema": "schema://contract/validation-input@2",
+    "outputSchema": "schema://contract/validation-result@1",
+    "strategies": {"execute": "strategy://contract-integrity/validate@1"},
+    "agents": [
+      "agent://contract/document-classifier@1",
+      "agent://contract/field-extractor@1"
+    ],
+    "tools": [
+      "tool://document/read@1",
+      "tool://rules/evaluate@1",
+      "tool://contract/cross-file-consistency@1",
+      "tool://workbench/record-evaluation@1",
+      "tool://report/render@1"
+    ],
+    "decisions": [
+      {
+        "slot": "document-checklist",
+        "required": true,
+        "inputSchema": "schema://contract/validation-input@2",
+        "outputSchema": "schema://contract/validation-result@1",
+        "allowedTypes": ["CHECKLIST", "DECISION_TABLE"]
+      }
+    ],
+    "resources": [
+      {
+        "slot": "contract-files",
+        "required": true,
+        "resourceKinds": ["DOCUMENT_COLLECTION", "OBJECT_STORE"],
+        "accessMode": "READ"
+      },
+      {
+        "slot": "report-output",
+        "required": false,
+        "resourceKinds": ["OUTPUT_TARGET", "OBJECT_STORE"],
+        "accessMode": "WRITE"
+      }
+    ],
+    "report": {"template": "report://contract/validation@1"},
+    "permissions": ["case.read", "case.assess", "finding.act", "decision-asset.read"],
+    "events": {"namespace": "capability.contract-integrity"},
+    "ui": {"viewDefinition": "view://contract-integrity/work-item@1"}
+  }
+}

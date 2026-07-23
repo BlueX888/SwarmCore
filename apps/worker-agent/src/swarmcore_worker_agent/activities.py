@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
+from contextlib import suppress
 from typing import Any, Protocol
 
 from swarmcore_observability import SwarmMetrics, get_tracer
@@ -62,6 +64,7 @@ class AgentActivities:
                 "retry.attempt": info.attempt,
             },
         ) as span:
+            heartbeat_task = asyncio.create_task(self._heartbeat_while_running(node_key))
             try:
                 result = await self._adapter.execute(request)
             except Exception as exc:
@@ -79,6 +82,9 @@ class AgentActivities:
                 )
                 raise
             finally:
+                heartbeat_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await heartbeat_task
                 if self._metrics is not None:
                     self._metrics.task_duration.record(
                         time.monotonic() - started, {"node_type": "agent"}
@@ -113,6 +119,12 @@ class AgentActivities:
             ),
         )
         return result
+
+    @staticmethod
+    async def _heartbeat_while_running(node_key: str) -> None:
+        while True:
+            await asyncio.sleep(10)
+            activity.heartbeat({"stage": "running", "nodeKey": node_key})
 
     @activity.defn(name="execute_team")
     async def execute_team(self, request: dict[str, Any]) -> dict[str, Any]:

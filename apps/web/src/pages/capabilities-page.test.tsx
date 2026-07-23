@@ -1,13 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/api/client";
 import { CapabilitiesPage } from "./capabilities-page";
 
 vi.mock("@/api/client", () => ({ api: {
   getCapabilityCenter: vi.fn(), listPresets: vi.fn(), runCapability: vi.fn(),
   createPreset: vi.fn(), updatePreset: vi.fn(), copyPreset: vi.fn(), deletePreset: vi.fn(),
+  getModelProvider: vi.fn(), saveModelProvider: vi.fn(), testModelProvider: vi.fn(),
 } }));
 
 const ready = {
@@ -29,6 +30,16 @@ const agent = {
     maxSources: { type: "integer", title: "最多参考来源数", default: 8 },
   } }, outputSchema: { type: "object" },
 };
+const projectAgent = {
+  ...agent,
+  ref: "agent://project/7741c9d0-340e-4ef1-a0d0-a20961195c04@2",
+  name: "项目研究员",
+  source: "project",
+};
+const model = {
+  ref: "model://general@1", kind: "model" as const, name: "general", description: "General model.", source: "system",
+  readiness: { status: "READY" as const, reasons: [] }, inputSchema: { type: "object" }, outputSchema: { type: "object" },
+};
 const preset = {
   presetId: "preset-1", kind: "tool" as const, name: "日报检索", capabilityRef: ready.ref,
   parameters: { query: "daily" }, revision: 1, readiness: ready.readiness,
@@ -37,7 +48,7 @@ const preset = {
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/tools"]}><Routes><Route path="/tools" element={<CapabilitiesPage kind="tool" />} /><Route path="/runs/:runId" element={<p>运行详情</p>} /></Routes></MemoryRouter></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/tools"]}><Routes><Route path="/tools" element={<CapabilitiesPage kind="tool" />} /><Route path="/tools/new" element={<p>新建工具页面</p>} /><Route path="/runs/:runId" element={<p>运行详情</p>} /></Routes></MemoryRouter></QueryClientProvider>);
 }
 
 function AgentConfigurationProbe() {
@@ -50,7 +61,19 @@ function renderAgentPage() {
   return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/agents"]}><Routes><Route path="/agents" element={<CapabilitiesPage kind="agent" />} /><Route path="/agents/configure" element={<AgentConfigurationProbe />} /></Routes></MemoryRouter></QueryClientProvider>);
 }
 
+function renderModelPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/models"]}><Routes><Route path="/models" element={<CapabilitiesPage kind="model" />} /></Routes></MemoryRouter></QueryClientProvider>);
+}
+
+function renderPolicyPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/policies"]}><Routes><Route path="/policies" element={<CapabilitiesPage kind="policy" />} /><Route path="/policies/new" element={<p>新建策略页面</p>} /></Routes></MemoryRouter></QueryClientProvider>);
+}
+
 describe("capabilities page", () => {
+  afterEach(cleanup);
+
   beforeEach(() => {
     vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [ready, notReady] });
     vi.mocked(api.listPresets).mockResolvedValue({ items: [], total: 0 });
@@ -59,6 +82,9 @@ describe("capabilities page", () => {
     vi.mocked(api.updatePreset).mockResolvedValue({ ...preset, name: "更新预设", revision: 2 });
     vi.mocked(api.copyPreset).mockResolvedValue({ ...preset, presetId: "preset-2", name: "日报检索 副本" });
     vi.mocked(api.deletePreset).mockResolvedValue(undefined);
+    vi.mocked(api.getModelProvider).mockResolvedValue({ logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", apiKeyConfigured: true });
+    vi.mocked(api.saveModelProvider).mockResolvedValue({ logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", apiKeyConfigured: true });
+    vi.mocked(api.testModelProvider).mockResolvedValue({ connected: true, modelName: "test-model", latencyMs: 42 });
   });
 
   it("shows ready capabilities by default and explains not-ready resources on demand", async () => {
@@ -70,15 +96,52 @@ describe("capabilities page", () => {
     expect(screen.queryByText("未接入工具")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "显示未就绪" }));
     fireEvent.click(await screen.findByRole("button", { name: /未接入工具/ }));
-    expect(screen.getByText("缺少执行器")).toBeVisible();
-    expect(screen.getByRole("button", { name: "立即运行" })).toBeDisabled();
+    const dialog = screen.getByRole("dialog", { name: "未接入工具" });
+    expect(dialog).toBeVisible();
+    expect(within(dialog).getByText("缺少执行器")).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "立即运行" })).toBeDisabled();
+  });
+
+  it("shows source and risk as color-coded badges without repeating the capability kind", async () => {
+    const mediumRisk = { ...ready, ref: "tool://medium@1", name: "中风险工具", risk: "MEDIUM" };
+    const highRisk = { ...ready, ref: "tool://high@1", name: "高风险工具", risk: "HIGH" };
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [ready, mediumRisk, highRisk] });
+    renderPage();
+
+    const lowCard = await screen.findByRole("button", { name: /受控检索/ });
+    const mediumCard = screen.getByRole("button", { name: /中风险工具/ });
+    const highCard = screen.getByRole("button", { name: /高风险工具/ });
+    expect(within(lowCard).queryByText("工具", { exact: true })).not.toBeInTheDocument();
+    expect(within(lowCard).getByText("系统内置")).toHaveClass("bg-gray-100");
+    expect(within(lowCard).getByText("LOW 风险")).toHaveClass("bg-success-50", "text-success-600");
+    expect(within(mediumCard).getByText("MEDIUM 风险")).toHaveClass("bg-warning-50", "text-warning-600");
+    expect(within(highCard).getByText("HIGH 风险")).toHaveClass("bg-error-50", "text-error-600");
+  });
+
+  it("opens capability details in a dialog and closes from the header action", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /受控检索/ }));
+    const dialog = screen.getByRole("dialog", { name: "受控检索" });
+    expect(dialog).toBeVisible();
+    expect(within(dialog).getByLabelText("检索词")).toBeVisible();
+    expect(within(dialog).getByRole("heading", { name: "我的预设" })).toBeVisible();
+    expect(within(dialog).getByText("高级详情")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "关闭详情" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("opens the user-facing tool creation flow", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "新建工具" }));
+    expect(await screen.findByText("新建工具页面")).toBeVisible();
   });
 
   it("generates a schema field, creates a standard capability run, and opens its detail", async () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: /受控检索/ }));
-    fireEvent.change(screen.getByLabelText("检索词"), { target: { value: "swarm" } });
-    fireEvent.click(screen.getByRole("button", { name: "立即运行" }));
+    const dialog = screen.getByRole("dialog", { name: "受控检索" });
+    fireEvent.change(within(dialog).getByLabelText("检索词"), { target: { value: "swarm" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "立即运行" }));
     await waitFor(() => expect(api.runCapability).toHaveBeenCalledWith(expect.any(String), expect.any(String), "tool://search@1", { query: "swarm" }, undefined));
     expect(await screen.findByText("运行详情")).toBeVisible();
   });
@@ -87,19 +150,20 @@ describe("capabilities page", () => {
     vi.mocked(api.listPresets).mockResolvedValue({ items: [preset], total: 1 });
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: /受控检索/ }));
-    fireEvent.change(screen.getByLabelText("检索词"), { target: { value: "swarm" } });
-    fireEvent.change(screen.getByLabelText("预设名称"), { target: { value: "新预设" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存预设" }));
+    const dialog = screen.getByRole("dialog", { name: "受控检索" });
+    fireEvent.change(within(dialog).getByLabelText("检索词"), { target: { value: "swarm" } });
+    fireEvent.change(within(dialog).getByLabelText("预设名称"), { target: { value: "新预设" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存预设" }));
     await waitFor(() => expect(api.createPreset).toHaveBeenCalledWith(expect.any(String), expect.any(String), { name: "新预设", capabilityRef: ready.ref, parameters: { query: "swarm" } }));
 
-    fireEvent.click(screen.getByRole("button", { name: "日报检索" }));
-    fireEvent.change(screen.getByLabelText("预设名称"), { target: { value: "更新预设" } });
-    fireEvent.click(screen.getByRole("button", { name: "更新预设" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "日报检索" }));
+    fireEvent.change(within(dialog).getByLabelText("预设名称"), { target: { value: "更新预设" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "更新预设" }));
     await waitFor(() => expect(api.updatePreset).toHaveBeenCalledWith(expect.any(String), expect.any(String), preset.presetId, { name: "更新预设", capabilityRef: ready.ref, parameters: { query: "daily" } }));
 
-    fireEvent.click(screen.getByRole("button", { name: "复制预设 日报检索" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "复制预设 日报检索" }));
     await waitFor(() => expect(api.copyPreset).toHaveBeenCalledWith(expect.any(String), expect.any(String), preset.presetId, "日报检索 副本"));
-    fireEvent.click(screen.getByRole("button", { name: "删除预设 日报检索" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除预设 日报检索" }));
     await waitFor(() => expect(api.deletePreset).toHaveBeenCalledWith(expect.any(String), expect.any(String), preset.presetId));
   });
 
@@ -109,10 +173,11 @@ describe("capabilities page", () => {
     expect(await screen.findByRole("button", { name: "创建智能体" })).toBeVisible();
     expect(screen.getByRole("button", { name: "编辑 researcher 配置" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: /可用 researcher/ }));
-    expect(screen.getByLabelText("输出语言")).toHaveValue("简体中文");
-    expect(screen.getByLabelText("最多参考来源数")).toHaveValue(8);
-    expect(screen.getByText(/系统内置版本保持只读/)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "编辑当前智能体配置" }));
+    const dialog = screen.getByRole("dialog", { name: "researcher" });
+    expect(within(dialog).getByLabelText("输出语言")).toHaveValue("简体中文");
+    expect(within(dialog).getByLabelText("最多参考来源数")).toHaveValue(8);
+    expect(within(dialog).getByText(/系统内置版本保持只读/)).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "编辑当前智能体配置" }));
     expect(await screen.findByText(/智能体配置入口 \?copy=agent%3A%2F%2Fbuiltin%2Fresearcher%401/)).toBeVisible();
   });
 
@@ -121,5 +186,59 @@ describe("capabilities page", () => {
     renderAgentPage();
     fireEvent.click(await screen.findByRole("button", { name: "创建智能体" }));
     expect(await screen.findByText("智能体配置入口 ?new=1")).toBeVisible();
+  });
+
+  it("opens the persisted definition when editing a project agent", async () => {
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [projectAgent] });
+    renderAgentPage();
+    fireEvent.click(await screen.findByRole("button", { name: /可用 项目研究员/ }));
+    const dialog = screen.getByRole("dialog", { name: "项目研究员" });
+    expect(within(dialog).getByText(/运行时会由 Agno Adapter 创建真实实例/)).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "编辑当前智能体配置" }));
+    expect(await screen.findByText(/智能体配置入口 \?configuration=7741c9d0-340e-4ef1-a0d0-a20961195c04/)).toBeVisible();
+  });
+
+  it("guides empty model catalog toward route configuration", async () => {
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [] });
+    renderModelPage();
+    expect(await screen.findByRole("heading", { name: "模型" })).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: "显示已配置但未就绪" })).toBeVisible();
+    expect(screen.getByText("没有可用模型。")).toBeVisible();
+    expect(screen.getByText(/点击“新建模型”配置 API URL/)).toBeVisible();
+    fireEvent.click(screen.getByRole("checkbox", { name: "显示已配置但未就绪" }));
+    expect(await screen.findByText("当前环境没有已配置路由的模型。")).toBeVisible();
+  });
+
+  it("configures and performs a real model connectivity test", async () => {
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [model] });
+    renderModelPage();
+    fireEvent.click(await screen.findByRole("button", { name: /general/ }));
+    const dialog = screen.getByRole("dialog", { name: "general" });
+    await waitFor(() => expect(within(dialog).getByLabelText("模型 API URL")).toHaveValue("https://api.example.com/v1"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "检测连接" }));
+    await waitFor(() => expect(api.testModelProvider).toHaveBeenCalledWith(expect.any(String), expect.any(String), {
+      logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model",
+    }));
+    expect(await within(dialog).findByText(/连接成功.*42 ms/)).toBeVisible();
+  });
+
+  it("opens a new model configuration form from the page header", async () => {
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [model] });
+    renderModelPage();
+    fireEvent.click(await screen.findByRole("button", { name: "新建模型" }));
+    const dialog = screen.getByRole("dialog", { name: "新建模型配置" });
+    expect(within(dialog).getByLabelText("逻辑模型路由")).toHaveValue("model://general@1");
+    expect(await within(dialog).findByLabelText("模型 API URL")).toBeVisible();
+    expect(within(dialog).getByLabelText("模型 API Key")).toHaveAttribute("type", "password");
+    expect(within(dialog).getByLabelText("模型名称")).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "检测连接" })).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "保存配置" })).toBeVisible();
+  });
+
+  it("opens the policy creation flow from the page header", async () => {
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [] });
+    renderPolicyPage();
+    fireEvent.click(await screen.findByRole("button", { name: "新建策略" }));
+    expect(await screen.findByText("新建策略页面")).toBeVisible();
   });
 });

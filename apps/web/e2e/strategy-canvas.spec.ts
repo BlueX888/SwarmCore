@@ -9,7 +9,7 @@ test("creates a draft from an empty canvas", async ({ page }) => {
   const captured: { body?: { name: string; spec: TestSpec; editorState: TestEditorState } } = {};
   await page.route("**/api/v1/projects/*/capabilities", (route) => route.fulfill({ json: capabilityCatalog() }));
   await page.route("**/api/v1/projects/*/strategies/compile", (route) => route.fulfill({ json: { valid: true, diagnostics: [], plan: { plan_hash: "b".repeat(64) } } }));
-  await page.route("**/api/v1/projects/*/strategies", async (route) => {
+  await page.route(/\/api\/v1\/projects\/[^/]+\/strategies(?:\?.*)?$/, async (route) => {
     if (route.request().method() === "POST") {
       captured.body = route.request().postDataJSON() as typeof captured.body;
       await route.fulfill({ status: 201, json: { strategyId, draftId, revision: 1 } });
@@ -48,7 +48,7 @@ test("edits, persists and publishes a Strategy Canvas", async ({ page }, testInf
 
   await page.route("**/api/v1/projects/*/capabilities", (route) => route.fulfill({ json: capabilityCatalog() }));
   await page.route("**/api/v1/projects/*/strategies/compile", (route) => route.fulfill({ json: { valid: true, diagnostics: [], plan: { plan_hash: "a".repeat(64) } } }));
-  await page.route("**/api/v1/projects/*/strategies", (route) => route.fulfill({ json: { total: 1, items: [{ strategyId, name: "canvas-e2e", lifecycle: "ACTIVE", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), draftId, draftRevision: revision, latestVersion: null }] } }));
+  await page.route(/\/api\/v1\/projects\/[^/]+\/strategies(?:\?.*)?$/, (route) => route.fulfill({ json: { total: 1, items: [{ strategyId, name: "canvas-e2e", lifecycle: "ACTIVE", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), draftId, draftRevision: revision, latestVersion: null }] } }));
   await page.route("**/api/v1/projects/*/strategies/*/versions", (route) => route.fulfill({ json: { total: 0, items: [] } }));
   await page.route("**/api/v1/projects/*/strategies/*/publish", (route) => {
     published = true;

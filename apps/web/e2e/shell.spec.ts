@@ -72,6 +72,9 @@ test("splits the capability center into agent, tool, model and policy pages", as
   await page.route("**/api/v1/projects/*/runs/*", (route) => route.fulfill({ json: { runId, status: "ACCEPTED", input: {}, output: null, outputRef: null, snapshotSeq: 0, earliestAvailableSeq: 0, planHash: "a".repeat(64), usage: {}, taskCounts: {}, allowedActions: [], tasks: [] } }));
   await page.route("**/api/v1/projects/*/capabilities", (route) => route.fulfill({ json: configurationCatalog() }));
   await page.route("**/api/v1/projects/*/configurations/agent", (route) => route.fulfill({ json: { total: 0, items: [] } }));
+  await page.route("**/api/v1/projects/*/rule-sets", (route) => route.fulfill({ status: 201, json: { ruleSetId: "rule-1", draftId: "draft-1", revision: 1, rules: {} } }));
+  await page.route("**/api/v1/projects/*/rule-set-drafts/*:validate", (route) => route.fulfill({ json: { valid: true, normalizedRules: {}, preview: null } }));
+  await page.route("**/api/v1/projects/*/rule-set-drafts/*:publish", (route) => route.fulfill({ json: { ruleSetId: "rule-1", ruleSetVersionId: "version-1", version: 1, schemaVersion: "schema://contract/checklist-rule@1", contentHash: "abcdef1234567890", rules: {} } }));
   await page.goto("/agents");
   await expect(page.getByRole("heading", { name: "智能体", exact: true })).toBeVisible();
   await expect(page.getByLabel("能力类型")).toHaveCount(0);
@@ -99,10 +102,17 @@ test("splits the capability center into agent, tool, model and policy pages", as
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
   await page.goto("/models");
   await expect(page.getByRole("heading", { name: "模型", exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "显示已配置但未就绪" })).toBeVisible();
   await expect(page.getByRole("button", { name: /通用模型/ })).toBeVisible();
   await page.goto("/policies");
   await expect(page.getByRole("heading", { name: "策略", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /默认策略/ })).toBeVisible();
+  await page.getByRole("button", { name: "新建策略" }).click();
+  await expect(page).toHaveURL("/policies/new");
+  await page.getByLabel("策略名称").fill("采购资料策略");
+  await page.getByLabel("策略用途").fill("采购合同资料校验");
+  await page.getByRole("button", { name: "校验并发布" }).click();
+  await expect(page.getByRole("status")).toContainText("策略版本 1 已发布");
   await page.goto("/capabilities");
   await expect(page).toHaveURL("/agents");
 });

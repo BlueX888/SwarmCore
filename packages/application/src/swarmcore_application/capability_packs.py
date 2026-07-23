@@ -6,17 +6,20 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from swarmcore_persistence import AuditRepository
 from swarmcore_persistence.errors import PersistenceConflictError
 from swarmcore_persistence.models import (
+    AuditLog,
     CapabilityPack,
     CapabilityPackVersion,
+    CapabilityResourceBinding,
     Evaluation,
     IdempotencyKey,
     Project,
     ProjectCapabilityBinding,
+    ProjectCapabilityDecisionBinding,
     Strategy,
     StrategyVersion,
 )
@@ -98,16 +101,55 @@ class CapabilityPackService:
         )
         if project_exists is None:
             raise LookupError("project not found")
-        return [
-            await self.publish(
+        published: list[CapabilityPackVersion] = []
+        for manifest in self._trusted_manifests:
+            metadata = manifest.get("metadata", {})
+            pack_name = str(metadata.get("name", ""))
+            pack_version = str(metadata.get("version", ""))
+            if await self._trusted_version_deleted(
                 session,
                 tenant_id=tenant_id,
                 project_id=project_id,
-                manifest=manifest,
-                actor="trusted-manifest-loader",
+                pack_name=pack_name,
+                version=pack_version,
+            ):
+                continue
+            published.append(
+                await self.publish(
+                    session,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    manifest=manifest,
+                    actor="trusted-manifest-loader",
+                )
             )
-            for manifest in self._trusted_manifests
-        ]
+        return published
+
+    async def _trusted_version_deleted(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        pack_name: str,
+        version: str,
+    ) -> bool:
+        if not pack_name or not version:
+            return False
+        return (
+            await session.scalar(
+                select(AuditLog.id)
+                .where(
+                    AuditLog.tenant_id == tenant_id,
+                    AuditLog.project_id == project_id,
+                    AuditLog.action == "capability-pack.delete",
+                    AuditLog.resource_type == "capability_pack_version",
+                    AuditLog.metadata_json.contains({"name": pack_name, "version": version}),
+                )
+                .limit(1)
+            )
+            is not None
+        )
 
     async def publish(
         self,
@@ -207,7 +249,10 @@ class CapabilityPackService:
             )
         )
         if existing is not None:
-            if existing.content_hash != digest:
+            if (
+                existing.content_hash != digest
+                and normalize_manifest(existing.manifest) != normalized
+            ):
                 raise PersistenceConflictError(
                     "capability pack version is immutable and has different content"
                 )
@@ -220,6 +265,21 @@ class CapabilityPackService:
             dependency_snapshot={
                 "references": resolved,
                 "strategy": strategy_snapshot,
+                "slots": {
+                    "case": (
+                        parsed.spec.case.model_dump(mode="json", by_alias=True)
+                        if parsed.spec.case is not None
+                        else None
+                    ),
+                    "decisions": [
+                        value.model_dump(mode="json", by_alias=True)
+                        for value in parsed.spec.decisions
+                    ],
+                    "resources": [
+                        value.model_dump(mode="json", by_alias=True)
+                        for value in parsed.spec.resources
+                    ],
+                },
             },
             content_hash=digest,
             created_by=actor,
@@ -339,6 +399,7 @@ class CapabilityPackService:
             tenant_id=tenant_id,
             project_id=project_id,
             version=version,
+            session=session,
         )
         if blockers:
             await self._audit.append(
@@ -483,6 +544,14 @@ class CapabilityPackService:
         )
         if version is None:
             raise LookupError("能力包版本不存在或已被删除。")
+        pack = await session.scalar(
+            select(CapabilityPack).where(
+                CapabilityPack.id == version.pack_id,
+                CapabilityPack.tenant_id == tenant_id,
+            )
+        )
+        if pack is None:
+            raise LookupError("能力包版本不存在或已被删除。")
         active_binding = await session.scalar(
             select(ProjectCapabilityBinding.id)
             .where(
@@ -492,11 +561,6 @@ class CapabilityPackService:
             )
             .limit(1)
         )
-        if active_binding is not None:
-            raise CapabilityPackDeleteError(
-                "CAPABILITY_PACK_ENABLED",
-                "能力包版本仍处于启用状态。请先停用后再删除。",
-            )
         evaluation_exists = await session.scalar(
             select(Evaluation.id)
             .where(
@@ -505,11 +569,14 @@ class CapabilityPackService:
             )
             .limit(1)
         )
-        if evaluation_exists is not None:
-            raise CapabilityPackDeleteError(
-                "CAPABILITY_PACK_HAS_EVALUATIONS",
-                "能力包版本仍有历史评估引用。无法删除。",
-            )
+        blocker = self.deletion_blocker(
+            pack_name=pack.name,
+            version=version.version,
+            enabled=active_binding is not None,
+            has_evaluations=evaluation_exists is not None,
+        )
+        if blocker is not None:
+            raise CapabilityPackDeleteError(*blocker)
         await session.execute(
             delete(ProjectCapabilityBinding).where(
                 ProjectCapabilityBinding.tenant_id == tenant_id,
@@ -519,6 +586,10 @@ class CapabilityPackService:
         pack_id = version.pack_id
         content_hash = version.content_hash
         pack_version = version.version
+        pack_name = pack.name
+        await session.execute(
+            text("SELECT set_config('app.allow_capability_pack_version_delete', 'on', true)")
+        )
         await session.delete(version)
         await session.flush()
         remaining = await session.scalar(
@@ -547,8 +618,33 @@ class CapabilityPackService:
             action="capability-pack.delete",
             resource_type="capability_pack_version",
             resource_id=str(version_id),
-            metadata={"version": pack_version, "contentHash": content_hash},
+            metadata={
+                "name": pack_name,
+                "version": pack_version,
+                "contentHash": content_hash,
+            },
         )
+
+    def deletion_blocker(
+        self,
+        *,
+        pack_name: str,
+        version: str,
+        enabled: bool,
+        has_evaluations: bool,
+    ) -> tuple[str, str] | None:
+        _ = (pack_name, version)
+        if enabled:
+            return (
+                "CAPABILITY_PACK_ENABLED",
+                "能力包版本仍处于启用状态。请先停用后再删除。",
+            )
+        if has_evaluations:
+            return (
+                "CAPABILITY_PACK_HAS_EVALUATIONS",
+                "能力包版本仍有历史评估引用。无法删除。",
+            )
+        return None
 
     async def list_project(
         self, session: AsyncSession, *, tenant_id: UUID, project_id: UUID
@@ -578,6 +674,7 @@ class CapabilityPackService:
                 tenant_id=tenant_id,
                 project_id=project_id,
                 version=version,
+                session=session,
             )
             next_status = "DEGRADED" if blockers else "ENABLED"
             if binding.status == next_status:
@@ -607,38 +704,71 @@ class CapabilityPackService:
         tenant_id: UUID,
         project_id: UUID,
         version: CapabilityPackVersion,
+        session: AsyncSession | None = None,
     ) -> list[dict[str, Any]]:
         manifest = CapabilityPackManifest.model_validate(version.manifest)
         required = (*manifest.spec.agents, *manifest.spec.tools)
-        if not required:
-            return []
-        if self._readiness is None:
-            return [
-                {"ref": reference, "reasons": ["DEPENDENCY_NOT_READY"]}
-                for reference in required
-            ]
-        summaries = {
-            item.ref: item
-            for item in await self._readiness.list(
-                tenant_id=tenant_id,
-                project_id=project_id,
-                environment=self._environment,
-            )
-        }
         blockers: list[dict[str, Any]] = []
-        for reference in required:
-            summary = summaries.get(reference)
-            if summary is None:
-                blockers.append(
-                    {"ref": reference, "reasons": ["DEPENDENCY_NOT_READY"]}
+        if required and self._readiness is None:
+            blockers.extend(
+                {"ref": reference, "reasons": ["DEPENDENCY_NOT_READY"]} for reference in required
+            )
+        elif required and self._readiness is not None:
+            summaries = {
+                item.ref: item
+                for item in await self._readiness.list(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    environment=self._environment,
                 )
-            elif summary.readiness.status.value != "READY":
-                blockers.append(
-                    {
-                        "ref": reference,
-                        "reasons": [reason.code.value for reason in summary.readiness.reasons],
-                    }
+            }
+            for reference in required:
+                summary = summaries.get(reference)
+                if summary is None:
+                    blockers.append({"ref": reference, "reasons": ["DEPENDENCY_NOT_READY"]})
+                elif summary.readiness.status.value != "READY":
+                    blockers.append(
+                        {
+                            "ref": reference,
+                            "reasons": [reason.code.value for reason in summary.readiness.reasons],
+                        }
+                    )
+        if session is not None and (manifest.spec.decisions or manifest.spec.resources):
+            binding = await session.scalar(
+                select(ProjectCapabilityBinding).where(
+                    ProjectCapabilityBinding.tenant_id == tenant_id,
+                    ProjectCapabilityBinding.project_id == project_id,
+                    ProjectCapabilityBinding.pack_id == version.pack_id,
                 )
+            )
+            decision_slots: set[str] = set()
+            resource_slots: set[str] = set()
+            if binding is not None:
+                decision_slots = set(
+                    await session.scalars(
+                        select(ProjectCapabilityDecisionBinding.slot).where(
+                            ProjectCapabilityDecisionBinding.project_capability_binding_id
+                            == binding.id
+                        )
+                    )
+                )
+                resource_slots = set(
+                    await session.scalars(
+                        select(CapabilityResourceBinding.slot).where(
+                            CapabilityResourceBinding.project_capability_binding_id == binding.id
+                        )
+                    )
+                )
+            blockers.extend(
+                {"ref": slot.slot, "reasons": ["DECISION_BINDING_MISSING"]}
+                for slot in manifest.spec.decisions
+                if slot.required and slot.slot not in decision_slots
+            )
+            blockers.extend(
+                {"ref": slot.slot, "reasons": ["RESOURCE_BINDING_MISSING"]}
+                for slot in manifest.spec.resources
+                if slot.required and slot.slot not in resource_slots
+            )
         return blockers
 
     async def resolve_enabled(
@@ -668,7 +798,7 @@ class CapabilityPackService:
         matches = [
             (version, CapabilityPackManifest.model_validate(version.manifest), binding)
             for version, binding in rows
-            if version.manifest.get("spec", {}).get("workItemType") == work_item_type
+            if CapabilityPackManifest.model_validate(version.manifest).case_type == work_item_type
         ]
         if not matches:
             raise ValueError("CAPABILITY_PACK_NOT_ENABLED")

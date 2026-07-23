@@ -1,0 +1,29 @@
+{
+  "contract": {
+    "contractId": "HT-2026-001",
+    "contractName": "设备采购合同",
+    "contractAmount": 100000,
+    "actualCost": 98000,
+    "currency": "CNY"
+  },
+  "evaluationPeriod": {
+    "start": "2026-01-01",
+    "end": "2026-06-30"
+  },
+  "documents": [
+    {"documentId": "contract-1", "category": "合同正文", "required": true, "status": "VALID"},
+    {"documentId": "acceptance-1", "category": "验收文件", "required": true, "status": "VALID"}
+  ],
+  "obligations": [
+    {"obligationId": "delivery-1", "category": "设备交付", "timeliness": "ON_TIME", "quality": "ACCEPTED"}
+  ],
+  "deviations": [
+    {"deviationId": "deviation-1", "category": "范围", "severity": "LOW", "status": "CLOSED", "costImpact": 0, "delayDays": 0}
+  ],
+  "invoices": [
+    {"invoiceId": "invoice-1", "amount": 98000, "contractMatched": true, "acceptanceMatched": true, "taxValid": true, "duplicate": false}
+  ],
+  "risks": [
+    {"riskId": "risk-1", "category": "供应", "level": "LOW", "status": "CLOSED", "actionOverdue": false}
+  ]
+}

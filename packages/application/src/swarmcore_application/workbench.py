@@ -19,16 +19,21 @@ from swarmcore_persistence.models import (
     FindingAction,
     IdempotencyKey,
     OutboxEvent,
+    ProjectCapabilityDecisionBinding,
     Report,
+    RuleSetVersion,
     Run,
     RunCommand,
     WorkItem,
     WorkItemAttachment,
     WorkItemRevision,
+    WorkItemSubject,
 )
 from swarmcore_persistence.repositories import canonical_hash
 
 from .capability_packs import CapabilityPackService
+from .decision_assets import DecisionExecutionService, normalize_decision
+from .document_library import DocumentLibraryService
 from .integrity import AttachmentInput, IntegrityResult, IntegrityRuleDocument, evaluate_integrity
 from .rule_sets import RuleSetService
 from .services import RunService
@@ -48,6 +53,8 @@ class WorkbenchService:
         self._runs = runs or RunService()
         self._rule_sets = rule_sets or RuleSetService()
         self._audit = AuditRepository()
+        self._decision_executions = DecisionExecutionService()
+        self._documents = DocumentLibraryService()
 
     async def list_work_items(
         self,
@@ -172,6 +179,10 @@ class WorkbenchService:
         )
         del pack_version, binding
         schema_ref = manifest.spec.work_item_schema
+        if schema_ref is None:
+            if manifest.spec.case is None:
+                raise ValueError("CAPABILITY_PACK_CASE_INVALID")
+            schema_ref = manifest.spec.case.schema_ref
         self._validate_schema(schema_ref, payload)
         request_hash = canonical_hash(
             {"workItemType": work_item_type, "payload": payload, "owner": owner}
@@ -235,6 +246,8 @@ class WorkbenchService:
         expected_revision: int,
         idempotency_key: str,
         actor: str,
+        copy_subjects: bool = True,
+        subject_fingerprint: list[dict[str, str]] | None = None,
     ) -> tuple[WorkItem, WorkItemRevision]:
         item = await self._get_item_for_update(
             session, tenant_id=tenant_id, project_id=project_id, work_item_id=work_item_id
@@ -246,6 +259,7 @@ class WorkbenchService:
                 "expectedRevision": expected_revision,
                 "payload": payload,
                 "owner": owner,
+                "subjects": subject_fingerprint,
             }
         )
         operation = f"work-item.update:{work_item_id}"
@@ -273,6 +287,8 @@ class WorkbenchService:
         item.status = "DRAFT"
         revision = await self._add_revision(session, item=item, actor=actor)
         await self._copy_attachments(session, previous=previous, target=revision)
+        if copy_subjects:
+            await self._copy_subjects(session, previous=previous, target=revision)
         await self._record_idempotency(
             session,
             tenant_id=tenant_id,
@@ -352,6 +368,7 @@ class WorkbenchService:
             item.status = "DRAFT"
             revision = await self._add_revision(session, item=item, actor=actor)
             await self._copy_attachments(session, previous=previous, target=revision)
+            await self._copy_subjects(session, previous=previous, target=revision)
         attachment_id = uuid7()
         blob_id = uuid7()
         blob = BlobObject(
@@ -503,16 +520,64 @@ class WorkbenchService:
         if existing is not None:
             return existing
         attachments = await self._attachments(session, revision.id)
+        subjects = list(
+            await session.scalars(
+                select(WorkItemSubject).where(WorkItemSubject.work_item_revision_id == revision.id)
+            )
+        )
+        decision_bindings = list(
+            await session.scalars(
+                select(ProjectCapabilityDecisionBinding).where(
+                    ProjectCapabilityDecisionBinding.project_capability_binding_id == binding.id
+                )
+            )
+        )
+        if manifest.spec.case is not None and manifest.spec.case.subjects_required and not subjects:
+            raise ValueError("CASE_SUBJECT_REQUIRED")
+        decision_slots = {value.slot for value in decision_bindings}
+        if any(
+            value.required and value.slot not in decision_slots for value in manifest.spec.decisions
+        ):
+            raise ValueError("DECISION_BINDING_REQUIRED")
+        business_work_keys = _business_work_keys(
+            manifest.metadata.name,
+            item.work_item_type,
+        )
+        document_versions = await self._documents.current_versions_for_work(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            business_work_keys=business_work_keys,
+            business_object_ids=tuple(value.business_object_id for value in subjects),
+        )
+        available_categories = {document.category for document, _, _ in document_versions}
+        if any(
+            requirement.required and requirement.category not in available_categories
+            for requirement in manifest.spec.documents
+        ):
+            raise ValueError("DOCUMENT_SELECTION_REQUIRED")
         attachment_hash = canonical_hash(
-            [
-                {
-                    "attachmentId": str(attachment.id),
-                    "blobId": str(blob.id),
-                    "documentType": attachment.document_type,
-                    "sha256": blob.sha256,
-                }
-                for attachment, blob in attachments
-            ]
+            {
+                "attachments": [
+                    {
+                        "attachmentId": str(attachment.id),
+                        "blobId": str(blob.id),
+                        "documentType": attachment.document_type,
+                        "sha256": blob.sha256,
+                    }
+                    for attachment, blob in attachments
+                ],
+                "documents": [
+                    {
+                        "documentId": str(document.id),
+                        "documentVersionId": str(version.id),
+                        "blobId": str(blob.id),
+                        "version": version.version,
+                        "sha256": version.sha256,
+                    }
+                    for document, version, blob in document_versions
+                ],
+            }
         )
         rule_version = None
         if manifest.spec.rules is not None:
@@ -522,6 +587,12 @@ class WorkbenchService:
                 project_id=project_id,
                 payload=revision.payload,
             )
+        elif decision_bindings:
+            rule_version = await session.get(
+                RuleSetVersion, decision_bindings[0].rule_set_version_id
+            )
+            if rule_version is None or rule_version.status != "PUBLISHED":
+                raise ValueError("DECISION_VERSION_NOT_PUBLISHED")
         evaluation_id = uuid7()
         input_data: dict[str, Any] = {
             "workItemId": str(item.id),
@@ -529,9 +600,34 @@ class WorkbenchService:
             "evaluationId": str(evaluation_id),
             "payload": revision.payload,
             "attachments": [self._attachment_payload(value) for value in attachments],
+            "documents": [
+                {
+                    "documentId": str(document.id),
+                    "documentVersionId": str(version.id),
+                    "blobId": str(blob.id),
+                    "name": document.name,
+                    "category": document.category,
+                    "filename": version.filename,
+                    "mediaType": version.media_type,
+                    "sizeBytes": version.size_bytes,
+                    "sha256": version.sha256,
+                    "version": version.version,
+                }
+                for document, version, blob in document_versions
+            ],
             "attachmentManifestHash": attachment_hash,
             "configuration": dict(binding.configuration),
         }
+        if manifest.api_version == "swarmcore.io/v2":
+            input_data["subjects"] = [
+                {
+                    "subjectKey": value.subject_key,
+                    "role": value.role,
+                    "businessObjectId": str(value.business_object_id),
+                    "businessObjectVersionId": str(value.business_object_version_id),
+                }
+                for value in subjects
+            ]
         if rule_version is not None:
             input_data.update(
                 {
@@ -590,7 +686,25 @@ class WorkbenchService:
         )
         session.add(evaluation)
         await session.flush()
-        if rule_version is not None:
+        frozen_decisions = [
+            await self._decision_executions.freeze(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                evaluation_id=evaluation.id,
+                binding=value,
+            )
+            for value in decision_bindings
+        ]
+        await self._documents.freeze_usage(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            evaluation=evaluation,
+            business_work_key=manifest.metadata.name,
+            documents=document_versions,
+        )
+        if rule_version is not None and manifest.spec.rules is not None:
             result = evaluate_integrity(
                 rule_set_version_id=str(rule_version.id),
                 document=IntegrityRuleDocument.model_validate(rule_version.rules),
@@ -613,6 +727,45 @@ class WorkbenchService:
                 command=command,
                 output=result.model_dump(mode="json", by_alias=True),
             )
+        elif frozen_decisions:
+            frozen = frozen_decisions[0]
+            decision_version = await session.get(RuleSetVersion, frozen.rule_set_version_id)
+            if decision_version is None:
+                raise RuntimeError("frozen decision version is missing")
+            envelope = normalize_decision(decision_version.rules)
+            if envelope.type == "CHECKLIST":
+                result = evaluate_integrity(
+                    rule_set_version_id=str(decision_version.id),
+                    document=IntegrityRuleDocument.model_validate(envelope.definition),
+                    attachments=[
+                        AttachmentInput.model_validate(self._attachment_payload(value))
+                        for value in attachments
+                    ],
+                    attachment_manifest_hash=attachment_hash,
+                )
+                output = result.model_dump(mode="json", by_alias=True)
+                await self._decision_executions.record(
+                    session,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    evaluation_decision_id=frozen.id,
+                    execution_key=f"assessment:{evaluation.id}:{frozen.slot}",
+                    attempt=1,
+                    status="SUCCEEDED",
+                    input_value=input_data,
+                    output=output,
+                    matched_rule_ids=[value.rule_key for value in result.findings],
+                    duration_ms=0,
+                    run_id=run.id,
+                )
+                await self._record_result(
+                    session,
+                    item=item,
+                    evaluation=evaluation,
+                    result=result,
+                    actor=actor,
+                )
+                await self._complete_inline_run(session, run=run, command=command, output=output)
         await self._audit.append(
             session,
             tenant_id=tenant_id,
@@ -1029,9 +1182,7 @@ class WorkbenchService:
             raise LookupError("work item not found")
         return item
 
-    async def _current_revision(
-        self, session: AsyncSession, item: WorkItem
-    ) -> WorkItemRevision:
+    async def _current_revision(self, session: AsyncSession, item: WorkItem) -> WorkItemRevision:
         revision = await session.scalar(
             select(WorkItemRevision).where(
                 WorkItemRevision.work_item_id == item.id,
@@ -1068,9 +1219,7 @@ class WorkbenchService:
     ) -> None:
         values = list(
             await session.scalars(
-                select(WorkItemAttachment).where(
-                    WorkItemAttachment.revision_id == previous.id
-                )
+                select(WorkItemAttachment).where(WorkItemAttachment.revision_id == previous.id)
             )
         )
         session.add_all(
@@ -1083,6 +1232,35 @@ class WorkbenchService:
                     blob_id=value.blob_id,
                     document_type=value.document_type,
                     label=value.label,
+                )
+                for value in values
+            ]
+        )
+        await session.flush()
+
+    async def _copy_subjects(
+        self,
+        session: AsyncSession,
+        *,
+        previous: WorkItemRevision,
+        target: WorkItemRevision,
+    ) -> None:
+        values = list(
+            await session.scalars(
+                select(WorkItemSubject).where(WorkItemSubject.work_item_revision_id == previous.id)
+            )
+        )
+        session.add_all(
+            [
+                WorkItemSubject(
+                    tenant_id=value.tenant_id,
+                    project_id=value.project_id,
+                    work_item_id=value.work_item_id,
+                    work_item_revision_id=target.id,
+                    business_object_id=value.business_object_id,
+                    business_object_version_id=value.business_object_version_id,
+                    role=value.role,
+                    subject_key=value.subject_key,
                 )
                 for value in values
             ]
@@ -1196,9 +1374,22 @@ class WorkbenchService:
         await session.flush()
 
 
-def _render_html_report(
-    item: WorkItem, evaluation: Evaluation, result: dict[str, Any]
-) -> str:
+def _business_work_keys(pack_name: str, work_item_type: str) -> tuple[str, ...]:
+    if pack_name == "contract-post-evaluation":
+        return (
+            pack_name,
+            work_item_type,
+            "document-integrity",
+            "performance-plan-collection",
+            "invoice-assurance",
+            "deviation-analysis",
+            "procurement-supplier-risk",
+            "report-generation",
+        )
+    return (pack_name, work_item_type)
+
+
+def _render_html_report(item: WorkItem, evaluation: Evaluation, result: dict[str, Any]) -> str:
     rows = "".join(
         "<li><strong>"
         + html.escape(str(value["code"]))
@@ -1209,7 +1400,7 @@ def _render_html_report(
     )
     verdict = "通过" if result.get("passed") else "未通过"
     return (
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>完整性校验报告</title>"
+        '<!doctype html><html><head><meta charset="utf-8"><title>完整性校验报告</title>'
         "</head><body><h1>完整性校验报告</h1>"
         f"<p>工作项: {html.escape(str(item.id))}</p>"
         f"<p>评估: {html.escape(str(evaluation.id))}</p>"

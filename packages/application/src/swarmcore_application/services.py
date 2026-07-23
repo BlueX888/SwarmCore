@@ -92,7 +92,7 @@ class StrategyService:
             )
         )
         if existing is not None:
-            if existing.plan_hash != plan.plan_hash:
+            if canonical_hash(existing.raw_spec) != canonical_hash(raw_spec):
                 raise PersistenceConflictError(
                     "trusted strategy version is immutable and has different content"
                 )

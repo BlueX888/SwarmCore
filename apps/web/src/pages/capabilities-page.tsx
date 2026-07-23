@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Copy, Cpu, Network, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Trash2, Wrench } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import { Bot, CheckCircle2, Copy, Cpu, Network, Play, PlugZap, Plus, RefreshCw, Save, Search, Settings2, ShieldCheck, Trash2, Wrench, X } from "lucide-react";
 import * as React from "react";
 import { useNavigate } from "react-router";
 import { api } from "@/api/client";
 import type { CapabilityKind, CapabilityPreset, CapabilitySummary, ReadinessReasonCode } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 
@@ -15,7 +16,7 @@ const kindLabels: Record<CapabilityKind, string> = { agent: "智能体", tool: "
 const pageDescriptions: Record<CapabilityKind, string> = {
   agent: "选择已就绪智能体直接运行，或基于内置版本创建可编辑的项目配置。",
   tool: "选择已就绪工具直接运行，或保存参数为我的预设。",
-  model: "选择已就绪模型直接运行，或保存参数为我的预设。",
+  model: "本环境已配置路由的模型会出现在此。默认只显示可用项；勾选可查看已配置但未就绪的模型。",
   policy: "查看策略的就绪状态，或保存参数为我的预设。",
 };
 const reasonLabels: Record<ReadinessReasonCode, string> = {
@@ -42,6 +43,7 @@ export function CapabilitiesPage({ kind }: { kind: CapabilityKind }) {
   const [formError, setFormError] = React.useState("");
   const [presetName, setPresetName] = React.useState("");
   const [selectedPresetId, setSelectedPresetId] = React.useState("");
+  const [creatingModel, setCreatingModel] = React.useState(false);
   const query = useQuery({ queryKey: ["capability-center", tenantId, projectId], queryFn: () => api.getCapabilityCenter(tenantId, projectId) });
   const presets = useQuery({ queryKey: ["capability-presets", tenantId, projectId], queryFn: () => api.listPresets(tenantId, projectId) });
   const filtered = React.useMemo(() => (query.data?.items ?? []).filter((item) => {
@@ -101,27 +103,97 @@ export function CapabilitiesPage({ kind }: { kind: CapabilityKind }) {
     void navigate(`${workspacePath}/canvas`, { state: { capability: selected, input: value } });
   };
   return <div className="min-w-0 space-y-6">
-    <header className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm font-medium text-brand-500">能力中心</p><h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{kindLabels[kind]}</h1><p className="mt-1 text-sm text-gray-500">{pageDescriptions[kind]}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void Promise.all([query.refetch(), presets.refetch()])} loading={query.isFetching || presets.isFetching}><RefreshCw />刷新</Button>{kind === "agent" ? <Button onClick={() => void navigate(`${workspacePath}/agents/configure?new=1`)}><Plus />创建智能体</Button> : null}</div></header>
-    <Card><CardContent className="grid gap-3 pt-5 md:grid-cols-[minmax(0,1fr)_auto]"><label className="relative"><Search className="absolute left-3 top-2.5 size-5 text-gray-400" /><input aria-label={`搜索${kindLabels[kind]}`} className={`${fieldClass} pl-10`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`搜索${kindLabels[kind]}名称或用途`} /></label><label className="flex items-center gap-2 whitespace-nowrap text-sm text-gray-600"><input type="checkbox" checked={showNotReady} onChange={(event) => setShowNotReady(event.target.checked)} />显示未就绪</label></CardContent></Card>
+    <header className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm font-medium text-brand-500">能力中心</p><h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{kindLabels[kind]}</h1><p className="mt-1 text-sm text-gray-500">{pageDescriptions[kind]}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void Promise.all([query.refetch(), presets.refetch()])} loading={query.isFetching || presets.isFetching}><RefreshCw />刷新</Button>{kind === "tool" ? <Button onClick={() => void navigate(`${workspacePath}/tools/new`)}><Plus />新建工具</Button> : null}{kind === "model" ? <Button onClick={() => setCreatingModel(true)}><Plus />新建模型</Button> : null}{kind === "agent" ? <Button onClick={() => void navigate(`${workspacePath}/agents/configure?new=1`)}><Plus />创建智能体</Button> : null}{kind === "policy" ? <Button onClick={() => void navigate(`${workspacePath}/policies/new`)}><Plus />新建策略</Button> : null}</div></header>
+    <Card><CardContent className="grid gap-3 pt-5 md:grid-cols-[minmax(0,1fr)_auto]"><label className="relative"><Search className="absolute left-3 top-2.5 size-5 text-gray-400" /><input aria-label={`搜索${kindLabels[kind]}`} className={`${fieldClass} pl-10`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`搜索${kindLabels[kind]}名称或用途`} /></label><label className="flex items-center gap-2 whitespace-nowrap text-sm text-gray-600" title={kind === "model" ? "仅影响已配置路由的模型；未登记 SWARMCORE_MODEL_ROUTES 的模型不会出现" : undefined}><input type="checkbox" checked={showNotReady} onChange={(event) => setShowNotReady(event.target.checked)} />{kind === "model" ? "显示已配置但未就绪" : "显示未就绪"}</label></CardContent></Card>
     {query.isPending ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-52" />)}</div> : null}
     {query.isError ? <Card><CardContent className="py-12 text-center text-error-600">无法加载能力中心：{query.error.message}</CardContent></Card> : null}
-    {!query.isPending && !query.isError && !filtered.length ? <Card><CardContent className="py-12 text-center text-sm text-gray-500">当前筛选条件下没有可显示的能力。</CardContent></Card> : null}
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{filtered.map((item) => <CapabilityCard key={item.ref} item={item} selected={selected?.ref === item.ref} onSelect={() => choose(item)} onConfigure={item.kind === "agent" ? () => void navigate(`${workspacePath}/agents/configure?copy=${encodeURIComponent(item.ref)}`) : undefined} />)}</div>
-    {selected ? <Card><CardHeader><div><CardTitle>{selected.name}</CardTitle><p className="mt-1 text-sm text-gray-500">{selected.description}</p></div><Badge color={selected.readiness.status === "READY" ? "success" : "warning"}>{selected.readiness.status === "READY" ? "可用" : "未就绪"}</Badge></CardHeader><CardContent className="space-y-5">
-      {selected.readiness.reasons.length ? <ul className="rounded-xl bg-warning-50 p-4 text-sm text-warning-700 dark:bg-warning-500/10">{selected.readiness.reasons.map((reason) => <li key={`${reason.code}-${reason.dependencyRef ?? ""}`}>{reasonLabels[reason.code]}{reason.dependencyRef ? `：${reason.dependencyRef}` : ""}</li>)}</ul> : null}
-      {kind === "agent" ? <p className="rounded-xl bg-brand-50 p-3 text-sm text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">系统内置版本保持只读。“编辑配置”会复制当前模型、工具和提示词，创建可独立修改的项目配置。</p> : null}
-      <InputForm properties={simpleProperties} input={input} jsonInput={jsonInput} onInput={setInput} onJsonInput={setJsonInput} />
-      <section className="space-y-3" aria-labelledby="preset-title"><div><h3 id="preset-title" className="font-semibold text-gray-900 dark:text-white">我的预设</h3><p className="text-sm text-gray-500">预设只保存可复用参数，不保存凭证。</p></div>{capabilityPresets.length ? <div className="flex flex-wrap gap-2">{capabilityPresets.map((preset) => <span key={preset.presetId} className="inline-flex items-center rounded-lg border border-gray-200 dark:border-gray-700"><button type="button" className="px-3 py-2 text-sm" onClick={() => loadPreset(preset)}>{preset.name}</button><button type="button" aria-label={`复制预设 ${preset.name}`} className="p-2 text-gray-400 hover:text-brand-500" onClick={() => copyPreset.mutate(preset)}><Copy className="size-4" /></button><button type="button" aria-label={`删除预设 ${preset.name}`} className="p-2 text-gray-400 hover:text-error-500" onClick={() => deletePreset.mutate(preset.presetId)}><Trash2 className="size-4" /></button></span>)}</div> : <p className="text-sm text-gray-500">尚未保存预设。</p>}<div className="flex flex-wrap gap-2"><input aria-label="预设名称" className={`${fieldClass} max-w-sm`} value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="例如：日报检索" /><Button variant="outline" onClick={() => savePreset.mutate()} loading={savePreset.isPending} disabled={!presetName.trim()}>{selectedPresetId ? null : <Plus />}{selectedPresetId ? "更新预设" : "保存预设"}</Button>{selectedPresetId ? <Button variant="ghost" onClick={() => { setSelectedPresetId(""); setPresetName(""); }}>取消编辑</Button> : null}</div></section>
-      {formError ? <p role="alert" className="rounded-lg bg-error-50 p-3 text-sm text-error-600">{formError}</p> : null}
-      <div className="flex flex-wrap justify-end gap-2">{kind === "agent" ? <Button aria-label="编辑当前智能体配置" variant="outline" onClick={() => void navigate(`${workspacePath}/agents/configure?copy=${encodeURIComponent(selected.ref)}`)}><Settings2 />编辑配置</Button> : null}<Button variant="outline" onClick={addToCanvas} disabled={selected.readiness.status !== "READY"}><Network />加入画布</Button><Button onClick={() => run.mutate()} loading={run.isPending} disabled={selected.readiness.status !== "READY"}><Play />立即运行</Button></div>
-      <details className="rounded-xl border border-gray-200 p-4 text-sm dark:border-gray-800"><summary className="cursor-pointer font-medium">高级详情</summary><pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs text-gray-500">{JSON.stringify({ ref: selected.ref, source: selected.source, risk: selected.risk, inputSchema: selected.inputSchema, outputSchema: selected.outputSchema }, null, 2)}</pre></details>
-    </CardContent></Card> : null}
+    {!query.isPending && !query.isError && !filtered.length ? <Card><CardContent className="space-y-2 py-12 text-center text-sm text-gray-500"><p>{kind === "model" ? (showNotReady ? "当前环境没有已配置路由的模型。" : "没有可用模型。") : "当前筛选条件下没有可显示的能力。"}</p>{kind === "model" ? <p className="text-xs text-gray-400">点击“新建模型”配置 API URL、API Key 和 ModelName，然后检测真实连接。</p> : null}</CardContent></Card> : null}
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{filtered.map((item) => <CapabilityCard key={item.ref} item={item} selected={selected?.ref === item.ref} onSelect={() => choose(item)} onConfigure={item.kind === "agent" ? () => void navigate(agentConfigurationPath(workspacePath, item)) : undefined} />)}</div>
+    {kind === "model" && creatingModel ? <NewModelConfigurationDialog modelRefs={(query.data?.items ?? []).filter((item) => item.kind === "model").map((item) => item.ref)} tenantId={tenantId} projectId={projectId} onClose={() => setCreatingModel(false)} onSaved={async () => { setCreatingModel(false); await query.refetch(); }} /> : null}
+    {selected ? <Dialog.Root open onOpenChange={(open) => { if (!open) setSelected(undefined); }}><Dialog.Portal>
+      <Dialog.Overlay className="fixed inset-0 z-40 bg-gray-950/50 backdrop-blur-[2px]" />
+      <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 outline-none">
+        <div className="flex max-h-[92vh] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xl dark:border-gray-800 dark:bg-gray-900">
+          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-gray-100 p-5 dark:border-gray-800">
+            <div className="min-w-0">
+              <Dialog.Title asChild><h2 className="font-semibold text-gray-900 dark:text-white">{selected.name}</h2></Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-gray-500">{selected.description}</Dialog.Description>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge color={selected.readiness.status === "READY" ? "success" : "warning"}>{selected.readiness.status === "READY" ? "可用" : "未就绪"}</Badge>
+              <Dialog.Close asChild><Button type="button" variant="ghost" size="icon" aria-label="关闭详情"><X /></Button></Dialog.Close>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+            {selected.readiness.reasons.length ? <ul className="rounded-xl bg-warning-50 p-4 text-sm text-warning-700 dark:bg-warning-500/10">{selected.readiness.reasons.map((reason) => <li key={`${reason.code}-${reason.dependencyRef ?? ""}`}>{reasonLabels[reason.code]}{reason.dependencyRef ? `：${reason.dependencyRef}` : ""}</li>)}</ul> : null}
+            {kind === "agent" ? <p className="rounded-xl bg-brand-50 p-3 text-sm text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">{selected.source === "project" ? "这是当前项目的版本化智能体；运行时会由 Agno Adapter 创建真实实例。" : "系统内置版本保持只读。“编辑配置”会复制当前模型、工具和提示词，创建可独立修改的项目智能体。"}</p> : null}
+            {kind === "model" ? <ModelProviderForm tenantId={tenantId} projectId={projectId} capabilityRef={selected.ref} onSaved={async () => { await queryClient.invalidateQueries({ queryKey: ["capability-center", tenantId, projectId] }); }} /> : null}
+            <InputForm properties={simpleProperties} input={input} jsonInput={jsonInput} onInput={setInput} onJsonInput={setJsonInput} />
+            <section className="space-y-3" aria-labelledby="preset-title"><div><h3 id="preset-title" className="font-semibold text-gray-900 dark:text-white">我的预设</h3><p className="text-sm text-gray-500">预设只保存可复用参数，不保存凭证。</p></div>{capabilityPresets.length ? <div className="flex flex-wrap gap-2">{capabilityPresets.map((preset) => <span key={preset.presetId} className="inline-flex items-center rounded-lg border border-gray-200 dark:border-gray-700"><button type="button" className="px-3 py-2 text-sm" onClick={() => loadPreset(preset)}>{preset.name}</button><button type="button" aria-label={`复制预设 ${preset.name}`} className="p-2 text-gray-400 hover:text-brand-500" onClick={() => copyPreset.mutate(preset)}><Copy className="size-4" /></button><button type="button" aria-label={`删除预设 ${preset.name}`} className="p-2 text-gray-400 hover:text-error-500" onClick={() => deletePreset.mutate(preset.presetId)}><Trash2 className="size-4" /></button></span>)}</div> : <p className="text-sm text-gray-500">尚未保存预设。</p>}<div className="flex flex-wrap gap-2"><input aria-label="预设名称" className={`${fieldClass} max-w-sm`} value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="例如：日报检索" /><Button variant="outline" onClick={() => savePreset.mutate()} loading={savePreset.isPending} disabled={!presetName.trim()}>{selectedPresetId ? null : <Plus />}{selectedPresetId ? "更新预设" : "保存预设"}</Button>{selectedPresetId ? <Button variant="ghost" onClick={() => { setSelectedPresetId(""); setPresetName(""); }}>取消编辑</Button> : null}</div></section>
+            {formError ? <p role="alert" className="rounded-lg bg-error-50 p-3 text-sm text-error-600">{formError}</p> : null}
+            <details className="rounded-xl border border-gray-200 p-4 text-sm dark:border-gray-800"><summary className="cursor-pointer font-medium">高级详情</summary><pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs text-gray-500">{JSON.stringify({ ref: selected.ref, source: selected.source, risk: selected.risk, inputSchema: selected.inputSchema, outputSchema: selected.outputSchema }, null, 2)}</pre></details>
+          </div>
+          <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-gray-100 px-5 py-4 dark:border-gray-800">{kind === "agent" ? <Button aria-label="编辑当前智能体配置" variant="outline" onClick={() => void navigate(agentConfigurationPath(workspacePath, selected))}><Settings2 />编辑配置</Button> : null}<Button variant="outline" onClick={addToCanvas} disabled={selected.readiness.status !== "READY"}><Network />加入画布</Button><Button onClick={() => run.mutate()} loading={run.isPending} disabled={selected.readiness.status !== "READY"}><Play />立即运行</Button></div>
+        </div>
+      </Dialog.Content>
+    </Dialog.Portal></Dialog.Root> : null}
   </div>;
+}
+
+function agentConfigurationPath(workspacePath: string, item: CapabilitySummary): string {
+  if (item.source === "project") {
+    const match = /^agent:\/\/project\/([^@]+)@\d+$/.exec(item.ref);
+    if (match?.[1]) return `${workspacePath}/agents/configure?configuration=${encodeURIComponent(match[1])}`;
+  }
+  return `${workspacePath}/agents/configure?copy=${encodeURIComponent(item.ref)}`;
+}
+
+function NewModelConfigurationDialog({ modelRefs, tenantId, projectId, onClose, onSaved }: { modelRefs: string[]; tenantId: string; projectId: string; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [capabilityRef, setCapabilityRef] = React.useState(modelRefs[0] ?? "model://general@1");
+  return <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-40 bg-gray-950/50 backdrop-blur-[2px]" /><Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 outline-none"><div className="rounded-2xl border border-gray-200 bg-white shadow-theme-xl dark:border-gray-800 dark:bg-gray-900"><div className="flex items-start justify-between border-b border-gray-100 p-5 dark:border-gray-800"><div><Dialog.Title className="font-semibold text-gray-900 dark:text-white">新建模型配置</Dialog.Title><Dialog.Description className="mt-1 text-sm text-gray-500">选择逻辑模型路由，并配置真实模型服务。</Dialog.Description></div><Dialog.Close asChild><Button variant="ghost" size="icon" aria-label="关闭新建模型"><X /></Button></Dialog.Close></div><div className="space-y-4 p-5"><label className="text-sm font-medium text-gray-700 dark:text-gray-300">逻辑模型<select aria-label="逻辑模型路由" className={`mt-2 ${fieldClass}`} value={capabilityRef} onChange={(event) => setCapabilityRef(event.target.value)}>{modelRefs.map((ref) => <option key={ref} value={ref}>{ref.replace(/@[^@]+$/, "")}</option>)}</select></label><ModelProviderForm key={capabilityRef} tenantId={tenantId} projectId={projectId} capabilityRef={capabilityRef} onSaved={onSaved} /></div></div></Dialog.Content></Dialog.Portal></Dialog.Root>;
+}
+
+function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved }: { tenantId: string; projectId: string; capabilityRef: string; onSaved: () => Promise<void> }) {
+  const logicalModel = capabilityRef.replace(/@[^@]+$/, "");
+  const configuration = useQuery({ queryKey: ["model-provider", tenantId, projectId, logicalModel], queryFn: () => api.getModelProvider(tenantId, projectId, logicalModel) });
+  const [providerUrl, setProviderUrl] = React.useState("");
+  const [modelName, setModelName] = React.useState("");
+  const [apiKey, setApiKey] = React.useState("");
+  const [notice, setNotice] = React.useState("");
+  React.useEffect(() => {
+    if (!configuration.data) return;
+    setProviderUrl(configuration.data.providerUrl);
+    setModelName(configuration.data.modelName);
+  }, [configuration.data]);
+  const body = () => ({ logicalModel, providerUrl: providerUrl.trim(), modelName: modelName.trim(), ...(apiKey ? { apiKey } : {}) });
+  const canSubmit = Boolean(providerUrl.trim() && modelName.trim() && (apiKey || configuration.data?.apiKeyConfigured));
+  const test = useMutation({
+    mutationFn: () => api.testModelProvider(tenantId, projectId, body()),
+    onSuccess: (result) => setNotice(`连接成功：${result.modelName}，真实响应耗时 ${result.latencyMs} ms。`),
+    onError: (error) => setNotice(`连接失败：${error.message}`),
+  });
+  const save = useMutation({
+    mutationFn: () => api.saveModelProvider(tenantId, projectId, body()),
+    onSuccess: async () => { setApiKey(""); setNotice("配置已保存，API Key 已写入 Vault。"); await configuration.refetch(); await onSaved(); },
+    onError: (error) => setNotice(`保存失败：${error.message}`),
+  });
+  return <section className="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800" aria-labelledby="model-provider-title">
+    <div><h3 id="model-provider-title" className="font-semibold text-gray-900 dark:text-white">模型服务配置</h3><p className="mt-1 text-xs text-gray-500">支持 OpenAI 兼容的 /v1 地址；检测会真实调用一次模型。API Key 保存到 Vault，页面不会回显。</p></div>
+    <div className="grid gap-4 md:grid-cols-2">
+      <label className="text-sm font-medium text-gray-700 dark:text-gray-300 md:col-span-2">API URL<input aria-label="模型 API URL" className={`mt-2 ${fieldClass}`} value={providerUrl} onChange={(event) => { setProviderUrl(event.target.value); setNotice(""); }} placeholder="https://api.example.com/v1" /></label>
+      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">ModelName<input aria-label="模型名称" className={`mt-2 ${fieldClass}`} value={modelName} onChange={(event) => { setModelName(event.target.value); setNotice(""); }} placeholder="gpt-4.1-mini" /></label>
+      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">API Key<input aria-label="模型 API Key" type="password" autoComplete="new-password" className={`mt-2 ${fieldClass}`} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setNotice(""); }} placeholder={configuration.data?.apiKeyConfigured ? "已配置；留空表示保持不变" : "请输入 API Key"} /></label>
+    </div>
+    {configuration.isError ? <p role="alert" className="text-sm text-error-600">读取配置失败：{configuration.error.message}</p> : null}
+    {notice ? <p role="status" className={`rounded-lg p-3 text-sm ${notice.startsWith("连接失败") || notice.startsWith("保存失败") ? "bg-error-50 text-error-600" : "bg-success-50 text-success-700"}`}>{notice}</p> : null}
+    <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => test.mutate()} loading={test.isPending} disabled={!canSubmit}><PlugZap />检测连接</Button><Button onClick={() => save.mutate()} loading={save.isPending} disabled={!canSubmit}><Save />保存配置</Button>{notice.startsWith("连接成功") ? <CheckCircle2 className="mt-2 size-5 text-success-500" aria-hidden="true" /> : null}</div>
+  </section>;
 }
 
 function CapabilityCard({ item, selected, onSelect, onConfigure }: { item: CapabilitySummary; selected: boolean; onSelect: () => void; onConfigure?: () => void }) {
   const Icon = item.kind === "agent" ? Bot : item.kind === "model" ? Cpu : item.kind === "policy" ? ShieldCheck : Wrench;
-  return <article className={`flex flex-col rounded-2xl border bg-white shadow-theme-xs transition dark:bg-gray-900 ${selected ? "border-brand-500 ring-3 ring-brand-500/10" : "border-gray-200 hover:border-brand-300 dark:border-gray-800"}`}><button type="button" onClick={onSelect} className="min-w-0 flex-1 p-5 text-left"><span className="flex items-start justify-between gap-3"><span className="grid size-11 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15"><Icon /></span><Badge color={item.readiness.status === "READY" ? "success" : "warning"}>{item.readiness.status === "READY" ? "可用" : "未就绪"}</Badge></span><span className="mt-4 block font-semibold text-gray-900 dark:text-white">{item.name}</span><span className="mt-1 line-clamp-2 block min-h-10 text-sm text-gray-500">{item.description}</span><span className="mt-4 flex items-center gap-2 text-xs text-gray-400"><span>{kindLabels[item.kind]}</span><span>·</span><span>{item.source === "system" ? "系统内置" : item.source}</span>{item.risk ? <><span>·</span><span>{item.risk} 风险</span></> : null}</span></button>{onConfigure ? <div className="border-t border-gray-100 px-5 py-2 dark:border-gray-800"><button type="button" aria-label={`编辑 ${item.name} 配置`} className="inline-flex items-center gap-2 py-1 text-sm font-medium text-brand-500 hover:text-brand-600" onClick={onConfigure}><Settings2 className="size-4" />编辑配置</button></div> : null}</article>;
+  const riskColor = item.risk === "LOW" ? "success" : item.risk === "HIGH" || item.risk === "CRITICAL" ? "error" : "warning";
+  return <article className={`flex flex-col rounded-2xl border bg-white shadow-theme-xs transition dark:bg-gray-900 ${selected ? "border-brand-500 ring-3 ring-brand-500/10" : "border-gray-200 hover:border-brand-300 dark:border-gray-800"}`}><button type="button" onClick={onSelect} className="min-w-0 flex-1 p-5 text-left"><span className="flex items-start justify-between gap-3"><span className="grid size-11 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15"><Icon /></span><Badge color={item.readiness.status === "READY" ? "success" : "warning"}>{item.readiness.status === "READY" ? "可用" : "未就绪"}</Badge></span><span className="mt-4 block font-semibold text-gray-900 dark:text-white">{item.name}</span><span className="mt-1 line-clamp-2 block min-h-10 text-sm text-gray-500">{item.description}</span><span className="mt-4 flex items-center gap-2 text-xs"><Badge color="neutral">{item.source === "system" ? "系统内置" : item.source === "project" ? "项目创建" : item.source}</Badge>{item.risk ? <Badge color={riskColor}>{item.risk} 风险</Badge> : null}</span></button>{onConfigure ? <div className="border-t border-gray-100 px-5 py-2 dark:border-gray-800"><button type="button" aria-label={`编辑 ${item.name} 配置`} className="inline-flex items-center gap-2 py-1 text-sm font-medium text-brand-500 hover:text-brand-600" onClick={onConfigure}><Settings2 className="size-4" />编辑配置</button></div> : null}</article>;
 }
 
 function InputForm({ properties, input, jsonInput, onInput, onJsonInput }: { properties: Array<[string, Record<string, unknown>]> | null; input: Record<string, unknown>; jsonInput: string; onInput: (value: Record<string, unknown>) => void; onJsonInput: (value: string) => void }) {

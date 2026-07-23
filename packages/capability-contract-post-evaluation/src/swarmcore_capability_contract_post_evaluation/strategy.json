@@ -1,0 +1,71 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "SwarmStrategy",
+    "metadata": {"name": "contract-post-evaluation-generate-v7"},
+  "spec": {
+    "inputSchema": {"type": "object"},
+    "outputSchema": {"type": "object"},
+    "defaults": {},
+    "budget": {
+      "maxDuration": "PT30M",
+        "maxTokens": 20000,
+      "maxCostUsd": 1,
+      "maxAgents": 1,
+      "maxParallelism": 1,
+      "onExhausted": "fail"
+    },
+        "agents": {
+          "analyst": {"ref": "agent://contract/post-evaluation-analyst@1"}
+        },
+    "graph": {
+      "entrypoint": "read-documents",
+      "nodes": {
+        "read-documents": {
+          "type": "tool",
+          "tool": "tool://document/read-versions@1",
+          "input": {"evaluationId": "{{ input.evaluationId }}", "documents": "{{ input.documents }}"}
+        },
+        "analyze": {
+          "type": "agent",
+          "agent": "analyst",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "basePayload": "{{ input.payload }}",
+            "uploadedFiles": "{{ tasks.read-documents.output.content.documents }}"
+          }
+        },
+        "evaluate": {
+          "type": "tool",
+          "tool": "tool://contract/post-evaluation@1",
+          "dependsOn": ["analyze"],
+          "input": {
+            "payload": "{{ tasks.analyze.output.content }}",
+            "configuration": "{{ input.configuration }}",
+            "attachmentManifestHash": "{{ input.attachmentManifestHash }}"
+          }
+        },
+        "report": {
+          "type": "tool",
+          "tool": "tool://report/render-post-evaluation@1",
+          "dependsOn": ["evaluate"],
+          "input": {
+            "title": "{{ input.payload.title }}",
+            "result": "{{ tasks.evaluate.output.content }}"
+          }
+        },
+        "record": {
+          "type": "tool",
+          "tool": "tool://workbench/record-post-evaluation@1",
+          "dependsOn": ["evaluate", "report"],
+          "input": {
+            "evaluationId": "{{ input.evaluationId }}",
+            "result": "{{ tasks.evaluate.output.content }}",
+            "report": "{{ tasks.report.output.content }}"
+          }
+        }
+      },
+      "output": {"result": "{{ tasks.evaluate.output.content }}"}
+    },
+    "$defs": {}
+  }
+}

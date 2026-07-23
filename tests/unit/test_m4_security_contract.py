@@ -325,3 +325,27 @@ def test_workload_mtls_is_complete_and_required_in_production(tmp_path: Path) ->
         path.write_text("test fixture", encoding="utf-8")
     tls = WorkloadTls(str(ca), str(cert), str(key)).validate(required=True)
     assert tls.uvicorn_options()["ssl_cert_reqs"] == ssl.CERT_REQUIRED
+
+
+def test_model_gateway_rejects_direct_provider_credentials_in_production(
+    tmp_path: Path,
+) -> None:
+    ca = tmp_path / "ca.pem"
+    cert = tmp_path / "workload.pem"
+    key = tmp_path / "workload-key.pem"
+    for path in (ca, cert, key):
+        path.write_text("test fixture", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="credentials from Vault"):
+        ModelGatewaySettings(
+            _env_file=None,
+            deployment_mode="production",
+            model_capability_secret="managed-model-capability-secret-32-bytes",
+            policy_mode="opa",
+            vault_kubernetes_role="model-gateway",
+            workload_tls_ca_file=str(ca),
+            workload_tls_cert_file=str(cert),
+            workload_tls_key_file=str(key),
+            model_provider_url="https://gateway.example/v1",
+            model_provider_api_key="provider-test-key",
+        )

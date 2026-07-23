@@ -69,11 +69,17 @@ def test_mcp_lists_default_tools() -> None:
         "swarm.run.control",
         "list_capability_packs",
         "create_work_item",
+        "upsert_business_object",
+        "create_case",
+        "assess_case",
+        "get_case_result",
+        "list_case_findings",
         "execute_work_item",
         "get_evaluation",
         "list_findings",
         "act_on_finding",
         "get_report",
+        "list_documents",
     }
 
 
@@ -114,12 +120,21 @@ def test_rest_and_mcp_return_the_same_capability_catalog() -> None:
     }
     assert {item["ref"] for item in catalog["tools"]} == {
         "tool://contract/cross-file-consistency@1",
+            "tool://contract/post-evaluation@1",
+            "tool://contract/post-evaluation/assemble@1",
         "tool://document/read@1",
+        "tool://document/read-versions@1",
         "tool://publish-report@1",
         "tool://report/render@1",
-        "tool://rules/evaluate@1",
+        "tool://report/render-post-evaluation@1",
+            "tool://rules/evaluate@1",
+            "tool://resource/read-bound@1",
         "tool://search@1",
         "tool://workbench/record-evaluation@1",
+        "tool://workbench/record-post-evaluation@1",
+    }
+    assert {item["name"] for item in catalog["capabilityPacks"]} >= {
+        "contract-post-evaluation"
     }
 
 

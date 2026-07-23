@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Bot, Boxes, Check, Copy, Cpu, Network, Plus, RefreshCw, Save, Trash2, Wrench } from "lucide-react";
 import * as React from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { api } from "@/api/client";
 import type { AgentCapability, CapabilityCatalog, ConfigurationKind, CreateSavedConfiguration, SavedConfiguration, ToolCapability } from "@/api/types";
 import { Button } from "@/components/ui/button";
@@ -15,25 +15,28 @@ const textAreaClass = "mt-1 min-h-28 w-full rounded-lg border border-gray-300 bg
 export function AgentConfigurationPage() {
   const [searchParams] = useSearchParams();
   const copyRef = searchParams.get("copy") ?? "";
+  const configurationId = searchParams.get("configuration") ?? "";
   return <ConfigurationShell
     kind="agent"
     icon={<Bot />}
     title="智能体配置"
     description="编辑提示词、逻辑模型和可用工具，保存为当前项目可复用的版本化配置。"
     editorOnly
+    initialSelectedId={configurationId}
   >
-    {(catalog, selected, save, saving) => <AgentConfigurator key={(selected?.configurationId ?? copyRef) || "new"} catalog={catalog} initial={selected} copyFrom={selected ? undefined : catalog.agents.find((item) => item.id === copyRef)} onSave={save} saving={saving} submitLabel={selected ? "保存修改" : "创建智能体"} />}
+    {(catalog, selected, save, saving, saveNotice) => <AgentConfigurator key={(selected?.configurationId ?? copyRef) || "new"} catalog={catalog} initial={selected} copyFrom={selected ? undefined : catalog.agents.find((item) => item.id === copyRef)} onSave={save} saving={saving} submitLabel={selected ? "保存修改" : "创建智能体"} saveNotice={saveNotice} />}
   </ConfigurationShell>;
 }
 
-export function ToolConfigurationPage() {
+export function ToolConfigurationPage({ initialCreate = false }: { initialCreate?: boolean }) {
   return <ConfigurationShell
     kind="tool"
     icon={<Wrench />}
-    title="工具配置"
-    description="从受控工具注册表选择工具，配置节点输入，并查看风险和输入输出结构。"
+    title={initialCreate ? "新建工具" : "工具配置"}
+    description="从平台受控工具中选择能力，填写当前项目的默认参数，保存为可复用工具。"
+    initialCreate={initialCreate}
   >
-    {(catalog, selected, save, saving) => <ToolConfigurator key={selected?.configurationId ?? "new"} catalog={catalog} initial={selected} onSave={save} saving={saving} submitLabel={selected ? "保存修改" : "创建工具配置"} />}
+    {(catalog, selected, save, saving, saveNotice) => <ToolConfigurator key={selected?.configurationId ?? "new"} catalog={catalog} initial={selected} onSave={save} saving={saving} submitLabel={selected ? "保存修改" : "创建工具配置"} saveNotice={saveNotice} />}
   </ConfigurationShell>;
 }
 
@@ -44,15 +47,16 @@ export function ModelConfigurationPage() {
     title="模型配置"
     description="选择可用逻辑模型，确认运行时和环境，并生成策略默认模型配置。"
   >
-    {(catalog, selected, save, saving) => <ModelConfigurator key={selected?.configurationId ?? "new"} catalog={catalog} initial={selected} onSave={save} saving={saving} submitLabel={selected ? "保存修改" : "创建模型配置"} />}
+    {(catalog, selected, save, saving, saveNotice) => <ModelConfigurator key={selected?.configurationId ?? "new"} catalog={catalog} initial={selected} onSave={save} saving={saving} submitLabel={selected ? "保存修改" : "创建模型配置"} saveNotice={saveNotice} />}
   </ConfigurationShell>;
 }
 
-function ConfigurationShell({ kind, icon, title, description, initialCreate = false, editorOnly = false, children }: { kind: ConfigurationKind; icon: React.ReactNode; title: string; description: string; initialCreate?: boolean; editorOnly?: boolean; children: (catalog: CapabilityCatalog, selected: SavedConfiguration | undefined, save: (body: CreateSavedConfiguration) => void, saving: boolean) => React.ReactNode }) {
+function ConfigurationShell({ kind, icon, title, description, initialCreate = false, editorOnly = false, initialSelectedId = "", children }: { kind: ConfigurationKind; icon: React.ReactNode; title: string; description: string; initialCreate?: boolean; editorOnly?: boolean; initialSelectedId?: string; children: (catalog: CapabilityCatalog, selected: SavedConfiguration | undefined, save: (body: CreateSavedConfiguration) => void, saving: boolean, saveNotice: string) => React.ReactNode }) {
   const { tenantId, projectId, workspacePath } = useWorkspaceScope();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [notice, setNotice] = React.useState("");
-  const [selectedId, setSelectedId] = React.useState(initialCreate || editorOnly ? "new" : "");
+  const [selectedId, setSelectedId] = React.useState(initialSelectedId || (initialCreate || editorOnly ? "new" : ""));
   const query = useQuery({ queryKey: ["capabilities", tenantId, projectId], queryFn: () => api.getCapabilities(tenantId, projectId) });
   const savedQuery = useQuery({ queryKey: ["saved-configurations", tenantId, projectId, kind], queryFn: () => api.listConfigurations(tenantId, projectId, kind) });
   const items = React.useMemo(() => savedQuery.data?.items ?? [], [savedQuery.data?.items]);
@@ -66,6 +70,11 @@ function ConfigurationShell({ kind, icon, title, description, initialCreate = fa
     onSuccess: async (saved) => {
       setNotice(selected ? `“${saved.name}”的修改已保存。` : `“${saved.name}”已创建。`);
       await queryClient.invalidateQueries({ queryKey: ["saved-configurations", tenantId, projectId, kind] });
+      await queryClient.invalidateQueries({ queryKey: ["capability-center", tenantId, projectId] });
+      if (kind === "agent" && !selected) {
+        void navigate(`${workspacePath}/agents`);
+        return;
+      }
       setSelectedId(selected || editorOnly ? saved.configurationId : "");
     },
     onError: (error) => setNotice(`保存失败：${error.message}`),
@@ -87,16 +96,16 @@ function ConfigurationShell({ kind, icon, title, description, initialCreate = fa
   return <div className="min-w-0 space-y-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex items-start gap-3"><span className="mt-1 grid size-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15">{icon}</span><div><p className="text-sm font-medium text-brand-500">构建</p><h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{title}</h1><p className="mt-1 max-w-3xl text-sm text-gray-500">{description}</p></div></div>
-      {editorOnly ? <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh} loading={query.isFetching || savedQuery.isFetching}><RefreshCw />刷新</Button><Button asChild variant="outline"><Link to={`${workspacePath}/agents`}><ArrowLeft />返回智能体</Link></Button></div> : <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh} loading={query.isFetching || savedQuery.isFetching}><RefreshCw />刷新</Button><Button asChild variant="outline"><Link to={`${workspacePath}/capabilities`}><Boxes />能力目录</Link></Button><Button asChild variant="outline"><Link to={`${workspacePath}/canvas`}><Network />打开画布</Link></Button><Button onClick={startCreating}><Plus />新建{itemLabel}配置</Button></div>}
+      {editorOnly ? <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh} loading={query.isFetching || savedQuery.isFetching}><RefreshCw />刷新</Button><Button asChild variant="outline"><Link to={`${workspacePath}/agents`}><ArrowLeft />返回智能体</Link></Button></div> : <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh} loading={query.isFetching || savedQuery.isFetching}><RefreshCw />刷新</Button><Button asChild variant="outline"><Link to={`${workspacePath}/${kind === "tool" ? "tools" : kind === "model" ? "models" : "agents"}`}><Boxes />能力目录</Link></Button><Button asChild variant="outline"><Link to={`${workspacePath}/canvas`}><Network />打开画布</Link></Button><Button onClick={startCreating}><Plus />新建{itemLabel}配置</Button></div>}
     </div>
-    <p className="rounded-xl border border-warning-200 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10">内置能力目录保持只读；你在这里保存的是当前项目可复用的配置，不会修改系统注册表。</p>
-    {notice ? <p role="status" className="rounded-xl bg-brand-50 p-3 text-sm text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">{notice}</p> : null}
+    <p className="rounded-xl border border-warning-200 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10">{kind === "agent" ? "系统内置智能体保持只读；创建后会生成当前项目的版本化智能体能力，并在执行时由 Agno Adapter 实例化。" : kind === "tool" ? "平台工具目录保持只读；新建工具会保存当前项目的名称和默认参数，不会修改工具执行器或系统注册表。" : "内置能力目录保持只读；你在这里保存的是当前项目可复用的配置，不会修改系统注册表。"}</p>
+    {notice && !editing ? <p role="status" className="rounded-xl bg-brand-50 p-3 text-sm text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">{notice}</p> : null}
     {editorOnly ? <div className="min-w-0 space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900"><div><h2 className="font-semibold text-gray-900 dark:text-white">{selected ? `编辑“${selected.name}”` : "新建智能体配置"}</h2><p className="mt-1 text-sm text-gray-500">直接编辑并保存；此页面不再重复展示能力目录。</p></div><label className="text-sm font-medium text-gray-700 dark:text-gray-300">打开已有配置<select aria-label="打开已有智能体配置" className={`${fieldClass} min-w-64`} value={selectedId} onChange={(event) => { setNotice(""); setSelectedId(event.target.value); }}><option value="new">新建智能体配置</option>{items.map((item) => <option key={item.configurationId} value={item.configurationId}>{item.name}</option>)}</select></label></div>
       {savedQuery.isError ? <p role="alert" className="rounded-xl bg-error-50 p-3 text-sm text-error-600">无法加载已有配置：{savedQuery.error.message}</p> : null}
       {query.isPending ? <Skeleton className="h-[520px]" /> : null}
       {query.isError ? <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-error-600">无法加载能力配置</p><p className="text-sm text-gray-500">{query.error.message}</p><Button onClick={() => void query.refetch()}>重试</Button></CardContent></Card> : null}
-      {query.data && (selected || selectedId === "new") ? children(query.data, selected, (body) => saveMutation.mutate(body), saveMutation.isPending) : null}
+      {query.data && (selected || selectedId === "new") ? children(query.data, selected, (body) => saveMutation.mutate(body), saveMutation.isPending, notice) : null}
     </div> : !editing ? <div className="space-y-8"><RuntimeCapabilityLibrary kind={kind} catalog={query.data} loading={query.isPending} error={query.error?.message} /><ConfigurationLibrary itemLabel={itemLabel} itemIcon={icon} items={items} loading={savedQuery.isPending} error={savedQuery.error?.message} deleting={deleteMutation.isPending} onSelect={setSelectedId} onDelete={(configurationId) => deleteMutation.mutate(configurationId)} /></div> : <div className="min-w-0 space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="outline" onClick={() => setSelectedId("")}><ArrowLeft />返回已配置{itemLabel}</Button>
@@ -105,13 +114,13 @@ function ConfigurationShell({ kind, icon, title, description, initialCreate = fa
       <div className="min-w-0">
         {query.isPending ? <Skeleton className="h-[520px]" /> : null}
         {query.isError ? <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-error-600">无法加载能力配置</p><p className="text-sm text-gray-500">{query.error.message}</p><Button onClick={() => void query.refetch()}>重试</Button></CardContent></Card> : null}
-        {query.data && (selected || selectedId === "new") ? children(query.data, selected, (body) => saveMutation.mutate(body), saveMutation.isPending) : null}
+        {query.data && (selected || selectedId === "new") ? children(query.data, selected, (body) => saveMutation.mutate(body), saveMutation.isPending, notice) : null}
       </div>
     </div>}
   </div>;
 }
 
-function AgentConfigurator({ catalog, initial, copyFrom, onSave, saving, submitLabel }: ConfiguratorProps & { copyFrom?: AgentCapability }) {
+function AgentConfigurator({ catalog, initial, copyFrom, onSave, saving, submitLabel, saveNotice }: ConfiguratorProps & { copyFrom?: AgentCapability }) {
   const savedSpec = asObject(initial?.configuration["spec"]);
   const savedAgents = asObject(savedSpec["agents"]);
   const savedEntry = Object.entries(savedAgents)[0];
@@ -153,11 +162,11 @@ function AgentConfigurator({ catalog, initial, copyFrom, onSave, saving, submitL
         <fieldset className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"><legend className="px-1 font-semibold text-gray-900 dark:text-white">允许使用的工具</legend><p className="mb-3 text-xs text-gray-500">智能体只能调用这里明确授权的工具；高风险操作仍受审批策略控制。</p><div className="grid gap-2 sm:grid-cols-2">{catalog.tools.length ? catalog.tools.map((item) => <label key={item.ref} className="flex items-start gap-2 rounded-lg border border-gray-200 p-3 text-xs dark:border-gray-700"><input className="mt-0.5" type="checkbox" checked={tools.includes(item.ref)} onChange={() => toggleTool(item.ref)} /> <span className="min-w-0"><span className="block break-all font-mono">{item.ref}</span><span className="mt-1 block text-gray-400">{riskLabel(item.risk)}</span></span></label>) : <p className="text-sm text-gray-500">暂无可用工具。</p>}</div></fieldset>
       </>}
     </CardContent></Card>
-    <PreviewCard title="智能体节点配置" value={preview} disabled={!name.trim() || !validKey || !selectedSource || (!registered && (!role.trim() || !instructions.trim()))} saving={saving} submitLabel={submitLabel} onSave={() => onSave({ name, sourceRef: registered ? selectedSource : "inline/agno", configuration: preview })} />
+    <PreviewCard title="智能体节点配置" value={preview} disabled={!name.trim() || !validKey || !selectedSource || (!registered && (!role.trim() || !instructions.trim()))} saving={saving} submitLabel={submitLabel} saveNotice={saveNotice} onSave={() => onSave({ name, sourceRef: registered ? selectedSource : "inline/agno", configuration: preview })} />
   </div>;
 }
 
-function ToolConfigurator({ catalog, initial, onSave, saving, submitLabel }: ConfiguratorProps) {
+function ToolConfigurator({ catalog, initial, onSave, saving, submitLabel, saveNotice }: ConfiguratorProps) {
   const savedEntry = Object.entries(initial?.configuration ?? {})[0];
   const savedNode = asObject(savedEntry?.[1]);
   const [name, setName] = React.useState(initial?.name ?? "我的工具配置");
@@ -175,11 +184,11 @@ function ToolConfigurator({ catalog, initial, onSave, saving, submitLabel }: Con
       <Field label="节点标识" hint="小写字母开头，可使用数字、短横线和下划线"><input className={fieldClass} value={nodeKey} onChange={(event) => setNodeKey(event.target.value)} />{validKey ? null : <p role="alert" className="mt-1 text-xs text-error-600">节点标识格式无效。</p>}</Field>
       <Field label="节点输入（JSON 对象）"><textarea aria-label="节点输入（JSON 对象）" className={`${textAreaClass} font-mono text-xs`} value={inputSource} onChange={(event) => setInputSource(event.target.value)} />{input.error ? <p role="alert" className="mt-1 text-xs text-error-600">{input.error}</p> : null}</Field>
     </CardContent></Card>{tool ? <ToolSchemas tool={tool} /> : <EmptyCatalog label="暂无已注册工具。" />}</div>
-    <PreviewCard title="工具节点配置" value={{ [nodeKey]: preview }} disabled={!name.trim() || !tool || !validKey || Boolean(input.error)} saving={saving} submitLabel={submitLabel} onSave={() => tool && onSave({ name, sourceRef: tool.ref, configuration: { [nodeKey]: preview } })} />
+    <PreviewCard title="工具节点配置" value={{ [nodeKey]: preview }} disabled={!name.trim() || !tool || !validKey || Boolean(input.error)} saving={saving} submitLabel={submitLabel} saveNotice={saveNotice} onSave={() => tool && onSave({ name, sourceRef: tool.ref, configuration: { [nodeKey]: preview } })} />
   </div>;
 }
 
-function ModelConfigurator({ catalog, initial, onSave, saving, submitLabel }: ConfiguratorProps) {
+function ModelConfigurator({ catalog, initial, onSave, saving, submitLabel, saveNotice }: ConfiguratorProps) {
   const [name, setName] = React.useState(initial?.name ?? "我的模型配置");
   const [selected, setSelected] = React.useState(initial?.sourceRef ?? "");
   const model = catalog.models.find((item) => item.ref === (selected || catalog.models[0]?.ref));
@@ -190,13 +199,13 @@ function ModelConfigurator({ catalog, initial, onSave, saving, submitLabel }: Co
       <Field label="逻辑模型"><select aria-label="逻辑模型" className={fieldClass} value={model?.ref ?? ""} onChange={(event) => setSelected(event.target.value)}>{catalog.models.map((item) => <option key={item.ref} value={item.ref}>{item.ref}</option>)}</select></Field>
       {model ? <InfoGrid items={[["运行时", model.runtime], ["可用环境", model.environments.join("、") || "—"], ["模型引用", model.ref]]} /> : <EmptyCatalog label="暂无已注册模型。" />}
     </CardContent></Card>
-    <PreviewCard title="策略默认模型配置" value={preview} disabled={!name.trim() || !model} saving={saving} submitLabel={submitLabel} onSave={() => model && onSave({ name, sourceRef: model.ref, configuration: preview })} />
+    <PreviewCard title="策略默认模型配置" value={preview} disabled={!name.trim() || !model} saving={saving} submitLabel={submitLabel} saveNotice={saveNotice} onSave={() => model && onSave({ name, sourceRef: model.ref, configuration: preview })} />
   </div>;
 }
 
-interface ConfiguratorProps { catalog: CapabilityCatalog; initial?: SavedConfiguration; onSave: (body: CreateSavedConfiguration) => void; saving: boolean; submitLabel: string; }
+interface ConfiguratorProps { catalog: CapabilityCatalog; initial?: SavedConfiguration; onSave: (body: CreateSavedConfiguration) => void; saving: boolean; submitLabel: string; saveNotice: string; }
 
-function PreviewCard({ title, value, disabled, saving, submitLabel, onSave }: { title: string; value: unknown; disabled?: boolean; saving?: boolean; submitLabel?: string; onSave?: () => void }) {
+function PreviewCard({ title, value, disabled, saving, submitLabel, saveNotice, onSave }: { title: string; value: unknown; disabled?: boolean; saving?: boolean; submitLabel?: string; saveNotice?: string; onSave?: () => void }) {
   const [notice, setNotice] = React.useState("");
   const source = JSON.stringify(value, null, 2);
   const copy = async () => {
@@ -207,7 +216,7 @@ function PreviewCard({ title, value, disabled, saving, submitLabel, onSave }: { 
       setNotice("无法访问剪贴板，请手动复制配置。");
     }
   };
-  return <Card className="min-w-0"><CardHeader><CardTitle>{title}</CardTitle><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void copy()} disabled={disabled}>{notice.startsWith("配置已复制") ? <Check /> : <Copy />}复制</Button>{onSave ? <Button size="sm" onClick={onSave} disabled={disabled} loading={saving}><Save />{submitLabel ?? "保存配置"}</Button> : null}</div></CardHeader><CardContent><pre aria-label={`${title}预览`} className="max-h-[520px] min-h-80 overflow-auto rounded-xl bg-gray-950 p-4 text-xs leading-6 text-gray-100">{source}</pre>{notice ? <p role="status" className="mt-3 text-sm text-gray-500">{notice}</p> : null}</CardContent></Card>;
+  return <Card className="min-w-0"><CardHeader><CardTitle>{title}</CardTitle><div className="flex flex-wrap items-center justify-end gap-2">{saveNotice ? <span role="status" className={`text-sm ${saveNotice.startsWith("保存失败") ? "text-error-600" : "text-success-600"}`}>{saveNotice}</span> : null}<Button size="sm" variant="outline" onClick={() => void copy()} disabled={disabled}>{notice.startsWith("配置已复制") ? <Check /> : <Copy />}复制</Button>{onSave ? <Button size="sm" onClick={onSave} disabled={disabled} loading={saving}><Save />{submitLabel ?? "保存配置"}</Button> : null}</div></CardHeader><CardContent><pre aria-label={`${title}预览`} className="max-h-[520px] min-h-80 overflow-auto rounded-xl bg-gray-950 p-4 text-xs leading-6 text-gray-100">{source}</pre>{notice ? <p role="status" className="mt-3 text-sm text-gray-500">{notice}</p> : null}</CardContent></Card>;
 }
 
 function ConfigurationLibrary({ itemLabel, itemIcon, items, loading, error, deleting, onSelect, onDelete }: { itemLabel: string; itemIcon: React.ReactNode; items: SavedConfiguration[]; loading: boolean; error?: string; deleting: boolean; onSelect: (configurationId: string) => void; onDelete: (configurationId: string) => void }) {

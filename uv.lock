@@ -10,6 +10,7 @@ members = [
     "swarmcore-application",
     "swarmcore-artifact-gateway",
     "swarmcore-capability-contract-integrity",
+    "swarmcore-capability-contract-post-evaluation",
     "swarmcore-command-dispatcher",
     "swarmcore-compiler",
     "swarmcore-domain",
@@ -1179,6 +1180,7 @@ dependencies = [
     { name = "pyjwt", extra = ["crypto"] },
     { name = "swarmcore-application" },
     { name = "swarmcore-capability-contract-integrity" },
+    { name = "swarmcore-capability-contract-post-evaluation" },
     { name = "swarmcore-compiler" },
     { name = "swarmcore-domain" },
     { name = "swarmcore-governance" },
@@ -1197,6 +1199,7 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], specifier = "==2.10.1" },
     { name = "swarmcore-application", editable = "packages/application" },
     { name = "swarmcore-capability-contract-integrity", editable = "packages/capability-contract-integrity" },
+    { name = "swarmcore-capability-contract-post-evaluation", editable = "packages/capability-contract-post-evaluation" },
     { name = "swarmcore-compiler", editable = "packages/compiler" },
     { name = "swarmcore-domain", editable = "packages/domain" },
     { name = "swarmcore-governance", editable = "packages/governance" },
@@ -1261,6 +1264,11 @@ requires-dist = [
 name = "swarmcore-capability-contract-integrity"
 version = "0.1.0"
 source = { editable = "packages/capability-contract-integrity" }
+
+[[package]]
+name = "swarmcore-capability-contract-post-evaluation"
+version = "0.1.0"
+source = { editable = "packages/capability-contract-post-evaluation" }
 
 [[package]]
 name = "swarmcore-command-dispatcher"

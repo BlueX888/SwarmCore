@@ -101,6 +101,25 @@ class ProjectConfigurationService:
         )
         return items, total or 0
 
+    async def get(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        kind: ConfigurationKind,
+        configuration_id: UUID,
+    ) -> ProjectConfiguration | None:
+        saved: ProjectConfiguration | None = await session.scalar(
+            select(ProjectConfiguration).where(
+                ProjectConfiguration.id == configuration_id,
+                ProjectConfiguration.tenant_id == tenant_id,
+                ProjectConfiguration.project_id == project_id,
+                ProjectConfiguration.kind == kind.value,
+            )
+        )
+        return saved
+
     async def update(
         self,
         session: AsyncSession,

@@ -173,6 +173,26 @@ class CapabilityRunRequest(ApiModel):
     preset_id: UUID | None = Field(default=None, alias="presetId")
 
 
+class ModelProviderConfigurationRequest(ApiModel):
+    logical_model: str = Field(alias="logicalModel", min_length=1, max_length=512)
+    provider_url: str = Field(alias="providerUrl", min_length=1, max_length=2048)
+    model_name: str = Field(alias="modelName", min_length=1, max_length=256)
+    api_key: str | None = Field(default=None, alias="apiKey", max_length=8192)
+
+
+class ModelProviderConfigurationSnapshot(ApiModel):
+    logical_model: str = Field(alias="logicalModel")
+    provider_url: str = Field(alias="providerUrl")
+    model_name: str = Field(alias="modelName")
+    api_key_configured: bool = Field(alias="apiKeyConfigured")
+
+
+class ModelProviderTestResult(ApiModel):
+    connected: bool
+    model_name: str = Field(alias="modelName")
+    latency_ms: int = Field(alias="latencyMs")
+
+
 class CapabilityPresetRequest(ApiModel):
     name: str = Field(min_length=1, max_length=128)
     capability_ref: str = Field(alias="capabilityRef", min_length=1)

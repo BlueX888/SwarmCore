@@ -446,8 +446,7 @@ def render_evidence_pdf(
             for field in result.extraction.fields:
                 pages = ",".join(str(item.page) for item in field.evidence)
                 lines.append(
-                    f"{field.name}={field.value} confidence={field.confidence:.3f} "
-                    f"pages={pages}"
+                    f"{field.name}={field.value} confidence={field.confidence:.3f} pages={pages}"
                 )
     for finding in findings:
         lines.append(f"{finding.code}: {finding.detail}")
@@ -460,6 +459,10 @@ def pdf_report_payload(content: bytes) -> dict[str, Any]:
         "sha256": hashlib.sha256(content).hexdigest(),
         "contentBase64": base64.b64encode(content).decode("ascii"),
     }
+
+
+def render_text_pdf(lines: Sequence[str]) -> bytes:
+    return _minimal_pdf(lines)
 
 
 class AccuracyBaseline(IntelligenceModel):
@@ -521,9 +524,11 @@ def _minimal_pdf(lines: Sequence[str]) -> bytes:
         .replace(")", "\\)")
         for line in lines
     ]
-    stream = "BT /F1 10 Tf 50 790 Td 12 TL " + " ".join(
-        f"({line[:140]}) Tj T*" for line in escaped[:58]
-    ) + " ET"
+    stream = (
+        "BT /F1 10 Tf 50 790 Td 12 TL "
+        + " ".join(f"({line[:140]}) Tj T*" for line in escaped[:58])
+        + " ET"
+    )
     objects = [
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",

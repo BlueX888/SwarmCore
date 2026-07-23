@@ -94,10 +94,10 @@ async def test_registered_pack_tools_without_executors_are_not_ready() -> None:
 
 
 @pytest.mark.asyncio
-async def test_model_route_secret_endpoint_environment_and_policy_all_gate_readiness() -> None:
+async def test_model_secret_endpoint_environment_and_policy_all_gate_readiness() -> None:
     ports = RuntimePorts(
         model=ModelRuntimeStatus(
-            route_registered=False,
+            route_registered=True,
             secret_available=False,
             endpoint_healthy=False,
             environment_allowed=False,
@@ -117,11 +117,106 @@ async def test_model_route_secret_endpoint_environment_and_policy_all_gate_readi
     )
     summary = (await _project(_service(ports), registry))[0]
     assert _codes(summary) == {
-        ReadinessReasonCode.MODEL_ROUTE_MISSING,
         ReadinessReasonCode.SECRET_MISSING,
         ReadinessReasonCode.HEALTH_CHECK_FAILED,
         ReadinessReasonCode.ENVIRONMENT_NOT_ALLOWED,
         ReadinessReasonCode.POLICY_DENIED,
+    }
+
+
+@pytest.mark.asyncio
+async def test_unrouted_models_are_omitted_from_capability_catalog() -> None:
+    registry = RegistrySnapshot.create(
+        models=(
+            ModelRegistration(
+                ref="model://routed@1",
+                version="1",
+                runtime="agno",
+                providerModel="provider/routed",
+                environments=("development",),
+            ),
+            ModelRegistration(
+                ref="model://unrouted@1",
+                version="1",
+                runtime="agno",
+                providerModel="provider/unrouted",
+                environments=("development",),
+            ),
+        )
+    )
+
+    class SelectiveModelPorts(RuntimePorts):
+        async def inspect_model(self, **kwargs: object) -> ModelRuntimeStatus:
+            self.calls += 1
+            registration = kwargs["registration"]
+            assert isinstance(registration, ModelRegistration)
+            if registration.ref.endswith("unrouted@1"):
+                return ModelRuntimeStatus(False, False, False)
+            return ModelRuntimeStatus(True, True, True)
+
+    summaries = await _project(_service(SelectiveModelPorts()), registry)
+    assert [item.ref for item in summaries] == ["model://routed@1"]
+
+
+@pytest.mark.asyncio
+async def test_unreachable_model_gateway_keeps_models_visible_as_unhealthy() -> None:
+    ports = RuntimePorts(
+        model=ModelRuntimeStatus(
+            route_registered=False,
+            secret_available=False,
+            endpoint_healthy=False,
+            inspected=False,
+        )
+    )
+    registry = RegistrySnapshot.create(
+        models=(
+            ModelRegistration(
+                ref="model://offline@1",
+                version="1",
+                runtime="agno",
+                providerModel="provider/model",
+                environments=("development",),
+            ),
+        )
+    )
+    summary = (await _project(_service(ports), registry))[0]
+    assert summary.ref == "model://offline@1"
+    assert _codes(summary) == {ReadinessReasonCode.HEALTH_CHECK_FAILED}
+
+
+@pytest.mark.asyncio
+async def test_agent_still_depends_on_unrouted_model_summary() -> None:
+    ports = RuntimePorts(
+        model=ModelRuntimeStatus(False, False, False),
+        agent=AgentRuntimeStatus(True),
+    )
+    registry = RegistrySnapshot.create(
+        agents=(
+            AgentRegistration(
+                ref="agent://needs-model@1",
+                version="1",
+                role="needs-model",
+                instructions="needs a model",
+                model="model://missing-route@1",
+                tools=(),
+            ),
+        ),
+        models=(
+            ModelRegistration(
+                ref="model://missing-route@1",
+                version="1",
+                runtime="agno",
+                providerModel="provider/model",
+                environments=("development",),
+            ),
+        ),
+    )
+    summaries = await _project(_service(ports), registry)
+    assert [item.ref for item in summaries] == ["agent://needs-model@1"]
+    agent = summaries[0]
+    assert ReadinessReasonCode.DEPENDENCY_NOT_READY in _codes(agent)
+    assert {reason.dependency_ref for reason in agent.readiness.reasons} == {
+        "model://missing-route@1"
     }
 
 
@@ -238,3 +333,34 @@ async def test_cache_is_scoped_and_expires_by_tenant_project_environment_and_sna
         service, registry, tenant_id=tenant_id, project_id=project_id
     )
     assert ports.calls == 3
+
+
+@pytest.mark.asyncio
+async def test_cache_ttl_starts_after_a_slow_readiness_projection_finishes() -> None:
+    clock = [0.0]
+
+    class SlowRuntimePorts(RuntimePorts):
+        async def inspect_model(self, **_: object) -> ModelRuntimeStatus:
+            self.calls += 1
+            clock[0] += 11
+            return self.model
+
+    ports = SlowRuntimePorts()
+    service = _service(ports, clock=clock)
+    registry = RegistrySnapshot.create(
+        models=(
+            ModelRegistration(
+                ref="model://slow@1",
+                version="1",
+                runtime="agno",
+                providerModel="provider/model",
+                environments=("development",),
+            ),
+        )
+    )
+    tenant_id, project_id = uuid4(), uuid4()
+
+    await _project(service, registry, tenant_id=tenant_id, project_id=project_id)
+    await _project(service, registry, tenant_id=tenant_id, project_id=project_id)
+
+    assert ports.calls == 1

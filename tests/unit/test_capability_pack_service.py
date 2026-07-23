@@ -13,6 +13,7 @@ from swarmcore_application import (
     CapabilityPackService,
 )
 from swarmcore_capability_contract_integrity import MANIFEST, REFERENCES, STRATEGIES
+from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
 from swarmcore_persistence.models import CapabilityPackVersion
 from swarmcore_registry import CapabilityReferenceCatalog
 
@@ -47,9 +48,7 @@ async def test_list_project_matches_binding_to_the_bound_version() -> None:
 
     statement = session.execute.await_args.args[0]
     sql = str(statement.compile(dialect=postgresql.dialect()))
-    assert (
-        "project_capability_bindings.pack_version_id = capability_pack_versions.id" in sql
-    )
+    assert "project_capability_bindings.pack_version_id = capability_pack_versions.id" in sql
     assert "project_capability_bindings.tenant_id" in sql
     assert "project_capability_bindings.project_id" in sql
 
@@ -110,6 +109,24 @@ async def test_enabled_pack_is_marked_degraded_without_switching_version() -> No
 
 
 @pytest.mark.asyncio
+async def test_document_requirements_do_not_require_legacy_resource_bindings() -> None:
+    service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(()))
+    version = _version()
+    version.manifest = POST_EVALUATION_MANIFEST
+    session = MagicMock()
+    session.scalar = AsyncMock()
+    session.scalars = AsyncMock()
+
+    blockers = await service.blockers_for_version(
+        tenant_id=uuid4(), project_id=uuid4(), version=version, session=session
+    )
+
+    session.scalar.assert_not_awaited()
+    session.scalars.assert_not_awaited()
+    assert not any(item["reasons"] == ["RESOURCE_BINDING_MISSING"] for item in blockers)
+
+
+@pytest.mark.asyncio
 async def test_publish_rejects_manifest_dependencies_that_differ_from_strategy_plan() -> None:
     service = CapabilityPackService(
         CapabilityReferenceCatalog.from_iterable(REFERENCES),
@@ -136,9 +153,7 @@ async def test_publish_binds_an_existing_published_strategy_version() -> None:
     service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(REFERENCES))
     manifest = deepcopy(MANIFEST)
     manifest["metadata"] = {"name": "custom-contract-review", "version": "1.0.0"}
-    manifest["spec"]["strategies"] = {
-        "execute": "strategy://project/strategy-id@2"
-    }
+    manifest["spec"]["strategies"] = {"execute": "strategy://project/strategy-id@2"}
     manifest["spec"]["events"] = {"namespace": "capability.custom-contract-review"}
     selected = MagicMock()
     selected.id = uuid4()
@@ -171,9 +186,7 @@ async def test_publish_binds_an_existing_published_strategy_version() -> None:
         "name": "custom-contract-review",
         "version": "1.0.0",
     }
-    assert saved.dependency_snapshot["strategy"]["ref"] == (
-        "strategy://project/strategy-id@2"
-    )
+    assert saved.dependency_snapshot["strategy"]["ref"] == ("strategy://project/strategy-id@2")
     assert saved.dependency_snapshot["strategy"]["strategyVersionId"] == str(selected.id)
     added_types = {type(call.args[0]).__name__ for call in session.add.call_args_list}
     assert "CapabilityPackVersion" in added_types
@@ -200,8 +213,11 @@ async def test_delete_version_rejects_missing_version() -> None:
 async def test_delete_version_rejects_enabled_binding() -> None:
     service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(()))
     version = _version()
+    pack = MagicMock()
+    pack.id = version.pack_id
+    pack.name = "custom-pack"
     session = MagicMock()
-    session.scalar = AsyncMock(side_effect=[uuid4(), version, uuid4()])
+    session.scalar = AsyncMock(side_effect=[uuid4(), version, pack, uuid4(), None])
     session.execute = AsyncMock()
     session.flush = AsyncMock()
 
@@ -222,8 +238,11 @@ async def test_delete_version_rejects_enabled_binding() -> None:
 async def test_delete_version_rejects_historical_evaluations() -> None:
     service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(()))
     version = _version()
+    pack = MagicMock()
+    pack.id = version.pack_id
+    pack.name = "custom-pack"
     session = MagicMock()
-    session.scalar = AsyncMock(side_effect=[uuid4(), version, None, uuid4()])
+    session.scalar = AsyncMock(side_effect=[uuid4(), version, pack, None, uuid4()])
     session.execute = AsyncMock()
     session.flush = AsyncMock()
 
@@ -241,13 +260,20 @@ async def test_delete_version_rejects_historical_evaluations() -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_version_removes_unused_version_and_empty_pack() -> None:
-    service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(()))
+async def test_delete_version_allows_unused_trusted_manifest() -> None:
+    service = CapabilityPackService(
+        CapabilityReferenceCatalog.from_iterable(()),
+        trusted_manifests=(MANIFEST,),
+    )
     version = _version()
+    metadata = MANIFEST["metadata"]
+    assert isinstance(metadata, dict)
+    version.version = str(metadata["version"])
     pack = MagicMock()
     pack.id = version.pack_id
+    pack.name = str(metadata["name"])
     session = MagicMock()
-    session.scalar = AsyncMock(side_effect=[uuid4(), version, None, None, 0, pack])
+    session.scalar = AsyncMock(side_effect=[uuid4(), version, pack, None, None, 0, pack])
     session.execute = AsyncMock()
     session.flush = AsyncMock()
     session.delete = AsyncMock()
@@ -260,6 +286,76 @@ async def test_delete_version_removes_unused_version_and_empty_pack() -> None:
         actor="test",
     )
 
+    assert session.delete.await_count == 2
+    assert session.delete.await_args_list[0].args[0] is version
+
+
+def test_deletion_blocker_prioritizes_enabled_over_evaluations() -> None:
+    service = CapabilityPackService(
+        CapabilityReferenceCatalog.from_iterable(()),
+        trusted_manifests=(MANIFEST,),
+    )
+    metadata = MANIFEST["metadata"]
+    assert isinstance(metadata, dict)
+
+    blocker = service.deletion_blocker(
+        pack_name=str(metadata["name"]),
+        version=str(metadata["version"]),
+        enabled=True,
+        has_evaluations=True,
+    )
+
+    assert blocker == (
+        "CAPABILITY_PACK_ENABLED",
+        "能力包版本仍处于启用状态。请先停用后再删除。",
+    )
+
+
+@pytest.mark.asyncio
+async def test_ensure_trusted_skips_deleted_manifest_versions() -> None:
+    service = CapabilityPackService(
+        CapabilityReferenceCatalog.from_iterable(()),
+        trusted_manifests=(MANIFEST,),
+    )
+    metadata = MANIFEST["metadata"]
+    assert isinstance(metadata, dict)
+    session = MagicMock()
+    session.scalar = AsyncMock(side_effect=[uuid4(), uuid4()])
+    service.publish = AsyncMock()  # type: ignore[method-assign]
+
+    published = await service.ensure_trusted(
+        session, tenant_id=uuid4(), project_id=uuid4()
+    )
+
+    assert published == []
+    service.publish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delete_version_removes_unused_version_and_empty_pack() -> None:
+    service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(()))
+    version = _version()
+    version.version = "9.9.9"
+    pack = MagicMock()
+    pack.id = version.pack_id
+    pack.name = "custom-pack"
+    session = MagicMock()
+    session.scalar = AsyncMock(side_effect=[uuid4(), version, pack, None, None, 0, pack])
+    session.execute = AsyncMock()
+    session.flush = AsyncMock()
+    session.delete = AsyncMock()
+
+    await service.delete_version(
+        session,
+        tenant_id=uuid4(),
+        project_id=uuid4(),
+        version_id=version.id,
+        actor="test",
+    )
+
+    assert session.execute.await_count >= 2
+    allow_sql = str(session.execute.await_args_list[1].args[0])
+    assert "app.allow_capability_pack_version_delete" in allow_sql
     assert session.delete.await_count == 2
     assert session.delete.await_args_list[0].args[0] is version
     assert session.delete.await_args_list[1].args[0] is pack

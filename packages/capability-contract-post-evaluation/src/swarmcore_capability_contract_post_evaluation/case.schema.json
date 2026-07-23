@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "title",
+    "evaluationPeriod",
+    "contract",
+    "documents",
+    "obligations",
+    "deviations",
+    "invoices",
+    "risks"
+  ],
+  "properties": {
+    "title": {"type": "string", "minLength": 1, "maxLength": 256},
+    "evaluationPeriod": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"type": "string", "format": "date"},
+        "end": {"type": "string", "format": "date"}
+      },
+      "additionalProperties": false
+    },
+    "contract": {
+      "type": "object",
+      "required": ["contractId", "contractName", "contractAmount"],
+      "properties": {
+        "contractId": {"type": "string", "minLength": 1, "maxLength": 256},
+        "contractName": {"type": "string", "minLength": 1, "maxLength": 256},
+        "contractAmount": {"type": "number", "minimum": 0},
+        "actualCost": {"type": ["number", "null"], "minimum": 0},
+        "currency": {"type": "string", "minLength": 3, "maxLength": 3, "default": "CNY"}
+      },
+      "additionalProperties": false
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["documentId", "category", "status"],
+        "properties": {
+          "documentId": {"type": "string", "minLength": 1, "maxLength": 256},
+          "category": {"type": "string", "minLength": 1, "maxLength": 128},
+          "required": {"type": "boolean", "default": true},
+          "status": {"enum": ["VALID", "MISSING", "EXPIRED", "UNREADABLE"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "obligations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["obligationId", "category", "timeliness"],
+        "properties": {
+          "obligationId": {"type": "string", "minLength": 1, "maxLength": 256},
+          "category": {"type": "string", "minLength": 1, "maxLength": 128},
+          "timeliness": {"enum": ["ON_TIME", "LATE", "OVERDUE", "NOT_DUE"]},
+          "quality": {
+            "enum": ["ACCEPTED", "CONDITIONALLY_ACCEPTED", "REJECTED", "PENDING", "NOT_ASSESSED"],
+            "default": "NOT_ASSESSED"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "deviations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["deviationId", "category", "severity", "status"],
+        "properties": {
+          "deviationId": {"type": "string", "minLength": 1, "maxLength": 256},
+          "category": {"type": "string", "minLength": 1, "maxLength": 128},
+          "severity": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+          "status": {"enum": ["OPEN", "IN_PROGRESS", "CLOSED"]},
+          "costImpact": {"type": "number", "minimum": 0, "default": 0},
+          "delayDays": {"type": "integer", "minimum": 0, "default": 0}
+        },
+        "additionalProperties": false
+      }
+    },
+    "invoices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "invoiceId",
+          "amount",
+          "contractMatched",
+          "acceptanceMatched",
+          "taxValid"
+        ],
+        "properties": {
+          "invoiceId": {"type": "string", "minLength": 1, "maxLength": 256},
+          "amount": {"type": "number", "exclusiveMinimum": 0},
+          "contractMatched": {"type": "boolean"},
+          "acceptanceMatched": {"type": "boolean"},
+          "taxValid": {"type": "boolean"},
+          "duplicate": {"type": "boolean", "default": false}
+        },
+        "additionalProperties": false
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["riskId", "category", "level", "status"],
+        "properties": {
+          "riskId": {"type": "string", "minLength": 1, "maxLength": 256},
+          "category": {"type": "string", "minLength": 1, "maxLength": 128},
+          "level": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+          "status": {"enum": ["OPEN", "IN_PROGRESS", "CLOSED"]},
+          "actionOverdue": {"type": "boolean", "default": false}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

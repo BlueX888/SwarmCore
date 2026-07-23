@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 _PACK_NAME = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 _SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 _VERSIONED_REF = re.compile(
-    r"^(agent|model|tool|strategy|schema|report|view)://[^\s@]+@[^\s@]+$"
+    r"^(agent|connector|model|tool|strategy|schema|report|view)://[^\s@]+@[^\s@]+$"
 )
 _FORBIDDEN_KEYS = {"module", "classPath", "script", "componentUrl"}
 
@@ -60,15 +60,64 @@ class CapabilityPackUi(PackModel):
     view_definition: str = Field(alias="viewDefinition")
 
 
+class CapabilitySubjectRole(PackModel):
+    key: str = Field(min_length=1, max_length=128)
+    object_type: str = Field(alias="objectType", min_length=1, max_length=128)
+    role: str
+    min: int = Field(default=0, ge=0)
+    max: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def valid_range(self) -> CapabilitySubjectRole:
+        if self.role not in {"PRIMARY", "COMPARISON", "EVIDENCE", "RELATED"}:
+            raise ValueError("unsupported subject role")
+        if self.max is not None and self.max < self.min:
+            raise ValueError("subject role max must be greater than or equal to min")
+        return self
+
+
+class CapabilityCase(PackModel):
+    type: str = Field(min_length=1, max_length=128)
+    schema_ref: str = Field(alias="schema")
+    subjects_required: bool = Field(default=True, alias="subjectsRequired")
+    subject_roles: tuple[CapabilitySubjectRole, ...] = Field(default=(), alias="subjectRoles")
+
+
+class CapabilityDecisionSlot(PackModel):
+    slot: str = Field(min_length=1, max_length=128)
+    required: bool = True
+    input_schema: str = Field(alias="inputSchema")
+    output_schema: str = Field(alias="outputSchema")
+    allowed_types: tuple[str, ...] = Field(alias="allowedTypes", min_length=1)
+
+
+class CapabilityResourceSlot(PackModel):
+    slot: str = Field(min_length=1, max_length=128)
+    required: bool = True
+    resource_kinds: tuple[str, ...] = Field(alias="resourceKinds", min_length=1)
+    access_mode: str = Field(alias="accessMode")
+
+
+class CapabilityDocumentRequirement(PackModel):
+    category: str = Field(min_length=1, max_length=128)
+    required: bool = True
+
+
 class CapabilityPackSpec(PackModel):
-    work_item_type: str = Field(alias="workItemType", min_length=1, max_length=128)
-    work_item_schema: str = Field(alias="workItemSchema")
+    work_item_type: str | None = Field(
+        default=None, alias="workItemType", min_length=1, max_length=128
+    )
+    work_item_schema: str | None = Field(default=None, alias="workItemSchema")
+    case: CapabilityCase | None = None
     input_schema: str = Field(alias="inputSchema")
     output_schema: str = Field(alias="outputSchema")
     strategies: CapabilityPackStrategies
     agents: tuple[str, ...] = ()
     tools: tuple[str, ...] = ()
     rules: CapabilityPackRules | None = None
+    decisions: tuple[CapabilityDecisionSlot, ...] = ()
+    resources: tuple[CapabilityResourceSlot, ...] = ()
+    documents: tuple[CapabilityDocumentRequirement, ...] = ()
     report: CapabilityPackReport
     permissions: tuple[str, ...]
     events: CapabilityPackEvents
@@ -84,11 +133,19 @@ class CapabilityPackSpec(PackModel):
             raise ValueError("agent and tool references must be unique")
         if len(self.permissions) != len(set(self.permissions)):
             raise ValueError("permissions must be unique")
+        decision_slots = [item.slot for item in self.decisions]
+        resource_slots = [item.slot for item in self.resources]
+        if len(decision_slots) != len(set(decision_slots)):
+            raise ValueError("decision slot keys must be unique")
+        if len(resource_slots) != len(set(resource_slots)):
+            raise ValueError("resource slot keys must be unique")
+        document_categories = [item.category for item in self.documents]
+        if len(document_categories) != len(set(document_categories)):
+            raise ValueError("document requirement categories must be unique")
         return self
 
     def references(self) -> tuple[str, ...]:
         refs = [
-            self.work_item_schema,
             self.input_schema,
             self.output_schema,
             self.strategies.execute,
@@ -97,6 +154,12 @@ class CapabilityPackSpec(PackModel):
             self.report.template,
             self.ui.view_definition,
         ]
+        if self.work_item_schema is not None:
+            refs.append(self.work_item_schema)
+        if self.case is not None:
+            refs.append(self.case.schema_ref)
+        for decision in self.decisions:
+            refs.extend((decision.input_schema, decision.output_schema))
         if self.rules is not None:
             refs.append(self.rules.schema_ref)
         return tuple(refs)
@@ -110,12 +173,34 @@ class CapabilityPackManifest(PackModel):
 
     @model_validator(mode="after")
     def validate_envelope(self) -> CapabilityPackManifest:
-        if self.api_version != "swarmcore.io/v1" or self.kind != "CapabilityPack":
+        if (
+            self.api_version not in {"swarmcore.io/v1", "swarmcore.io/v2"}
+            or self.kind != "CapabilityPack"
+        ):
             raise ValueError("unsupported capability pack envelope")
+        if self.api_version == "swarmcore.io/v1":
+            if self.spec.work_item_type is None or self.spec.work_item_schema is None:
+                raise ValueError("v1 capability packs require workItemType and workItemSchema")
+            if (
+                self.spec.case is not None
+                or self.spec.decisions
+                or self.spec.resources
+                or self.spec.documents
+            ):
+                raise ValueError("v1 capability packs cannot declare v2 slots")
+        elif self.spec.case is None:
+            raise ValueError("v2 capability packs require case")
         expected = f"capability.{self.metadata.name}"
         if self.spec.events.namespace != expected:
             raise ValueError(f"event namespace must be {expected}")
         return self
+
+    @property
+    def case_type(self) -> str:
+        if self.spec.case is not None:
+            return self.spec.case.type
+        assert self.spec.work_item_type is not None
+        return self.spec.work_item_type
 
 
 class CapabilityReferenceCatalog(PackModel):
@@ -138,6 +223,11 @@ def normalize_manifest(manifest: CapabilityPackManifest | Mapping[str, Any]) -> 
         else CapabilityPackManifest.model_validate(manifest)
     )
     normalized = parsed.model_dump(mode="json", by_alias=True, exclude_none=True)
+    if parsed.api_version == "swarmcore.io/v1":
+        # v2 added optional fields with empty defaults. They are not part of the
+        # v1 wire contract and must not change hashes of published v1 versions.
+        for field in ("case", "decisions", "resources", "documents"):
+            normalized["spec"].pop(field, None)
     _reject_code_entrypoints(normalized)
     return normalized
 

@@ -1,11 +1,12 @@
 import type {
   ApprovalListResponse, AuditListResponse, CapabilityCatalog, CapabilityCenterResponse, CapabilityPreset, CapabilityPresetListResponse, CapabilityPresetRequest, CommandHandle, CompileResponse, ConfigurationKind, CreateSavedConfiguration,
   DraftSnapshot, EditorState, EventHistory, ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, SavedConfiguration,
-  AttachmentUploadHandle, CapabilityPackListResponse, CapabilityPackSnapshot, CreateCapabilityPackRequest, EvaluationSnapshot, FindingListResponse, ReportListResponse,
-  RuleSetDraftSnapshot, RuleSetValidationResponse, RuleSetVersionSnapshot, WorkItemListResponse, WorkItemSnapshot,
+  CapabilityPackListResponse, CapabilityPackSnapshot, CreateCapabilityPackRequest,
+  AssessmentListResponse, BusinessObjectSnapshot, CaseSnapshot, CaseSubjectInput, DocumentDownloadHandle, DocumentListResponse, DocumentSnapshot, DocumentUploadHandle, EvaluationSnapshot, InitiateDocumentRequest, PackBindings, ReportListResponse,
   SavedConfigurationListResponse, StrategyHandle,
+  ModelProviderConfiguration, ModelProviderConfigurationRequest, ModelProviderTestResult,
   StrategyListResponse, StrategyVersionDetail,
-  StrategyVersionListResponse,
+  StrategyVersionListResponse, WorkItemSnapshot, RuleSetDraftSnapshot, RuleSetValidationResponse, RuleSetVersionSnapshot,
 } from "./types";
 
 const configuredApiUrl: unknown = import.meta.env["VITE_API_URL"];
@@ -13,11 +14,14 @@ const baseUrl = typeof configuredApiUrl === "string" ? configuredApiUrl : "/api"
 const temporalUi: unknown = import.meta.env["VITE_TEMPORAL_UI_URL"];
 const phoenixUi: unknown = import.meta.env["VITE_PHOENIX_URL"];
 const temporalUiUrl = typeof temporalUi === "string" ? temporalUi : "http://localhost:8088";
-const configuredArtifactGateway: unknown = import.meta.env["VITE_ARTIFACT_GATEWAY_URL"];
-const artifactGatewayUrl = typeof configuredArtifactGateway === "string" ? configuredArtifactGateway : "http://localhost:8091";
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public code?: string) { super(message); }
+  constructor(
+    public status: number,
+    message: string,
+    public code?: string,
+    public blockers?: CapabilityPackSnapshot["blockers"],
+  ) { super(message); }
 }
 
 async function request<T>(path: string, tenantId: string, init?: RequestInit): Promise<T> {
@@ -31,8 +35,8 @@ async function request<T>(path: string, tenantId: string, init?: RequestInit): P
   if (!response.ok) {
     const body = await response.text();
     try {
-      const problem = JSON.parse(body) as { detail?: string; code?: string };
-      throw new ApiError(response.status, problem.detail ?? body, problem.code);
+      const problem = JSON.parse(body) as { detail?: string; code?: string; blockers?: CapabilityPackSnapshot["blockers"] };
+      throw new ApiError(response.status, problem.detail ?? body, problem.code, problem.blockers);
     } catch (error) {
       if (error instanceof ApiError) throw error;
       throw new ApiError(response.status, body || response.statusText);
@@ -50,10 +54,35 @@ async function requestFile(path: string, tenantId: string, init?: RequestInit): 
   return response.blob();
 }
 
+async function uploadBlob(uploadRef: string, capabilityToken: string, file: File): Promise<void> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  const response = await fetch(uploadRef, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ capabilityToken, contentBase64: btoa(binary) }),
+  });
+  if (!response.ok) throw new ApiError(response.status, await response.text());
+}
+
+async function downloadBlob(handle: DocumentDownloadHandle): Promise<Blob> {
+  const query = new URLSearchParams({ capability_token: handle.capabilityToken });
+  const response = await fetch(`${handle.downloadRef}?${query}`, { method: "POST" });
+  if (!response.ok) throw new ApiError(response.status, await response.text());
+  return response.blob();
+}
+
 export const api = {
   listStrategies: (tenantId: string, projectId: string, limit = 50) => request<StrategyListResponse>(`/v1/projects/${projectId}/strategies?limit=${limit}`, tenantId),
   getCapabilities: (tenantId: string, projectId: string) => request<CapabilityCatalog>(`/v1/projects/${projectId}/capabilities`, tenantId),
   getCapabilityCenter: (tenantId: string, projectId: string) => request<CapabilityCenterResponse>(`/v1/projects/${projectId}/capability-center`, tenantId),
+  getModelProvider: (tenantId: string, projectId: string, logicalModel: string) => request<ModelProviderConfiguration>(`/v1/projects/${projectId}/model-provider?logicalModel=${encodeURIComponent(logicalModel)}`, tenantId),
+  saveModelProvider: (tenantId: string, projectId: string, body: ModelProviderConfigurationRequest) => request<ModelProviderConfiguration>(`/v1/projects/${projectId}/model-provider`, tenantId, { method: "PUT", body: JSON.stringify(body) }),
+  testModelProvider: (tenantId: string, projectId: string, body: ModelProviderConfigurationRequest) => request<ModelProviderTestResult>(`/v1/projects/${projectId}/model-provider:test`, tenantId, { method: "POST", body: JSON.stringify(body) }),
   runCapability: (tenantId: string, projectId: string, capabilityRef: string, input: Record<string, unknown>, presetId?: string) => request<RunHandle>(`/v1/projects/${projectId}/capability-runs`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ capabilityRef, input, presetId }) }),
   listPresets: (tenantId: string, projectId: string) => request<CapabilityPresetListResponse>(`/v1/projects/${projectId}/presets`, tenantId),
   createPreset: (tenantId: string, projectId: string, body: CapabilityPresetRequest) => request<CapabilityPreset>(`/v1/projects/${projectId}/presets`, tenantId, { method: "POST", body: JSON.stringify(body) }),
@@ -89,24 +118,40 @@ export const api = {
   retryTask: (tenantId: string, projectId: string, runId: string, taskId: string) => request<CommandHandle>(`/v1/projects/${projectId}/runs/${runId}/tasks/${taskId}:retry`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   listCapabilityPacks: (tenantId: string, projectId: string) => request<CapabilityPackListResponse>(`/v1/projects/${projectId}/capability-packs`, tenantId),
   createCapabilityPack: (tenantId: string, projectId: string, body: CreateCapabilityPackRequest) => request<CapabilityPackSnapshot>(`/v1/projects/${projectId}/capability-packs`, tenantId, { method: "POST", body: JSON.stringify(body) }),
+  createRuleSet: (tenantId: string, projectId: string, body: { name: string; purpose: string; rules: Record<string, unknown> }) => request<RuleSetDraftSnapshot>(`/v1/projects/${projectId}/rule-sets`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
+  validateRuleSet: (tenantId: string, projectId: string, draftId: string) => request<RuleSetValidationResponse>(`/v1/projects/${projectId}/rule-set-drafts/${draftId}:validate`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ attachments: null }) }),
+  publishRuleSet: (tenantId: string, projectId: string, draftId: string) => request<RuleSetVersionSnapshot>(`/v1/projects/${projectId}/rule-set-drafts/${draftId}:publish`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   enableCapabilityPack: (tenantId: string, projectId: string, versionId: string, configuration: Record<string, unknown> = {}) => request(`/v1/projects/${projectId}/capability-packs/${versionId}:enable`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ configuration }) }),
+  disableCapabilityPack: (tenantId: string, projectId: string, versionId: string) => request<CapabilityPackSnapshot>(`/v1/projects/${projectId}/capability-packs/${versionId}:disable`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   deleteCapabilityPack: (tenantId: string, projectId: string, versionId: string) => request<undefined>(`/v1/projects/${projectId}/capability-packs/${versionId}`, tenantId, { method: "DELETE" }),
-  listWorkItems: (tenantId: string, projectId: string) => request<WorkItemListResponse>(`/v1/projects/${projectId}/work-items`, tenantId),
-  getWorkItem: (tenantId: string, projectId: string, workItemId: string) => request<WorkItemSnapshot>(`/v1/projects/${projectId}/work-items/${workItemId}`, tenantId),
   createWorkItem: (tenantId: string, projectId: string, body: { workItemType: string; payload: Record<string, unknown>; owner?: string }) => request<WorkItemSnapshot>(`/v1/projects/${projectId}/work-items`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
   executeWorkItem: (tenantId: string, projectId: string, workItemId: string) => request<EvaluationSnapshot>(`/v1/projects/${projectId}/work-items/${workItemId}:execute`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
-  listFindings: (tenantId: string, projectId: string, workItemId: string) => request<FindingListResponse>(`/v1/projects/${projectId}/work-items/${workItemId}/findings`, tenantId),
-  actOnFinding: (tenantId: string, projectId: string, findingId: string, action: "ACKNOWLEDGE" | "WAIVE" | "RESOLVE" | "REOPEN", reason?: string) => request(`/v1/projects/${projectId}/findings/${findingId}:act`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ action, reason }) }),
-  listReports: (tenantId: string, projectId: string, evaluationId: string) => request<ReportListResponse>(`/v1/projects/${projectId}/evaluations/${evaluationId}/reports`, tenantId),
-  initiateAttachment: (tenantId: string, projectId: string, workItemId: string, body: { documentType: string; filename: string; mediaType: string; sizeBytes: number; sha256: string }) => request<AttachmentUploadHandle>(`/v1/projects/${projectId}/work-items/${workItemId}/attachments:initiate`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
-  uploadBlob: async (handle: AttachmentUploadHandle, contentBase64: string) => {
-    const response = await fetch(`${artifactGatewayUrl}${handle.uploadRef}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capabilityToken: handle.capabilityToken, contentBase64 }) });
-    if (!response.ok) throw new ApiError(response.status, await response.text());
+  getEvaluation: (tenantId: string, projectId: string, evaluationId: string) => request<EvaluationSnapshot>(`/v1/projects/${projectId}/evaluations/${evaluationId}`, tenantId),
+  listDocuments: (tenantId: string, projectId: string, search = "", category = "", status = "") => {
+    const query = new URLSearchParams();
+    if (search) query.set("search", search);
+    if (category) query.set("category", category);
+    if (status) query.set("status", status);
+    const suffix = query.size ? `?${query.toString()}` : "";
+    return request<DocumentListResponse>(`/v1/projects/${projectId}/documents${suffix}`, tenantId);
   },
-  completeAttachment: (tenantId: string, projectId: string, handle: AttachmentUploadHandle, sha256: string) => request<AttachmentUploadHandle>(`/v1/projects/${projectId}/attachments/${handle.attachmentId}:complete`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ sha256, scanStatus: "CLEAN" }) }),
-  createRuleSet: (tenantId: string, projectId: string, body: { name: string; purpose: string; rules: Record<string, unknown> }) => request<RuleSetDraftSnapshot>(`/v1/projects/${projectId}/rule-sets`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
-  validateRuleSet: (tenantId: string, projectId: string, draftId: string, attachments: Array<Record<string, unknown>>) => request<RuleSetValidationResponse>(`/v1/projects/${projectId}/rule-set-drafts/${draftId}:validate`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ attachments }) }),
-  publishRuleSet: (tenantId: string, projectId: string, draftId: string) => request<RuleSetVersionSnapshot>(`/v1/projects/${projectId}/rule-set-drafts/${draftId}:publish`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
+  initiateDocument: (tenantId: string, projectId: string, body: InitiateDocumentRequest) => request<DocumentUploadHandle>(`/v1/projects/${projectId}/documents:initiate`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
+  uploadDocumentContent: (handle: DocumentUploadHandle, file: File) => {
+    if (!handle.capabilityToken) throw new ApiError(409, "文件上传凭证不可用");
+    return uploadBlob(handle.uploadRef, handle.capabilityToken, file);
+  },
+  completeDocument: (tenantId: string, projectId: string, uploadId: string, sha256: string) => request<DocumentSnapshot>(`/v1/projects/${projectId}/document-uploads/${uploadId}:complete`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ sha256 }) }),
+  getDocument: (tenantId: string, projectId: string, documentId: string) => request<DocumentSnapshot>(`/v1/projects/${projectId}/documents/${documentId}`, tenantId),
+  downloadDocumentVersion: async (tenantId: string, projectId: string, documentId: string, version: number) => {
+    const handle = await request<DocumentDownloadHandle>(`/v1/projects/${projectId}/documents/${documentId}/versions/${version}:download`, tenantId, { method: "POST" });
+    return { filename: handle.filename, content: await downloadBlob(handle) };
+  },
+  getPackBindings: (tenantId: string, projectId: string, versionId: string) => request<PackBindings>(`/v1/projects/${projectId}/capability-packs/${versionId}/bindings`, tenantId),
+  createBusinessObject: (tenantId: string, projectId: string, body: { objectType: string; canonicalKey: string; schemaRef: string; data: Record<string, unknown>; provenance?: Record<string, unknown> }) => request<BusinessObjectSnapshot>(`/v1/projects/${projectId}/business-objects`, tenantId, { method: "POST", body: JSON.stringify(body) }),
+  createCase: (tenantId: string, projectId: string, body: { scenarioType: string; payload: Record<string, unknown>; subjects: CaseSubjectInput[]; owner?: string }) => request<CaseSnapshot>(`/v1/projects/${projectId}/cases`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
+  assessCase: (tenantId: string, projectId: string, caseId: string) => request<EvaluationSnapshot>(`/v1/projects/${projectId}/cases/${caseId}:assess`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
+  listCaseAssessments: (tenantId: string, projectId: string, caseId: string) => request<AssessmentListResponse>(`/v1/projects/${projectId}/cases/${caseId}/assessments`, tenantId),
+  listEvaluationReports: (tenantId: string, projectId: string, evaluationId: string) => request<ReportListResponse>(`/v1/projects/${projectId}/evaluations/${evaluationId}/reports`, tenantId),
   eventUrl: (projectId: string, runId: string, after: number) => `${baseUrl}/v1/projects/${projectId}/runs/${runId}/events?after=${after}`,
   temporalUiUrl,
   temporalUrl: (tenantId: string, runId: string) => `${temporalUiUrl}/namespaces/default/workflows/${encodeURIComponent(`swarm:${tenantId}:${runId}`)}`,

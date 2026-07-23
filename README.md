@@ -47,7 +47,10 @@ and servers require `SWARMCORE_WORKLOAD_TLS_CA_FILE`, `SWARMCORE_WORKLOAD_TLS_CE
 `secret://dynamic/<mount>/<path>` and are revoked when the activity exits. The Artifact, Model, and
 Sandbox capability secrets are independent and must also be replaced. Artifact Gateway uses the
 local store by default and can select S3 plus ClamAV; Model Gateway routes logical model names to
-LiteLLM, and the production Agent Worker creates only run-scoped Model Gateway clients. Sandbox
+LiteLLM by default, or directly to a local OpenAI-compatible endpoint configured with
+`SWARMCORE_MODEL_PROVIDER_URL` and `SWARMCORE_MODEL_PROVIDER_API_KEY`. Direct credentials are
+rejected in production, where Vault remains required. The production Agent Worker creates only
+run-scoped Model Gateway clients. Sandbox
 Manager is dry-run locally and admits only digest-pinned allowlisted images.
 
 M4 also adds scoped Artifact listing and one-time download grants, append-only Audit query/NDJSON
@@ -72,8 +75,10 @@ The MCP endpoint is `/mcp` and exposes the canonical tools
 `swarm.capabilities.get`, `swarm.strategy.validate`, `swarm.strategy.compile`,
 `swarm.run.create`, `swarm.run.status`, `swarm.run.result`, and `swarm.run.control`.
 Business Workbench also exposes `list_capability_packs`, `create_work_item`,
-`execute_work_item`, `get_evaluation`, `list_findings`, `act_on_finding`, and `get_report`; these
-tools call the same application services as REST.
+`execute_work_item`, `get_evaluation`, `list_findings`, `act_on_finding`, and `get_report`.
+Business Context adds `upsert_business_object`, `create_case`, `assess_case`,
+`get_case_result`, and `list_case_findings`; all of these tools call the same application services
+as REST.
 Run control actions, including cancellation, are submitted through `swarm.run.control`;
 the former `swarm.run.start`, `swarm.run.get`, and `swarm.run.cancel` aliases are not supported.
 
@@ -86,9 +91,12 @@ Agent tools are exposed to Agno only as Gateway proxy functions. Side-effecting 
 explicit `tool` nodes so Temporal can retain a stable effect ID across Activity retries; HIGH and
 CRITICAL tools enter the durable Approval flow before a capability token is issued.
 
-The first trusted business capability pack is `contract-integrity`. Its generic REST resources are
-under `/v1/projects/{project_id}/capability-packs`, `/work-items`, `/evaluations`, `/findings`,
-`/reports`, and `/rule-sets`. Capability-pack list and enable responses include the current
+The first trusted business capability pack is `contract-integrity`; its v1 and v2 manifests can
+coexist. The v1 Workbench resources remain under `/v1/projects/{project_id}/capability-packs`,
+`/work-items`, `/evaluations`, `/findings`, `/reports`, and `/rule-sets`. The v2 business API adds
+`/business-objects`, `/cases`, `/decision-assets`, and `/documents`. Document endpoints initiate
+uploads, list immutable versions and business bindings, complete hash-verified uploads, and expose
+the exact document-version snapshots used by an Assessment. Capability-pack list and enable responses include the current
 project binding `configuration`; updating it re-enables the same immutable version with new
 project-scoped parameters. `POST /v1/projects/{project_id}/capability-packs` publishes a custom
 Manifest bound to an existing published `StrategyVersion`; the server reads the frozen plan and
@@ -96,9 +104,17 @@ rejects Agent/Tool declarations that differ from that version. The Web console b
 from a trusted business-asset template and a version selected from Strategy Management. Input files
 are initiated through the API, uploaded to Artifact
 Gateway with a short-lived Blob capability, hash/scanned there, and only then attached to an
-immutable WorkItemRevision. Set `VITE_ARTIFACT_GATEWAY_URL` for browser uploads and include the
-Web console origin in `SWARMCORE_CORS_ORIGINS`. Apply migration
-`0008_business_workbench` before using these resources.
+immutable WorkItemRevision or BusinessDocumentVersion. The business document library manages only
+user files and their business bindings; it does not connect to ERP, SharePoint, databases, external
+APIs, or other business systems. Local disk and S3 remain deployment-level storage adapters.
+The legacy `/connections`, `/resources`, resource-binding, and resource-snapshot contracts remain
+temporarily available for historical compatibility, but new document and business-work flows do
+not depend on them. Include the Web console origin in `SWARMCORE_CORS_ORIGINS`. Apply all migrations
+through `0013_business_document_library` before using the document library.
+
+`WorkItem`, `Evaluation`, and `RuleSet` remain stable storage/API compatibility terms. New clients
+should use the product terms `Case`, `Assessment`, and `DecisionAsset`; the compatibility APIs are
+deprecated for new integrations but are not scheduled for removal in v1.
 
 To run the PostgreSQL RLS integration contract against a migrated test database, set
 `SWARMCORE_TEST_DATABASE_URL` before `uv run pytest`.

@@ -1,0 +1,33 @@
+{
+  "apiVersion": "swarmcore.io/v2",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "contract-post-evaluation", "version": "1.6.0"},
+  "spec": {
+    "case": {
+      "type": "contract-post-evaluation-case",
+      "schema": "schema://contract/post-evaluation-case@1",
+      "subjectsRequired": true,
+      "subjectRoles": [
+        {"key": "contract", "objectType": "contract", "role": "PRIMARY", "min": 1, "max": 1},
+        {"key": "supplier", "objectType": "supplier", "role": "RELATED", "min": 0, "max": 1}
+      ]
+    },
+    "inputSchema": "schema://contract/post-evaluation-input@2",
+    "outputSchema": "schema://contract/post-evaluation-result@1",
+    "strategies": {"execute": "strategy://contract-post-evaluation/generate@7"},
+    "agents": ["agent://contract/post-evaluation-analyst@1"],
+    "tools": [
+      "tool://document/read-versions@1",
+      "tool://contract/post-evaluation@1",
+      "tool://report/render-post-evaluation@1",
+      "tool://workbench/record-post-evaluation@1"
+    ],
+    "documents": [
+      {"category": "CONTRACT", "required": true}
+    ],
+    "report": {"template": "report://contract/post-evaluation@1"},
+    "permissions": ["case.read", "case.assess", "finding.act", "document.read", "report.read"],
+    "events": {"namespace": "capability.contract-post-evaluation"},
+    "ui": {"viewDefinition": "view://contract-post-evaluation/case@1"}
+  }
+}

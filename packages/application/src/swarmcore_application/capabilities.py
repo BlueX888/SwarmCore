@@ -159,7 +159,9 @@ class CapabilityCatalogService:
                 CapabilityPackCapability(
                     name=str(manifest["metadata"]["name"]),
                     version=str(manifest["metadata"]["version"]),
-                    workItemType=str(manifest["spec"]["workItemType"]),
+                    workItemType=str(
+                        manifest["spec"].get("workItemType") or manifest["spec"]["case"]["type"]
+                    ),
                     inputSchema=str(manifest["spec"]["inputSchema"]),
                     outputSchema=str(manifest["spec"]["outputSchema"]),
                     viewDefinition=str(manifest["spec"]["ui"]["viewDefinition"]),

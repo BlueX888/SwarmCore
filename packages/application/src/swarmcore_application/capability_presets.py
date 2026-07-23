@@ -49,7 +49,7 @@ class CapabilityPresetService:
         actor: str,
     ) -> ProjectConfiguration:
         summary = await self._require_capability(
-            tenant_id, project_id, environment, capability_ref
+            session, tenant_id, project_id, environment, capability_ref
         )
         self.validate_parameters(parameters)
         return await self._configurations.create(
@@ -95,6 +95,7 @@ class CapabilityPresetService:
                 tenant_id=tenant_id,
                 project_id=project_id,
                 environment=environment,
+                session=session,
             )
         }
         return [(row, summaries.get(row.source_ref)) for row in rows], total or 0
@@ -114,7 +115,7 @@ class CapabilityPresetService:
     ) -> ProjectConfiguration:
         saved = await self._get(session, tenant_id, project_id, preset_id)
         summary = await self._require_capability(
-            tenant_id, project_id, environment, capability_ref
+            session, tenant_id, project_id, environment, capability_ref
         )
         kind = self._configuration_kind(summary.kind)
         if saved.kind != kind.value:
@@ -200,9 +201,7 @@ class CapabilityPresetService:
         if isinstance(value, Mapping):
             for key, item in value.items():
                 normalized = "".join(
-                    character
-                    for character in str(key).lower()
-                    if character.isalnum()
+                    character for character in str(key).lower() if character.isalnum()
                 )
                 if normalized in _SENSITIVE_KEYS:
                     raise ValueError(f"preset contains forbidden secret field: {key}")
@@ -213,6 +212,7 @@ class CapabilityPresetService:
 
     async def _require_capability(
         self,
+        session: AsyncSession,
         tenant_id: UUID,
         project_id: UUID,
         environment: str,
@@ -222,6 +222,7 @@ class CapabilityPresetService:
             tenant_id=tenant_id,
             project_id=project_id,
             environment=environment,
+            session=session if capability_ref.startswith("agent://project/") else None,
         )
         summary = next((item for item in items if item.ref == capability_ref), None)
         if summary is None:

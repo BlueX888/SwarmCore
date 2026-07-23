@@ -271,6 +271,193 @@ _INTEGRITY_RESULT_SCHEMA = _object_schema(
     },
 )
 
+_POST_EVALUATION_DIMENSION_SCHEMA = _object_schema(
+    required=(
+        "code",
+        "name",
+        "weight",
+        "score",
+        "status",
+        "summary",
+        "metrics",
+        "evidenceRefs",
+    ),
+    properties={
+        "code": {
+            "enum": [
+                "DOCUMENT_COMPLETENESS",
+                "DELIVERY_TIMELINESS",
+                "DELIVERY_QUALITY",
+                "COST_CONTROL",
+                "INVOICE_COMPLIANCE",
+                "DEVIATION_GOVERNANCE",
+                "RISK_GOVERNANCE",
+            ]
+        },
+        "name": {"type": "string", "minLength": 1},
+        "weight": {"type": "integer", "minimum": 0, "maximum": 100},
+        "score": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+        "status": {"enum": ["EVALUATED", "DATA_INSUFFICIENT"]},
+        "summary": {"type": "string", "minLength": 1},
+        "metrics": {"type": "object"},
+        "evidenceRefs": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_POST_EVALUATION_FINDING_SCHEMA = _object_schema(
+    required=("dimension", "severity", "code", "title", "detail", "evidenceRefs"),
+    properties={
+        "dimension": {"type": "string", "minLength": 1},
+        "severity": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+        "code": {"enum": ["DATA_INSUFFICIENT", "DIMENSION_BELOW_TARGET"]},
+        "title": {"type": "string", "minLength": 1},
+        "detail": {"type": "string", "minLength": 1},
+        "evidenceRefs": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_POST_EVALUATION_RESULT_SCHEMA = _object_schema(
+    required=(
+        "schemaVersion",
+        "evaluationPeriod",
+        "contractId",
+        "overallScore",
+        "grade",
+        "riskLevel",
+        "passed",
+        "reviewRequired",
+        "executiveSummary",
+        "dimensions",
+        "findings",
+    ),
+    properties={
+        "schemaVersion": {"const": "schema://contract/post-evaluation-result@1"},
+        "evaluationPeriod": _object_schema(
+            required=("start", "end"),
+            properties={
+                "start": {"type": "string", "format": "date"},
+                "end": {"type": "string", "format": "date"},
+            },
+        ),
+        "contractId": {"type": "string", "minLength": 1},
+        "overallScore": {"type": "number", "minimum": 0, "maximum": 100},
+        "grade": {"type": "string", "minLength": 1},
+        "riskLevel": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+        "passed": {"type": "boolean"},
+        "reviewRequired": {"type": "boolean"},
+        "executiveSummary": {"type": "string", "minLength": 1},
+        "dimensions": {
+            "type": "array",
+            "minItems": 7,
+            "maxItems": 7,
+            "items": _POST_EVALUATION_DIMENSION_SCHEMA,
+        },
+        "findings": {"type": "array", "items": _POST_EVALUATION_FINDING_SCHEMA},
+    },
+)
+
+_PDF_REPORT_SCHEMA = _object_schema(
+    required=("mediaType", "sha256", "contentBase64"),
+    properties={
+        "mediaType": {"const": "application/pdf"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "contentBase64": {"type": "string", "minLength": 1},
+    },
+)
+
+_BOUND_RESOURCE_SCHEMA = _object_schema(
+    required=(
+        "slot",
+        "resourceId",
+        "connectionVersionId",
+        "connectorRef",
+        "accessMode",
+        "mappingConfiguration",
+    ),
+    properties={
+        "slot": {"type": "string", "minLength": 1},
+        "resourceId": {"type": "string", "format": "uuid"},
+        "connectionVersionId": {"type": "string", "format": "uuid"},
+        "connectorRef": {"type": "string", "minLength": 1},
+        "accessMode": {"enum": ["READ", "WRITE", "READ_WRITE"]},
+        "mappingConfiguration": {"type": "object"},
+    },
+)
+
+_BOUND_RESOURCE_RESULT_SCHEMA = _object_schema(
+    required=("slot", "resourceId", "connectionVersionId", "contentHash", "data"),
+    properties={
+        "slot": {"type": "string", "minLength": 1},
+        "resourceId": {"type": "string", "format": "uuid"},
+        "connectionVersionId": {"type": "string", "format": "uuid"},
+        "contentHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "data": {"type": "object"},
+    },
+)
+
+_BOUND_DOCUMENT_SCHEMA = _object_schema(
+    required=(
+        "documentId",
+        "documentVersionId",
+        "blobId",
+        "name",
+        "category",
+        "filename",
+        "mediaType",
+        "sizeBytes",
+        "sha256",
+        "version",
+    ),
+    properties={
+        "documentId": {"type": "string", "format": "uuid"},
+        "documentVersionId": {"type": "string", "format": "uuid"},
+        "blobId": {"type": "string", "format": "uuid"},
+        "name": {"type": "string", "minLength": 1},
+        "category": {"type": "string", "minLength": 1},
+        "filename": {"type": "string", "minLength": 1},
+        "mediaType": {"type": "string", "minLength": 1},
+        "sizeBytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "version": {"type": "integer", "minimum": 1},
+    },
+)
+
+_BOUND_DOCUMENT_RESULT_SCHEMA = _object_schema(
+    required=("contentHash", "documents", "effectId"),
+    properties={
+        "contentHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "documents": {"type": "array", "items": {"type": "object"}},
+        "effectId": {"type": "string", "minLength": 1},
+    },
+)
+
+_POST_EVALUATION_PAYLOAD_SCHEMA = _object_schema(
+    required=(
+        "title",
+        "evaluationPeriod",
+        "contract",
+        "documents",
+        "obligations",
+        "deviations",
+        "invoices",
+        "risks",
+    ),
+    properties={
+        "title": {"type": "string", "minLength": 1},
+        "evaluationPeriod": {"type": "object"},
+        "contract": {"type": "object"},
+        "documents": {"type": "array", "items": {"type": "object"}},
+        "obligations": {"type": "array", "items": {"type": "object"}},
+        "deviations": {"type": "array", "items": {"type": "object"}},
+        "invoices": {"type": "array", "items": {"type": "object"}},
+        "risks": {"type": "array", "items": {"type": "object"}},
+        "evidenceAvailability": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
+    },
+)
+
 
 def builtin_registry() -> RegistrySnapshot:
     return RegistrySnapshot.create(
@@ -390,6 +577,31 @@ def builtin_registry() -> RegistrySnapshot:
                     },
                 ),
                 outputSchema=_AGENT_EXTRACTION_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://contract/post-evaluation-analyst@1",
+                version="1",
+                role="contract-post-evaluation-analyst",
+                instructions=(
+                    "Read every supplied file and the user-defined workflow, then produce one "
+                    "normalized contract post-evaluation payload. Extract contract facts, required "
+                    "documents, delivery obligations, deviations, invoices, and risks only from "
+                    "the supplied evidence. Apply the user's workflow when deciding which evidence "
+                    "is relevant. Preserve the supplied fallback identifiers and evaluation period "
+                    "when the files do not contain them. Use empty arrays for genuinely absent "
+                    "categories, use null for an unavailable actual cost, and return output that "
+                    "exactly matches the declared schema."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("workflow", "basePayload", "uploadedFiles"),
+                    properties={
+                        "workflow": {"type": "string", "minLength": 1},
+                        "basePayload": {"type": "object"},
+                        "uploadedFiles": {"type": "object"},
+                    },
+                ),
+                outputSchema=_POST_EVALUATION_PAYLOAD_SCHEMA,
             ),
         ),
         models=(
@@ -619,6 +831,139 @@ def builtin_registry() -> RegistrySnapshot:
                 ),
                 idempotent=True,
                 sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://resource/read-bound@1",
+                version="1",
+                operation="resource.read_bound",
+                description=(
+                    "Read a frozen capability resource binding and record its content hash."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("evaluationId", "resource"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "resource": _BOUND_RESOURCE_SCHEMA,
+                    },
+                ),
+                outputSchema=_BOUND_RESOURCE_RESULT_SCHEMA,
+                idempotent=True,
+                sideEffecting=True,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://document/read-versions@1",
+                version="1",
+                operation="document.read_versions",
+                description="Read the immutable document versions frozen for an assessment.",
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("evaluationId", "documents"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "documents": {
+                            "type": "array",
+                            "items": _BOUND_DOCUMENT_SCHEMA,
+                        },
+                    },
+                ),
+                outputSchema=_BOUND_DOCUMENT_RESULT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://contract/post-evaluation/assemble@1",
+                version="1",
+                operation="contract.post_evaluation_assemble",
+                description=(
+                    "Normalize five bound data sources into one contract post-evaluation payload."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload", "sources"),
+                    properties={
+                        "payload": {"type": "object"},
+                        "sources": {
+                            "type": "array",
+                            "minItems": 5,
+                            "maxItems": 5,
+                            "items": _BOUND_RESOURCE_RESULT_SCHEMA,
+                        },
+                    },
+                ),
+                outputSchema=_POST_EVALUATION_PAYLOAD_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://contract/post-evaluation@1",
+                version="1",
+                operation="contract.post_evaluation",
+                description=(
+                    "Calculate a deterministic seven-dimension contract post-evaluation from "
+                    "structured document, performance, deviation, invoice, and risk facts."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload", "configuration", "attachmentManifestHash"),
+                    properties={
+                        "payload": {"type": "object"},
+                        "configuration": {"type": "object"},
+                        "attachmentManifestHash": {"type": "string", "minLength": 1},
+                    },
+                ),
+                outputSchema=_POST_EVALUATION_RESULT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://report/render-post-evaluation@1",
+                version="1",
+                operation="report.render_post_evaluation",
+                description="Render a PDF from the structured seven-dimension evaluation result.",
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("title", "result"),
+                    properties={
+                        "title": {"type": "string", "minLength": 1},
+                        "result": _POST_EVALUATION_RESULT_SCHEMA,
+                    },
+                ),
+                outputSchema=_PDF_REPORT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://workbench/record-post-evaluation@1",
+                version="1",
+                operation="workbench.record_post_evaluation",
+                description="Record an idempotent contract post-evaluation result.",
+                risk=ToolRisk.MEDIUM,
+                inputSchema=_object_schema(
+                    required=("evaluationId", "result", "report"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "result": _POST_EVALUATION_RESULT_SCHEMA,
+                        "report": _PDF_REPORT_SCHEMA,
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=("evaluationId", "recorded", "effectId", "resultHash"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "recorded": {"type": "boolean"},
+                        "effectId": {"type": "string"},
+                        "resultHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=True,
                 recoveryPolicy="idempotent",
             ),
         ),

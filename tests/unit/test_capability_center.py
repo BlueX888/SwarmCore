@@ -10,6 +10,7 @@ from swarmcore_application import (
     CapabilityCenterService,
     CapabilityReadinessService,
     ModelRuntimeStatus,
+    ProjectConfigurationService,
     RunService,
     ToolRuntimeStatus,
 )
@@ -34,6 +35,25 @@ class MissingToolRuntime(ReadyRuntime):
         return ToolRuntimeStatus(False, False)
 
 
+class CountingRuntime(ReadyRuntime):
+    def __init__(self) -> None:
+        self.tool_calls = 0
+        self.model_calls = 0
+        self.agent_calls = 0
+
+    async def inspect_tool(self, **kwargs: object) -> ToolRuntimeStatus:
+        self.tool_calls += 1
+        return await super().inspect_tool(**kwargs)
+
+    async def inspect_model(self, **kwargs: object) -> ModelRuntimeStatus:
+        self.model_calls += 1
+        return await super().inspect_model(**kwargs)
+
+    async def inspect_agent(self, **kwargs: object) -> AgentRuntimeStatus:
+        self.agent_calls += 1
+        return await super().inspect_agent(**kwargs)
+
+
 def _center(runtime: ReadyRuntime) -> CapabilityCenterService:
     registry = builtin_registry()
     readiness = CapabilityReadinessService(
@@ -55,6 +75,19 @@ class CapturingRuns:
             SimpleNamespace(id=uuid4(), status="PENDING", plan_hash="plan"),
             SimpleNamespace(id=uuid4(), status="PENDING"),
         )
+
+
+class ProjectAgents:
+    def __init__(self, row: SimpleNamespace) -> None:
+        self.row = row
+
+    async def list(self, session: object, **_: Any):
+        del session
+        return [self.row], 1
+
+    async def get(self, session: object, **_: Any):
+        del session
+        return self.row
 
 
 @pytest.mark.asyncio
@@ -141,3 +174,80 @@ async def test_ready_capability_reuses_inline_run_service() -> None:
     assert runs.arguments["idempotency_key"] == "direct-search"
     spec = SwarmStrategy.model_validate(runs.arguments["raw_spec"])
     assert spec.spec.graph.nodes.root["capability"].type == "tool"
+
+
+@pytest.mark.asyncio
+async def test_project_agent_is_listed_and_runs_its_inline_agno_definition() -> None:
+    runtime = CountingRuntime()
+    registry = builtin_registry()
+    readiness = CapabilityReadinessService(
+        tools=runtime, models=runtime, agents=runtime
+    )
+    runs = CapturingRuns()
+    configuration_id = uuid4()
+    row = SimpleNamespace(
+        id=configuration_id,
+        revision=2,
+        name="项目研究员",
+        configuration={
+            "spec": {
+                "agents": {
+                    "researcher": {
+                        "role": "project-researcher",
+                        "instructions": "Research the supplied task.",
+                        "model": "model://general@1",
+                        "tools": ["tool://search@1"],
+                    }
+                },
+                "graph": {
+                    "entrypoint": "researcher",
+                    "nodes": {
+                        "researcher": {
+                            "type": "agent",
+                            "agent": "researcher",
+                            "dependsOn": [],
+                        }
+                    },
+                },
+            }
+        },
+    )
+    center = CapabilityCenterService(
+        registry,
+        readiness,
+        cast(RunService, runs),
+        cast(ProjectConfigurationService, ProjectAgents(row)),
+    )
+    project_ref = center.project_agent_ref(configuration_id, 2)
+
+    items = await center.list(
+        tenant_id=uuid4(),
+        project_id=uuid4(),
+        environment="development",
+        session=cast(Any, object()),
+    )
+    project_agent = next(item for item in items if item.ref == project_ref)
+    assert project_agent.name == "项目研究员"
+    assert project_agent.source == "project"
+    assert project_agent.readiness.status.value == "READY"
+    assert runtime.tool_calls == len(registry.tools)
+    assert runtime.model_calls == len(registry.models)
+    assert runtime.agent_calls == len(registry.agents)
+
+    await center.run(
+        cast(Any, object()),
+        tenant_id=uuid4(),
+        project_id=uuid4(),
+        environment="development",
+        capability_ref=project_ref,
+        input_data={"query": "swarm"},
+        preset_id=None,
+        idempotency_key="project-agent",
+        initiated_by="test",
+        submitted_scopes=("run:create",),
+        auth_context_hash="context",
+    )
+    assert runs.arguments is not None
+    spec = SwarmStrategy.model_validate(runs.arguments["raw_spec"])
+    assert spec.spec.agents["researcher"].role == "project-researcher"
+    assert spec.spec.graph.nodes.root["researcher"].type == "agent"

@@ -1,14 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Save } from "lucide-react";
 import * as React from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { api } from "@/api/client";
 import type { CanvasCapabilitySelection, ConfigurationKind, Diagnostic, SavedConfiguration } from "@/api/types";
 import { StrategyEditor } from "@/components/strategy/strategy-editor";
 import { EMPTY_EDITOR_STATE, applySavedConfiguration, cloneSpec, createBlankSpec, type EditorState } from "@/components/strategy/strategy-editor-model";
 import { Button } from "@/components/ui/button";
+import { BackLink } from "@/components/ui/back-link";
 import { Card, CardContent } from "@/components/ui/card";
 import { useWorkspaceScope } from "@/lib/demo-scope";
+import { cn } from "@/lib/utils";
 
 export function StrategyCreatePage({ standalone = false }: { standalone?: boolean }) {
   const { tenantId, projectId, workspacePath } = useWorkspaceScope();
@@ -70,7 +72,7 @@ export function StrategyCreatePage({ standalone = false }: { standalone?: boolea
     }
   };
   return <div className="min-w-0 space-y-6">
-    <div><Link to={`${workspacePath}/strategies`} className="text-sm text-brand-500">← 策略管理</Link><h1 className="mt-3 text-2xl font-semibold text-gray-900 dark:text-white">{standalone ? "编排画布" : "创建策略"}</h1><p className="mt-1 text-sm text-gray-500">{standalone ? "直接在可视化画布上设计新的耐久工作流。" : "从空白画布开始，校验后创建耐久草稿。"}</p></div>
+    <div>{standalone ? null : <BackLink to={`${workspacePath}/strategies`}>策略管理</BackLink>}<h1 className={cn(standalone ? "" : "mt-4", "text-2xl font-semibold text-gray-900 dark:text-white")}>{standalone ? "编排画布" : "创建策略"}</h1><p className="mt-1 text-sm text-gray-500">{standalone ? "直接在可视化画布上设计新的耐久工作流。" : "从空白画布开始，校验后创建耐久草稿。"}</p></div>
     <Card><CardContent className="space-y-5 pt-5">
       <div><label htmlFor="strategy-name" className="text-sm font-medium text-gray-700 dark:text-gray-300">名称</label><input id="strategy-name" value={name} onChange={(event) => rename(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-gray-300 bg-transparent px-4 outline-none focus:border-brand-500 dark:border-gray-700" /></div>
       <ProjectConfigurationPicker items={configurations.data ?? []} selected={selectedConfigurationId} loading={configurations.isPending} error={configurations.error?.message} onSelect={setSelectedConfigurationId} onApply={applyConfiguration} />

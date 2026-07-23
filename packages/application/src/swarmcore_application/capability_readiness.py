@@ -38,6 +38,9 @@ class ModelRuntimeStatus:
     endpoint_healthy: bool
     environment_allowed: bool = True
     policy_allowed: bool = True
+    # False when the Model Gateway readiness probe could not be fetched.
+    # Unreachable gateways must not be treated as "route missing" catalog omissions.
+    inspected: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,15 +128,11 @@ class CapabilityReadinessService:
             return cached[1]
 
         tools = {
-            item.ref: await self._tool_summary(
-                tenant_id, project_id, clean_environment, item
-            )
+            item.ref: await self._tool_summary(tenant_id, project_id, clean_environment, item)
             for item in registry.tools
         }
         models = {
-            item.ref: await self._model_summary(
-                tenant_id, project_id, clean_environment, item
-            )
+            item.ref: await self._model_summary(tenant_id, project_id, clean_environment, item)
             for item in registry.models
         }
         agent_items: list[CapabilitySummary] = []
@@ -151,9 +150,87 @@ class CapabilityReadinessService:
                 )
             )
         agents = tuple(agent_items)
-        result = (*agents, *models.values(), *tools.values())
-        self._cache[key] = (now + self._ttl_seconds, result)
+        # Registry may declare many built-in models; only expose models that have a
+        # configured provider route in this deployment. Keep unrouted summaries in
+        # `models` so agents can still report DEPENDENCY_NOT_READY.
+        visible_models = tuple(
+            summary
+            for summary in models.values()
+            if not self._is_unrouted_model(summary)
+        )
+        result = (*agents, *visible_models, *tools.values())
+        self._cache[key] = (self._clock() + self._ttl_seconds, result)
         return result
+
+    async def project_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        environment: str,
+        registration: AgentRegistration,
+        registry: RegistrySnapshot,
+        projection: tuple[CapabilitySummary, ...] | None = None,
+    ) -> CapabilitySummary:
+        """Evaluate a project-defined agent against the same runtime and dependencies."""
+        if projection is not None:
+            models = {
+                item.ref: item for item in projection if item.kind is CapabilityKind.MODEL
+            }
+            tools = {
+                item.ref: item for item in projection if item.kind is CapabilityKind.TOOL
+            }
+            reasons = self._schema_reasons(
+                registration.ref, registration.input_schema, registration.output_schema
+            )
+            system_agent = next(
+                (item for item in projection if item.kind is CapabilityKind.AGENT), None
+            )
+            if system_agent is None:
+                reasons.append(self._reason(ReadinessReasonCode.ADAPTER_MISSING))
+            else:
+                runtime_codes = {
+                    ReadinessReasonCode.ADAPTER_MISSING,
+                    ReadinessReasonCode.ENVIRONMENT_NOT_ALLOWED,
+                    ReadinessReasonCode.POLICY_DENIED,
+                }
+                reasons.extend(
+                    reason
+                    for reason in system_agent.readiness.reasons
+                    if reason.code in runtime_codes
+                )
+            model = self._lookup_summary(registration.model, models, registry.resolve_model)
+            self._append_dependency(reasons, registration.model, model)
+            for tool_ref in registration.tools:
+                tool = self._lookup_summary(tool_ref, tools, registry.resolve_tool)
+                self._append_dependency(reasons, tool_ref, tool)
+            return CapabilitySummary(
+                ref=registration.ref,
+                kind=CapabilityKind.AGENT,
+                name=registration.role,
+                description=registration.instructions,
+                inputSchema=registration.input_schema,
+                outputSchema=registration.output_schema,
+                readiness=self._readiness(reasons),
+            )
+        models = {
+            item.ref: await self._model_summary(tenant_id, project_id, environment, item)
+            for item in registry.models
+        }
+        tools = {
+            item.ref: await self._tool_summary(tenant_id, project_id, environment, item)
+            for item in registry.tools
+        }
+        return await self._agent_summary(
+            tenant_id,
+            project_id,
+            environment,
+            registration,
+            registry,
+            models,
+            tools,
+            visiting=(),
+        )
 
     async def _tool_summary(
         self,
@@ -203,12 +280,15 @@ class CapabilityReadinessService:
             environment=environment,
             registration=registration,
         )
-        if not status.route_registered:
-            reasons.append(self._reason(ReadinessReasonCode.MODEL_ROUTE_MISSING))
-        if not status.secret_available:
-            reasons.append(self._reason(ReadinessReasonCode.SECRET_MISSING))
-        if not status.endpoint_healthy:
+        if not status.inspected:
             reasons.append(self._reason(ReadinessReasonCode.HEALTH_CHECK_FAILED))
+        else:
+            if not status.route_registered:
+                reasons.append(self._reason(ReadinessReasonCode.MODEL_ROUTE_MISSING))
+            if not status.secret_available:
+                reasons.append(self._reason(ReadinessReasonCode.SECRET_MISSING))
+            if not status.endpoint_healthy:
+                reasons.append(self._reason(ReadinessReasonCode.HEALTH_CHECK_FAILED))
         self._append_scope_reasons(reasons, status.environment_allowed, status.policy_allowed)
         return CapabilitySummary(
             ref=registration.ref,
@@ -233,9 +313,7 @@ class CapabilityReadinessService:
         reasons = self._schema_reasons(
             registration.ref, registration.input_schema, registration.output_schema
         )
-        if registration.ref in visiting or self._has_agent_cycle(
-            registration, registry, visiting
-        ):
+        if registration.ref in visiting or self._has_agent_cycle(registration, registry, visiting):
             reasons.append(self._reason(ReadinessReasonCode.DEPENDENCY_CYCLE))
         status = await self._agents.inspect_agent(
             tenant_id=tenant_id,
@@ -276,6 +354,13 @@ class CapabilityReadinessService:
             if dependency.ref in path or cls._has_agent_cycle(dependency, registry, path):
                 return True
         return False
+
+    @staticmethod
+    def _is_unrouted_model(summary: CapabilitySummary) -> bool:
+        return any(
+            reason.code is ReadinessReasonCode.MODEL_ROUTE_MISSING
+            for reason in summary.readiness.reasons
+        )
 
     @staticmethod
     def _lookup_summary(
@@ -321,14 +406,10 @@ class CapabilityReadinessService:
     ) -> None:
         if not environment_allowed:
             reasons.append(
-                CapabilityReadinessService._reason(
-                    ReadinessReasonCode.ENVIRONMENT_NOT_ALLOWED
-                )
+                CapabilityReadinessService._reason(ReadinessReasonCode.ENVIRONMENT_NOT_ALLOWED)
             )
         if not policy_allowed:
-            reasons.append(
-                CapabilityReadinessService._reason(ReadinessReasonCode.POLICY_DENIED)
-            )
+            reasons.append(CapabilityReadinessService._reason(ReadinessReasonCode.POLICY_DENIED))
 
     @staticmethod
     def _readiness(reasons: list[ReadinessReason]) -> CapabilityReadiness:
@@ -336,9 +417,7 @@ class CapabilityReadinessService:
         return CapabilityReadiness.not_ready(*unique) if unique else CapabilityReadiness.ready()
 
     @staticmethod
-    def _reason(
-        code: ReadinessReasonCode, *, dependency_ref: str | None = None
-    ) -> ReadinessReason:
+    def _reason(code: ReadinessReasonCode, *, dependency_ref: str | None = None) -> ReadinessReason:
         messages = {
             ReadinessReasonCode.EXECUTOR_MISSING: "No executor is registered.",
             ReadinessReasonCode.ADAPTER_MISSING: "The agent adapter is unavailable.",
@@ -352,6 +431,4 @@ class CapabilityReadinessService:
             ReadinessReasonCode.SCHEMA_INVALID: "The declared schema is invalid.",
             ReadinessReasonCode.POLICY_DENIED: "Policy does not allow this capability.",
         }
-        return ReadinessReason(
-            code=code, message=messages[code], dependencyRef=dependency_ref
-        )
+        return ReadinessReason(code=code, message=messages[code], dependencyRef=dependency_ref)

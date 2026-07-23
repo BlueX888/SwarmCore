@@ -137,9 +137,7 @@ class RunCommandService:
                 project_id=project_id,
                 actor_id=actor,
                 action=audit_action,
-                resource_type=(
-                    "approval" if command_type in {"approve", "reject"} else "run"
-                ),
+                resource_type=("approval" if command_type in {"approve", "reject"} else "run"),
                 resource_id=str(payload.get("requestId", run_id)),
                 run_id=run_id,
                 policy_revision=run.policy_revision,

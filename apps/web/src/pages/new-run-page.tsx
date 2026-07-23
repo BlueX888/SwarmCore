@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Braces, ListChecks, Play, Sparkles } from "lucide-react";
+import { ArrowLeft, Braces, ListChecks, Play, Sparkles } from "lucide-react";
 import * as React from "react";
 import { Link, useNavigate } from "react-router";
 import { api } from "@/api/client";
@@ -121,7 +121,14 @@ export function NewRunPage() {
   const loading = strategies.isPending || versions.isPending;
 
   return <div className="space-y-6">
-    <div><Link to=".." className="text-sm text-brand-500">← 运行记录</Link><h1 className="mt-3 text-2xl font-semibold text-gray-900 dark:text-white">新建运行</h1><p className="mt-1 text-sm text-gray-500">选择已发布策略版本，通过表单填写输入并启动运行。</p></div>
+    <div>
+      <Link to=".." className="inline-flex items-center gap-1.5 rounded-lg text-sm font-medium text-brand-500 transition-colors hover:text-brand-600 focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-500/20">
+        <ArrowLeft className="size-4" aria-hidden />
+        运行记录
+      </Link>
+      <h1 className="mt-3 text-2xl font-semibold text-gray-900 dark:text-white">新建运行</h1>
+      <p className="mt-1 text-sm text-gray-500">选择已发布策略版本，通过表单填写输入并启动运行。</p>
+    </div>
     <Card><CardContent className="space-y-5 pt-5">
       {loading ? <div className="space-y-4"><Skeleton className="h-11" /><Skeleton className="h-64" /></div> : versions.isError || strategies.isError ? <div className="flex items-center justify-between"><p className="text-sm text-error-600">无法加载已发布版本。</p><Button size="sm" onClick={() => void versions.refetch()}>重试</Button></div> : versions.data?.length ? <>
         <div><label htmlFor="version" className="text-sm font-medium">策略版本</label><select id="version" value={selected} onChange={(event) => changeVersion(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-gray-300 bg-white px-3 dark:border-gray-700 dark:bg-gray-900"><option value="">请选择已发布版本</option>{versions.data.map((version) => <option key={version.strategyVersionId} value={version.strategyVersionId}>{version.strategyName} · 版本 {version.version}</option>)}</select></div>

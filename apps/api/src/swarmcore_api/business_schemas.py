@@ -22,6 +22,7 @@ class CapabilityPackSnapshot(BusinessModel):
     binding_status: str | None = Field(default=None, alias="bindingStatus")
     configuration: dict[str, Any] = Field(default_factory=dict)
     blockers: list[dict[str, Any]] = Field(default_factory=list)
+    delete_blocked_reason: str | None = Field(default=None, alias="deleteBlockedReason")
 
 
 class CapabilityPackListResponse(BusinessModel):
@@ -88,6 +89,70 @@ class AttachmentUploadHandle(BusinessModel):
 class CompleteAttachmentRequest(BusinessModel):
     sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
     scan_status: Literal["CLEAN", "INFECTED", "ERROR"] = Field(alias="scanStatus")
+
+
+class InitiateDocumentRequest(BusinessModel):
+    name: str = Field(min_length=1, max_length=512)
+    category: str = Field(min_length=1, max_length=128)
+    tags: list[str] = Field(default_factory=list)
+    filename: str = Field(min_length=1, max_length=512)
+    media_type: str = Field(alias="mediaType", min_length=1, max_length=256)
+    size_bytes: int = Field(alias="sizeBytes", gt=0)
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    business_object_ids: list[UUID] = Field(default_factory=list, alias="businessObjectIds")
+    business_work_keys: list[str] = Field(
+        default_factory=list, alias="businessWorkKeys"
+    )
+    retention_days: int = Field(default=365, alias="retentionDays", ge=1, le=3650)
+    document_id: UUID | None = Field(default=None, alias="documentId")
+
+
+class CompleteDocumentUploadRequest(BusinessModel):
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+
+
+class DocumentUploadHandle(BusinessModel):
+    document_id: UUID = Field(alias="documentId")
+    upload_id: UUID = Field(alias="uploadId")
+    blob_id: UUID = Field(alias="blobId")
+    version: int
+    upload_ref: str = Field(alias="uploadRef")
+    capability_token: str | None = Field(alias="capabilityToken")
+    status: str
+
+
+class DocumentVersionSnapshot(BusinessModel):
+    document_version_id: UUID = Field(alias="documentVersionId")
+    blob_id: UUID = Field(alias="blobId")
+    version: int
+    filename: str
+    media_type: str = Field(alias="mediaType")
+    size_bytes: int = Field(alias="sizeBytes")
+    sha256: str
+    processing_status: str = Field(alias="processingStatus")
+    created_at: datetime = Field(alias="createdAt")
+
+
+class DocumentSnapshot(BusinessModel):
+    document_id: UUID = Field(alias="documentId")
+    name: str
+    category: str
+    tags: list[str]
+    status: str
+    current_version: int = Field(alias="currentVersion")
+    updated_at: datetime = Field(alias="updatedAt")
+    current: DocumentVersionSnapshot | None = None
+    business_object_ids: list[UUID] = Field(
+        default_factory=list, alias="businessObjectIds"
+    )
+    business_work_keys: list[str] = Field(
+        default_factory=list, alias="businessWorkKeys"
+    )
+    versions: list[DocumentVersionSnapshot] = Field(default_factory=list)
+
+
+class DocumentListResponse(BusinessModel):
+    items: list[DocumentSnapshot]
 
 
 class EvaluationSnapshot(BusinessModel):
@@ -179,3 +244,99 @@ class RuleSetVersionSnapshot(BusinessModel):
     schema_version: str = Field(alias="schemaVersion")
     content_hash: str = Field(alias="contentHash")
     rules: dict[str, Any]
+
+
+class CreateBusinessObjectRequest(BusinessModel):
+    object_type: str = Field(alias="objectType", pattern=r"^[a-z][a-z0-9-]{0,127}$")
+    canonical_key: str = Field(alias="canonicalKey", min_length=1, max_length=256)
+    schema_ref: str = Field(alias="schemaRef", min_length=1, max_length=256)
+    data: dict[str, Any]
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    effective_at: datetime | None = Field(default=None, alias="effectiveAt")
+
+
+class CreateBusinessObjectVersionRequest(BusinessModel):
+    schema_ref: str = Field(alias="schemaRef", min_length=1, max_length=256)
+    data: dict[str, Any]
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    effective_at: datetime | None = Field(default=None, alias="effectiveAt")
+
+
+class CreateBusinessObjectRelationRequest(BusinessModel):
+    source_object_id: UUID = Field(alias="sourceObjectId")
+    source_version_id: UUID = Field(alias="sourceVersionId")
+    target_object_id: UUID = Field(alias="targetObjectId")
+    target_version_id: UUID = Field(alias="targetVersionId")
+    relation_type: str = Field(alias="relationType", min_length=1, max_length=128)
+    assertion_state: Literal["ACTIVE", "RETRACTED"] = Field(
+        default="ACTIVE", alias="assertionState"
+    )
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    supersedes_relation_id: UUID | None = Field(default=None, alias="supersedesRelationId")
+
+
+class CaseSubjectRequest(BusinessModel):
+    business_object_id: UUID = Field(alias="businessObjectId")
+    business_object_version_id: UUID = Field(alias="businessObjectVersionId")
+    role: Literal["PRIMARY", "COMPARISON", "EVIDENCE", "RELATED"]
+    subject_key: str = Field(alias="subjectKey", min_length=1, max_length=128)
+
+
+class CreateCaseRequest(BusinessModel):
+    scenario_type: str = Field(alias="scenarioType", min_length=1, max_length=128)
+    payload: dict[str, Any]
+    subjects: list[CaseSubjectRequest] = Field(default_factory=list)
+    owner: str | None = Field(default=None, max_length=256)
+
+
+class UpdateCaseRequest(BusinessModel):
+    payload: dict[str, Any]
+    subjects: list[CaseSubjectRequest] | None = None
+    owner: str | None = Field(default=None, max_length=256)
+
+
+class CreateDecisionAssetRequest(BusinessModel):
+    name: str = Field(min_length=1, max_length=128)
+    purpose: str = Field(min_length=1, max_length=512)
+    definition: dict[str, Any]
+
+
+class UpdateDecisionDraftRequest(BusinessModel):
+    definition: dict[str, Any]
+    expected_revision: int = Field(alias="expectedRevision", ge=1)
+
+
+class CreateConnectionRequest(BusinessModel):
+    name: str = Field(min_length=1, max_length=128)
+    connector_ref: str = Field(alias="connectorRef", min_length=1, max_length=256)
+    configuration: dict[str, Any] = Field(default_factory=dict)
+    credential_ref: str = Field(alias="credentialRef", min_length=1, max_length=512)
+    policy_ref: str | None = Field(default=None, alias="policyRef", max_length=256)
+
+
+class CreateConnectionVersionRequest(BusinessModel):
+    configuration: dict[str, Any] = Field(default_factory=dict)
+    credential_ref: str = Field(alias="credentialRef", min_length=1, max_length=512)
+    policy_ref: str | None = Field(default=None, alias="policyRef", max_length=256)
+
+
+class CreateResourceRequest(BusinessModel):
+    connection_id: UUID = Field(alias="connectionId")
+    resource_kind: str = Field(alias="resourceKind")
+    name: str = Field(min_length=1, max_length=128)
+    locator: dict[str, Any]
+    schema_ref: str | None = Field(default=None, alias="schemaRef")
+    media_type: str | None = Field(default=None, alias="mediaType")
+    sensitivity: str = "INTERNAL"
+
+
+class BindDecisionRequest(BusinessModel):
+    rule_set_version_id: UUID = Field(alias="ruleSetVersionId")
+
+
+class BindResourceRequest(BusinessModel):
+    resource_definition_id: UUID = Field(alias="resourceDefinitionId")
+    access_mode: Literal["READ", "WRITE", "SUBSCRIBE"] = Field(alias="accessMode")
+    mapping_configuration: dict[str, Any] = Field(
+        default_factory=dict, alias="mappingConfiguration"
+    )

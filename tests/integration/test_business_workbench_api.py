@@ -24,7 +24,7 @@ from swarmcore_application import (
 )
 from swarmcore_artifact_gateway.main import Settings as ArtifactSettings
 from swarmcore_artifact_gateway.main import create_app as create_artifact_app
-from swarmcore_capability_contract_integrity import DEFAULT_RULES, MANIFEST
+from swarmcore_capability_contract_integrity import DEFAULT_RULES, MANIFEST, MANIFEST_V2
 from swarmcore_governance import BlobCapabilityIssuer
 from swarmcore_registry import builtin_registry
 from swarmcore_tool_gateway import CapabilityTokenIssuer
@@ -47,6 +47,295 @@ class ReadyRuntime:
 
     async def inspect_agent(self, **_: object) -> AgentRuntimeStatus:
         return AgentRuntimeStatus(adapter_available=True)
+
+
+@pytest.mark.asyncio
+async def test_contract_integrity_v2_freezes_subject_decision_and_resource_history() -> None:
+    database_url = os.getenv("SWARMCORE_TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("SWARMCORE_TEST_DATABASE_URL is not configured")
+    tenant_id, project_id = uuid4(), uuid4()
+    engine = create_async_engine(database_url)
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO tenants (id, name, status, created_at, updated_at) "
+                "VALUES (:tenant, :name, 'ACTIVE', now(), now())"
+            ),
+            {"tenant": tenant_id, "name": f"business-v2-{tenant_id}"},
+        )
+        await connection.execute(
+            text("SELECT set_config('app.tenant_id', :tenant, true)"),
+            {"tenant": str(tenant_id)},
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO projects "
+                "(id, tenant_id, name, settings, created_at, updated_at) "
+                "VALUES (:project, :tenant, 'business-v2', '{}', now(), now())"
+            ),
+            {"project": project_id, "tenant": tenant_id},
+        )
+    await engine.dispose()
+
+    app = create_app(Settings(database_url=database_url, telemetry_enabled=False))
+    runtime = ReadyRuntime()
+    capability_packs.attach_readiness(
+        CapabilityCenterService(
+            builtin_registry(),
+            CapabilityReadinessService(tools=runtime, models=runtime, agents=runtime),
+        ),
+        environment="development",
+    )
+    headers = {"X-Tenant-ID": str(tenant_id)}
+    base = f"/v1/projects/{project_id}"
+    with TestClient(app) as client:
+        packs = client.get(f"{base}/capability-packs", headers=headers)
+        assert packs.status_code == 200, packs.text
+        v2 = next(item for item in packs.json()["items"] if item["version"] == "2.0.0")
+        assert v2["manifest"]["apiVersion"] == MANIFEST_V2["apiVersion"]
+        listed_blocker_codes = {
+            reason
+            for blocker in v2["blockers"]
+            for reason in blocker["reasons"]
+        }
+        assert {"DECISION_BINDING_MISSING", "RESOURCE_BINDING_MISSING"} <= listed_blocker_codes
+
+        rule_set = client.post(
+            f"{base}/decision-assets",
+            headers=headers,
+            json={
+                "name": "v2-checklist",
+                "purpose": "v2",
+                "definition": {
+                    "apiVersion": "swarmcore.io/decision/v1",
+                    "kind": "DecisionAsset",
+                    "type": "CHECKLIST",
+                    "engine": "swarmcore.rules.v1",
+                    "inputSchema": "schema://contract/validation-input@2",
+                    "outputSchema": "schema://contract/validation-result@1",
+                    "definition": DEFAULT_RULES,
+                    "tests": [],
+                },
+            },
+        )
+        assert rule_set.status_code == 201, rule_set.text
+        decision_asset_id = rule_set.json()["decisionAssetId"]
+        published = client.post(
+            f"{base}/decision-assets/{decision_asset_id}/draft:publish",
+            headers=headers,
+        )
+        assert published.status_code == 201, published.text
+        decision_version_id = published.json()["decisionVersionId"]
+
+        blocked = client.post(
+            f"{base}/capability-packs/{v2['versionId']}:enable",
+            headers={**headers, "Idempotency-Key": "enable-v2-missing"},
+            json={"configuration": {}},
+        )
+        assert blocked.status_code == 409, blocked.text
+        blocker_codes = {
+            reason
+            for blocker in blocked.json()["blockers"]
+            for reason in blocker["reasons"]
+        }
+        assert {"DECISION_BINDING_MISSING", "RESOURCE_BINDING_MISSING"} <= blocker_codes
+
+        decision_binding = client.put(
+            f"{base}/capability-packs/{v2['versionId']}/decision-bindings/document-checklist",
+            headers=headers,
+            json={"ruleSetVersionId": decision_version_id},
+        )
+        assert decision_binding.status_code == 200, decision_binding.text
+        connection = client.post(
+            f"{base}/connections",
+            headers={**headers, "Idempotency-Key": "v2-connection"},
+            json={
+                "name": "v2-fake-files",
+                "connectorRef": "connector://fake/files@1",
+                "configuration": {"endpoint": "memory://contracts"},
+                "credentialRef": "vault://integration/v2-files",
+            },
+        )
+        assert connection.status_code == 201, connection.text
+        assert "credentialRef" not in connection.json()
+        health = client.post(
+            f"{base}/connections/{connection.json()['connectionId']}:test",
+            headers={**headers, "Idempotency-Key": "health-v1"},
+        )
+        health_replay = client.post(
+            f"{base}/connections/{connection.json()['connectionId']}:test",
+            headers={**headers, "Idempotency-Key": "health-v1"},
+        )
+        assert health.status_code == 202, health.text
+        assert health_replay.json()["commandId"] == health.json()["commandId"]
+        resource = client.post(
+            f"{base}/resources",
+            headers={**headers, "Idempotency-Key": "v2-resource"},
+            json={
+                "connectionId": connection.json()["connectionId"],
+                "resourceKind": "DOCUMENT_COLLECTION",
+                "name": "v2-contracts",
+                "locator": {"path": "contracts"},
+                "sensitivity": "CONFIDENTIAL",
+            },
+        )
+        assert resource.status_code == 201, resource.text
+        resource_binding = client.put(
+            f"{base}/capability-packs/{v2['versionId']}/resource-bindings/contract-files",
+            headers=headers,
+            json={
+                "resourceDefinitionId": resource.json()["resourceId"],
+                "accessMode": "READ",
+                "mappingConfiguration": {},
+            },
+        )
+        assert resource_binding.status_code == 200, resource_binding.text
+        enabled = client.post(
+            f"{base}/capability-packs/{v2['versionId']}:enable",
+            headers={**headers, "Idempotency-Key": "enable-v2"},
+            json={"configuration": {}},
+        )
+        assert enabled.status_code == 200, enabled.text
+
+        business_object = client.post(
+            f"{base}/business-objects",
+            headers={**headers, "Idempotency-Key": "contract-v1"},
+            json={
+                "objectType": "contract",
+                "canonicalKey": "V2-PO-1",
+                "schemaRef": "schema://contract/facts@1",
+                "data": {"amount": 100},
+                "provenance": {"source": "integration"},
+            },
+        )
+        assert business_object.status_code == 201, business_object.text
+        case = client.post(
+            f"{base}/cases",
+            headers={**headers, "Idempotency-Key": "case-v1"},
+            json={
+                "scenarioType": "contract-case",
+                "payload": {"title": "V2 合同", "contractType": "purchase"},
+                "subjects": [
+                    {
+                        "businessObjectId": business_object.json()["businessObjectId"],
+                        "businessObjectVersionId": business_object.json()["versionId"],
+                        "role": "PRIMARY",
+                        "subjectKey": "contract",
+                    }
+                ],
+            },
+        )
+        assert case.status_code == 201, case.text
+        case_id = case.json()["caseId"]
+        first = client.post(
+            f"{base}/cases/{case_id}:assess",
+            headers={**headers, "Idempotency-Key": "assessment-v1"},
+        )
+        assert first.status_code == 202, first.text
+        first_id = first.json()["evaluationId"]
+        assert first.json()["result"]["passed"] is False
+        executions = client.get(
+            f"{base}/assessments/{first_id}/decision-executions", headers=headers
+        )
+        snapshots = client.get(f"{base}/assessments/{first_id}/resource-snapshots", headers=headers)
+        reports = client.get(f"{base}/evaluations/{first_id}/reports", headers=headers)
+        assert executions.json()["items"][0]["status"] == "SUCCEEDED"
+        assert executions.json()["items"][0]["inputHash"]
+        assert snapshots.json()["items"][0]["replayability"] == "REFERENCE_ONLY"
+        assert {item["format"] for item in reports.json()["items"]} == {"HTML", "JSON"}
+
+        replay = client.post(
+            f"{base}/cases/{case_id}:assess",
+            headers={**headers, "Idempotency-Key": "assessment-v1"},
+        )
+        assert replay.json()["evaluationId"] == first_id
+        assert (
+            len(
+                client.get(
+                    f"{base}/assessments/{first_id}/decision-executions", headers=headers
+                ).json()["items"]
+            )
+            == 1
+        )
+
+        object_v2 = client.post(
+            f"{base}/business-objects/{business_object.json()['businessObjectId']}/versions",
+            headers={**headers, "Idempotency-Key": "contract-v2"},
+            json={
+                "schemaRef": "schema://contract/facts@1",
+                "data": {"amount": 125},
+                "provenance": {"source": "integration-update"},
+            },
+        )
+        assert object_v2.status_code == 201, object_v2.text
+        revised_rules = deepcopy(DEFAULT_RULES)
+        revised_rules["requirements"][0]["required"] = False
+        updated_draft = client.patch(
+            f"{base}/decision-assets/{decision_asset_id}/draft",
+            headers=headers,
+            json={
+                "expectedRevision": 1,
+                "definition": {
+                    "apiVersion": "swarmcore.io/decision/v1",
+                    "kind": "DecisionAsset",
+                    "type": "CHECKLIST",
+                    "engine": "swarmcore.rules.v1",
+                    "inputSchema": "schema://contract/validation-input@2",
+                    "outputSchema": "schema://contract/validation-result@1",
+                    "definition": revised_rules,
+                    "tests": [],
+                },
+            },
+        )
+        assert updated_draft.status_code == 200, updated_draft.text
+        published_v2 = client.post(
+            f"{base}/decision-assets/{decision_asset_id}/draft:publish", headers=headers
+        )
+        assert published_v2.status_code == 201, published_v2.text
+        assert published_v2.json()["decisionVersionId"] != decision_version_id
+        rebound = client.put(
+            f"{base}/capability-packs/{v2['versionId']}/decision-bindings/document-checklist",
+            headers=headers,
+            json={"ruleSetVersionId": published_v2.json()["decisionVersionId"]},
+        )
+        assert rebound.status_code == 200, rebound.text
+        revised_case = client.patch(
+            f"{base}/cases/{case_id}",
+            headers={
+                **headers,
+                "Idempotency-Key": "case-v2",
+                "If-Match": '"1"',
+            },
+            json={
+                "payload": {"title": "V2 合同修订", "contractType": "purchase"},
+                "subjects": [
+                    {
+                        "businessObjectId": business_object.json()["businessObjectId"],
+                        "businessObjectVersionId": object_v2.json()["versionId"],
+                        "role": "PRIMARY",
+                        "subjectKey": "contract",
+                    }
+                ],
+            },
+        )
+        assert revised_case.status_code == 200, revised_case.text
+        second = client.post(
+            f"{base}/cases/{case_id}:assess",
+            headers={**headers, "Idempotency-Key": "assessment-v2"},
+        )
+        assert second.status_code == 202, second.text
+        assert second.json()["evaluationId"] != first_id
+        assert revised_case.json()["subjects"][0]["businessObjectVersionId"] == object_v2.json()[
+            "versionId"
+        ]
+        first_history = client.get(
+            f"{base}/assessments/{first_id}/decision-executions", headers=headers
+        )
+        first_reports = client.get(f"{base}/evaluations/{first_id}/reports", headers=headers)
+        assert first_history.status_code == 200
+        assert first_history.json()["items"][0]["decisionVersionId"] == decision_version_id
+        assert {item["format"] for item in first_reports.json()["items"]} == {"HTML", "JSON"}
 
 
 @pytest.mark.asyncio
@@ -162,9 +451,7 @@ async def test_fixed_contract_integrity_scenario_and_protocol_equivalence(
                 f"@{selected_version['version']}"
             )
         }
-        custom_manifest["spec"]["events"] = {
-            "namespace": "capability.custom-review"
-        }
+        custom_manifest["spec"]["events"] = {"namespace": "capability.custom-review"}
         custom_pack = client.post(
             f"{base}/capability-packs",
             headers=headers,

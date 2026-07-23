@@ -11,6 +11,7 @@ class NodeState(StrEnum):
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
     SKIPPED = "SKIPPED"
+    BLOCKED = "BLOCKED"
 
 
 def ready_nodes(
@@ -35,7 +36,7 @@ def ready_nodes(
 def blocked_by_failure(
     nodes: list[dict[str, Any]], states: dict[str, NodeState]
 ) -> tuple[str, ...]:
-    terminal_failure = {NodeState.FAILED, NodeState.CANCELLED}
+    terminal_failure = {NodeState.FAILED, NodeState.CANCELLED, NodeState.BLOCKED}
     blocked = [
         str(node["key"])
         for node in nodes

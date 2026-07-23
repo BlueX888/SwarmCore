@@ -13,6 +13,23 @@ vi.mock("@/api/client", () => ({ api: {
   createRun: vi.fn(),
 } }));
 
+function renderNewRunPage(path = "/runs/new") {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/runs">
+            <Route index element={<p>运行列表</p>} />
+            <Route path="new" element={<NewRunPage />} />
+            <Route path=":runId" element={<p>运行已创建</p>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
 describe("new run input", () => {
   beforeEach(() => {
     vi.mocked(api.listStrategies).mockResolvedValue({ total: 1, items: [{ strategyId: "strategy-1", name: "内容策略", lifecycle: "ACTIVE", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), draftId: "draft-1", draftRevision: 1, latestVersion: 1 }] });
@@ -21,9 +38,16 @@ describe("new run input", () => {
     vi.mocked(api.createRun).mockResolvedValue({ runId: "run-1", status: "ACCEPTED", commandId: "command-1", commandStatus: "ACCEPTED", planHash: "a".repeat(64) });
   });
 
+  it("renders a product-style back link to runs", async () => {
+    renderNewRunPage();
+
+    const backLink = await screen.findByRole("link", { name: "运行记录" });
+    expect(backLink).toHaveAttribute("href", "/runs");
+    expect(backLink.querySelector("svg")).not.toBeNull();
+  });
+
   it("generates a friendly form from the strategy input schema", async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/runs/new"]}><Routes><Route path="/runs/new" element={<NewRunPage />} /><Route path="/runs/:runId" element={<p>运行已创建</p>} /></Routes></MemoryRouter></QueryClientProvider>);
+    renderNewRunPage();
 
     fireEvent.change(await screen.findByLabelText("策略版本"), { target: { value: "version-1" } });
     expect(await screen.findByRole("button", { name: "表单填写" })).toHaveAttribute("aria-pressed", "true");
@@ -37,8 +61,7 @@ describe("new run input", () => {
   });
 
   it("keeps JSON editing available as an advanced mode", async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><MemoryRouter><NewRunPage /></MemoryRouter></QueryClientProvider>);
+    renderNewRunPage();
 
     fireEvent.change(await screen.findByLabelText("策略版本"), { target: { value: "version-1" } });
     fireEvent.click(await screen.findByRole("button", { name: "JSON 编辑" }));

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "evaluationPeriod",
+    "contractId",
+    "overallScore",
+    "grade",
+    "riskLevel",
+    "passed",
+    "reviewRequired",
+    "executiveSummary",
+    "dimensions",
+    "findings"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "schema://contract/post-evaluation-result@1"},
+    "evaluationPeriod": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"type": "string", "format": "date"},
+        "end": {"type": "string", "format": "date"}
+      },
+      "additionalProperties": false
+    },
+    "contractId": {"type": "string", "minLength": 1},
+    "overallScore": {"type": "number", "minimum": 0, "maximum": 100},
+    "grade": {"enum": ["优秀", "良好", "中等", "待改进", "不合格"]},
+    "riskLevel": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+    "passed": {"type": "boolean"},
+    "reviewRequired": {"type": "boolean"},
+    "executiveSummary": {"type": "string", "minLength": 1},
+    "dimensions": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "required": ["code", "name", "weight", "score", "status", "summary", "metrics", "evidenceRefs"],
+        "properties": {
+          "code": {
+            "enum": [
+              "DOCUMENT_COMPLETENESS",
+              "DELIVERY_TIMELINESS",
+              "DELIVERY_QUALITY",
+              "COST_CONTROL",
+              "INVOICE_COMPLIANCE",
+              "DEVIATION_GOVERNANCE",
+              "RISK_GOVERNANCE"
+            ]
+          },
+          "name": {"type": "string", "minLength": 1},
+          "weight": {"type": "integer", "minimum": 0, "maximum": 100},
+          "score": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+          "status": {"enum": ["EVALUATED", "DATA_INSUFFICIENT"]},
+          "summary": {"type": "string", "minLength": 1},
+          "metrics": {"type": "object"},
+          "evidenceRefs": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["dimension", "severity", "code", "title", "detail", "evidenceRefs"],
+        "properties": {
+          "dimension": {"type": "string"},
+          "severity": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+          "code": {"enum": ["DATA_INSUFFICIENT", "DIMENSION_BELOW_TARGET"]},
+          "title": {"type": "string", "minLength": 1},
+          "detail": {"type": "string", "minLength": 1},
+          "evidenceRefs": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

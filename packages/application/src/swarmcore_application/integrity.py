@@ -30,9 +30,7 @@ class DocumentRequirement(IntegrityModel):
 
 
 class IntegrityRuleDocument(IntegrityModel):
-    schema_version: Literal["schema://contract/checklist-rule@1"] = Field(
-        alias="schemaVersion"
-    )
+    schema_version: Literal["schema://contract/checklist-rule@1"] = Field(alias="schemaVersion")
     match: dict[str, str]
     requirements: tuple[DocumentRequirement, ...]
 
@@ -89,9 +87,7 @@ def select_unique_rule(
     payload: dict[str, Any], candidates: list[tuple[str, dict[str, Any]]]
 ) -> tuple[str, dict[str, Any]]:
     matches = [
-        (identifier, rules)
-        for identifier, rules in candidates
-        if rule_matches(payload, rules)
+        (identifier, rules) for identifier, rules in candidates if rule_matches(payload, rules)
     ]
     if not matches:
         raise ValueError("RULE_SET_NO_MATCH")

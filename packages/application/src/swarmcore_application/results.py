@@ -51,9 +51,7 @@ class RunProvenance(ResultModel):
 class RunResult(ResultModel):
     run_id: UUID = Field(alias="runId")
     status: str
-    completion_quality: Literal["COMPLETE", "PARTIAL", "NONE"] = Field(
-        alias="completionQuality"
-    )
+    completion_quality: Literal["COMPLETE", "PARTIAL", "NONE"] = Field(alias="completionQuality")
     output_schema_version: str = Field(default="result.v1", alias="outputSchemaVersion")
     output: dict[str, Any] | None
     artifacts: list[ArtifactRef]

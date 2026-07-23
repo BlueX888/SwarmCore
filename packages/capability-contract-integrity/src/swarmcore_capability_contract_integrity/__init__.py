@@ -13,9 +13,11 @@ def _load(name: str) -> dict[str, Any]:
 
 
 MANIFEST = _load("manifest.json")
+MANIFEST_V2 = _load("manifest-v2.json")
 SCHEMAS = {
     "schema://contract/case@1": _load("case.schema.json"),
     "schema://contract/validation-input@1": _load("input.schema.json"),
+    "schema://contract/validation-input@2": _load("input-v2.schema.json"),
     "schema://contract/validation-result@1": _load("output.schema.json"),
     "schema://contract/checklist-rule@1": _load("rule.schema.json"),
     "schema://contract/document-extraction@1": _load("extraction.schema.json"),
@@ -44,6 +46,7 @@ REFERENCES = frozenset(
 __all__ = [
     "DEFAULT_RULES",
     "MANIFEST",
+    "MANIFEST_V2",
     "REFERENCES",
     "SCHEMAS",
     "STRATEGIES",

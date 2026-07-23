@@ -58,7 +58,7 @@ flowchart TB
     Agent[Agent Worker]
     Tool[Tool Worker / Gateway]
     Sandbox[Sandbox Manager]
-    Provider[Model / OCR / External Provider]
+    Provider[Model / OCR / Document Parser]
     Artifact[Artifact Gateway / S3]
     PG[(PostgreSQL / pgvector)]
     NATS[NATS JetStream]
@@ -84,7 +84,7 @@ flowchart TB
 | 层次 | 职责 | 禁止事项 |
 |---|---|---|
 | Runtime 执行层 | 编译、耐久调度、状态机、重试、并发、幂等、补偿和人工等待 | 不包含合同、发票等业务语义，不用模型替代状态判断 |
-| 模型与 Provider 层 | LLM、Embedding、Vision、OCR、文档解析、知识库及外部数据接入 | 不直接写业务状态或持有 Run 生命周期 |
+| 模型与 Provider 层 | LLM、Embedding、Vision、OCR、文档解析和知识库 | 不直接写业务状态或持有 Run 生命周期；不承担外部业务数据连接 |
 | 原子工具能力层 | 解析、切片、抽取、检索、规则、计算和渲染 | 硬规则不写进 Prompt；副作用不绕过 Tool Gateway |
 | 领域智能体层 | 分类、语义抽取、归纳、根因解释、评审和报告叙述 | Agent 不等同微服务，不直连数据库、Secret 或外部 Endpoint |
 | 业务应用层 | Workbench、Capability Pack、RuleSet、领域状态、问题和报告 | 不复制 Runtime、权限、审计和事件体系 |
@@ -130,7 +130,9 @@ flowchart TB
 
 就绪门槛：Tool 必须有合法 Schema、executor、风险/幂等/恢复策略和健康状态；Model 必须有 Route、可租用 Secret 和健康 Endpoint；Agent 的 Adapter、模型和 Tool 依赖必须全部就绪；Strategy 必须已发布并编译；Capability Pack 启用前全部必需依赖必须就绪。
 
-`ProjectConfiguration` 继续使用 `project_configurations` 表和旧 API；用户层称为 Capability Preset。Preset 只保存能力引用和可复用参数，不保存 Secret。能力中心的直接运行和 REST/MCP 均复用同一应用服务，不建立旁路。
+能力中心目录对 Model 额外收窄：Registry 可声明系统内置逻辑模型，但只有当前部署在 `SWARMCORE_MODEL_ROUTES`（Model Gateway）中登记了路由的模型才会出现在能力中心列表。无路由模型不作为“未就绪卡片”展示，仍参与 Agent 依赖就绪计算（`DEPENDENCY_NOT_READY`）。Gateway 不可达时不按“无路由”隐藏，而是保留条目并标记健康检查失败。
+
+`ProjectConfiguration` 继续使用 `project_configurations` 表和旧 API。Tool/Model 的用户层配置称为 Capability Preset，只保存能力引用和可复用参数，不保存 Secret。Agent 配置则投影为项目级、版本化的 `agent://project/{configurationId}@{revision}` 能力，参与 Readiness、能力中心直接运行和画布编排；执行时仍由 Agent Worker 通过 Agno Adapter 按任务创建运行实例，不把 SDK 对象作为持久状态。能力中心的直接运行和 REST/MCP 均复用同一应用服务，不建立旁路。
 
 ## 5. 执行与一致性契约
 
@@ -138,7 +140,7 @@ flowchart TB
 
 当前 Compiler/Runtime 支持 `agent`、`tool`、`router`、`loop`、`parallel`、`join`、`reducer`、`approval`、`input`。Schema 中的 `team`、`transform`、`subflow`、`emit` 在 v1 基线中不可执行，提交时返回 `UNSUPPORTED_NODE_TYPE`；是否实现由后续里程碑决定。
 
-条件表达式使用受限语法/CEL，不使用 Python `eval`。Router 按声明顺序选择首个匹配分支；Loop 必须有 1..20 的确定上限。ExecutionPlan 至少冻结 Spec/Compiler/Runtime 版本、Registry Snapshot、Policy Revision、资源版本、重试/超时/预算和输入输出 Schema；Run 不读取可变 Draft。
+条件表达式使用受限语法/CEL，不使用 Python `eval`。Router 按声明顺序选择首个匹配分支；Loop 必须有 1..20 的确定上限。ExecutionPlan 至少冻结 Spec/Compiler/Runtime 版本、Registry Snapshot、Policy Revision、输入内容版本、重试/超时/预算和输入输出 Schema；Run 不读取可变 Draft。
 
 ### 5.2 命令与状态
 
@@ -190,7 +192,17 @@ stateDiagram-v2
 
 ### 6.1 通用模型
 
-Capability Pack 以不可变 Manifest 组合 WorkItem/Input/Output Schema、Strategy、Agent、Tool、Rule、Report、权限、事件和 View Definition。Manifest 不允许 `module`、`script`、`classPath`、`componentUrl` 等代码入口；项目显式绑定不可变版本。项目可编辑绑定级 `configuration`，更新配置只更新当前项目的绑定参数，不修改已发布 Manifest、内容哈希或历史评估快照。
+Capability Pack 以不可变 Manifest 组合 WorkItem/Input/Output Schema、Strategy、Agent、Tool、Rule、Report、权限、事件和 View Definition。Manifest 不允许 `module`、`script`、`classPath`、`componentUrl` 等代码入口；项目显式绑定不可变版本。项目可编辑绑定级 `configuration`，更新配置只更新当前项目的绑定参数，不修改已发布 Manifest、内容哈希或历史评估快照。未启用且无历史评估引用的版本可删除；已删除的可信清单版本不会被 `ensure_trusted` 再次自动发布到该项目。仍启用或仍被评估引用的版本不可删除。
+
+业务上下文遵循 `BusinessObject != Case != Assessment != Run`。BusinessObject 及其不可变 Version 保存长期业务事实；Case/CaseRevision 继续复用 WorkItem/WorkItemRevision 兼容存储，并通过 Subject 冻结一个或多个对象版本；Assessment 继续复用 Evaluation，Run 只表示一次技术执行。已有 `/work-items`、`/evaluations` 和事件契约保持可用，新增 `/cases` 与 `/assessments` 是同一事实和应用服务上的产品语义投影。
+
+DecisionAsset/DecisionVersion 复用 RuleSet/RuleSetVersion 存储，支持 Checklist、Decision Table、Expression 和 Threshold。发布时必须通过确定性测试；项目绑定必须匹配 Capability Pack v2 的 Decision Slot 类型与输入/输出 Schema；每次调用追加 DecisionExecution，不覆盖原始结果。条件仍使用受限表达式解释器，禁止 `eval`。
+
+SwarmCore 的业务资料库只管理用户文件及其业务绑定，不承担 ERP、数据库、外部 API 或其他业务系统的数据连接。对象存储、本地磁盘和 S3 只作为 Blob/Artifact 的部署级 Storage Adapter，不是用户需要创建的业务 Connection。
+
+业务资料库以 BusinessDocument 表示可管理的文件记录，以 BusinessDocumentVersion 表示指向既有 BlobObject 的不可变文件版本，并保存版本号、SHA-256、大小、MIME 和上传时间。DocumentBusinessObjectLink 关联合同、供应商、项目等 BusinessObject，DocumentWorkBinding 关联一个或多个业务工作；DocumentProcessingResult 追加保存解析、抽取和人工确认结果，但不代表真实 OCR 或 AI 能力已经实现。Assessment/Run 启动前按资料分类、业务对象和业务工作自动匹配，DocumentUsageSnapshot 冻结实际使用的 document version、Blob ID、SHA-256、大小、类型和证据，运行时不得只引用可变的 BusinessDocument。
+
+Capability Pack 可声明所需资料分类，不向用户暴露 Resource Slot 或 Manifest Slot。无法自动匹配时，产品只提示选择所需业务资料。Connection、ConnectionVersion、ConnectorDefinition、ResourceDefinition、ResourceBinding 和 ResourceSnapshot 仅作为既有数据库与旧 API 的弃用兼容结构保留；新资料上传、业务绑定、Assessment/Run 和 Tool 执行链不得依赖它们。Capability Pack v1 与 v2 可并存，旧历史评估继续按原快照读取。
 
 Capability Pack 发布时必须把 `strategy://...@version` 解析为项目内不可变 `StrategyVersion`，编译后要求 ExecutionPlan 的注册 Agent、Tool 依赖与 Manifest 声明完全一致，并把 StrategyVersion、Spec/Plan Hash、Registry Snapshot、模型和依赖引用写入版本快照。Workbench 运行只能使用该 StrategyVersion 创建标准 Run；绑定级 `configuration` 作为运行输入传入，并连同哈希冻结到 Evaluation provenance。项目保存的 Agent、Tool 和 Model 配置只有合并进 SwarmSpec 并发布后才具有运行语义。
 
@@ -207,11 +219,11 @@ Business Workbench 通用实体：
 
 WorkItem 保存业务状态，Run 保存执行状态，二者不能互相覆盖。通用表只保存 Schema 校验后的通用 payload；强关系、高频聚合数据使用以 work_item_id 关联的领域扩展表，不持续向通用表增加业务列。
 
-兼容边界：业务扩展只新增资源，不改变 Run、Artifact、Strategy、RunEvent 和控制命令语义；禁用 Pack 只阻止新执行，历史数据按快照读取；数据库变更只新增 migration；REST/MCP 复用同一 Workbench 服务；业务事件使用独立命名空间，不修改 `run.*`。
+兼容边界：业务扩展只新增业务能力，不改变 Run、Artifact、Strategy、RunEvent 和控制命令语义；禁用 Pack 只阻止新执行，历史数据按快照读取；数据库变更只新增 migration；REST/MCP 复用同一 Workbench 服务；业务事件使用独立命名空间，不修改 `run.*`。
 
 ### 6.2 文档、知识与证据
 
-文档能力共享 BlobObject、Document、Page、Chunk、Table、Extraction 和 Evidence 语义；知识库在此基础上管理 KnowledgeDocument、KnowledgeChunk 和向量索引版本。Evidence 至少包含来源 Blob、页码、可选归一化坐标、文本片段、哈希和生成能力版本。
+文档能力共享 BlobObject、BusinessDocument、BusinessDocumentVersion、Page、Chunk、Table、Extraction 和 Evidence 语义，不建立第二套二进制存储。Evidence 至少包含来源 Blob 与文件版本、页码、可选归一化坐标、文本片段、哈希和生成能力版本。
 
 OCR、分类和字段抽取先通过版本化 JSON Schema，再进入确定性规则或跨文件 Tool。低置信度或缺失证据固定进入失败、降级或 `REVIEW_REQUIRED`，不得自动形成合规结论。抽取按 tenant/project、Blob SHA-256、Provider/Agent/Schema 版本去重。
 
@@ -241,7 +253,46 @@ AI 结果统一包含 `data`、`evidence`、`confidence`、`qualityFlags`、`sch
 | 偏差分析 | 时间/内容/成本计算 Tool 加根因解释 Agent |
 | 报告生成 | 结构化结果聚合、版本化模板和 AI 叙述，JSON 为事实 |
 | 调度校准 | Runtime 决策加质量监督 Agent 建议 |
-| 招采与供应商风险 | `procurement-consistency`、`supplier-risk` Pack，共享主数据和 Provider |
+| 招采与供应商风险 | `procurement-consistency`、`supplier-risk` Pack，共享用户上传资料与已确认业务事实 |
+
+### 6.5 合同七维后评价能力包
+
+`contract-post-evaluation@1.6.0` 复用 Capability Pack v2、BusinessObject/Case、业务资料库、
+StrategyVersion、Tool Gateway、Evaluation 和 Report 闭环，不建立独立业务服务。合同作为
+`PRIMARY` Subject，供应商可作为 `RELATED` Subject；业务资料库中的文件可绑定到合同后评价等
+一个或多个业务工作。运行前由 Workbench 按资料分类与 Subject 关联选择可用文件，缺少必需资料时
+提示用户补充或选择，不要求创建 Connection、登记 Resource 或配置资源槽位。
+
+运行时不会直接信任案件中的聚合结果。Workbench 在创建 Assessment/Run 时写入
+DocumentUsageSnapshot，冻结文件版本、Blob ID、SHA-256、大小、类型和已有处理证据；Temporal 通过
+`tool://document/read-versions@1` Activity 只读取这些冻结版本。业务能力包配置页继续展示已冻结的
+Strategy、Agent、Tool、模型解析方式和权限依赖，但资料准备统一在业务资料库完成。工作台复用
+Workbench/Case 应用服务创建业务对象或工作项并发起评价，提交后进入统一 Run 详情，不在前端建立
+第二套执行逻辑。
+
+`agent://contract/post-evaluation-analyst@1` 只消费已冻结的文档描述符与已有结构化处理结果，再进入
+确定性七维评分与 PDF 生成。当前仅完成资料绑定与读取骨架；PDF、Word、Excel 解析、OCR、字段抽取和
+人工确认的真实执行能力仍是后续工作，不标记为 IMPLEMENTED 或 VERIFIED。
+模型调用继续经过 Model Gateway；本地真实 Agent 可通过 LiteLLM
+代理，或使用 `SWARMCORE_MODEL_PROVIDER_URL` 和 `SWARMCORE_MODEL_PROVIDER_API_KEY` 直连
+OpenAI 兼容 Provider。生产环境禁止直配 Provider 凭据，仍必须通过 Secret Manager 完成资格验证。
+
+七个评价维度和默认权重如下：
+
+| 维度 | 默认权重 | 确定性口径 |
+|---|---:|---|
+| 文件完整性 | 10% | 必备文件有效率；缺少必备文件清单时进入人工复核 |
+| 进度履约 | 20% | 到期义务按期完成，逾期完成按 50% 计分，未到期义务不纳入分母 |
+| 质量履约 | 15% | 验收通过、条件通过、拒收和待验收按固定分值聚合 |
+| 成本控制 | 15% | 合同金额与实际成本的超支率；缺少成本事实时进入人工复核 |
+| 发票合规 | 15% | 按金额校验合同匹配、验收匹配、税务有效和重复发票 |
+| 偏差治理 | 10% | 偏差关闭率与未关闭偏差严重度加权 |
+| 风险治理 | 15% | 风险关闭率、风险级别和整改措施逾期情况加权 |
+
+七维权重允许在项目绑定配置中调整，但总和必须为 100。评分、等级、风险级别和关注项均由
+确定性 Tool 生成；无登记发票、偏差或风险按“评价期内无记录”处理，缺少文件、履约、验收或
+成本证据则输出 `DATA_INSUFFICIENT` 并要求复核，禁止模型补造事实。结构化 JSON 是报告事实源，
+PDF 和页面展示只消费同一结果；后续如增加 AI 叙述，只能解释冻结结果，不能改写分数和证据。
 
 ## 7. 公共契约
 
@@ -253,15 +304,18 @@ AI 结果统一包含 `data`、`evidence`、`confidence`、`qualityFlags`、`sch
 - Run：创建、查询、结果、事件、pause/resume/cancel/input/approval；
 - Capability Center：统一目录、readiness、直接运行和 Preset；
 - Workbench：Pack、WorkItem、Attachment、Evaluation、Finding、Report 和 RuleSet；
+- Business Context：BusinessObject/Version/Relation、Case/Subject 和 Assessment 历史；
+- Decision：DecisionAsset 版本、发布、项目绑定与执行记录；
+- Business Document Library：文件登记与上传、不可变版本、业务对象关联、业务工作绑定、处理结果和运行使用快照；
 - Governance：Artifact、Audit、Policy、Webhook 和项目设置。
 
-REST 使用 Problem Details；稳定错误至少覆盖 Schema/语义错误、策略拒绝、资源不存在、幂等冲突、版本冲突、非法状态、游标过期、预算超限、Provider 不可用，以及 Pack/RuleSet/Blob 的业务诊断。MCP 只暴露调用方所需能力并复用同一应用服务。
+REST 使用 Problem Details；稳定错误至少覆盖 Schema/语义错误、策略拒绝、资料不存在、幂等冲突、版本冲突、非法状态、游标过期、预算超限、Provider 不可用，以及 Pack/Decision/Document/Blob 的业务诊断。MCP 的资料查询、业务对象写入、Case 创建/评估、结果和 Finding 查询只调用与 REST 相同的应用服务。
 
 最终结果使用统一信封：终态、输出 Schema 版本、内联输出或 ArtifactRef、任务摘要、usage、warnings、未解决副作用、错误和 provenance。FAILED、CANCELLED、TIMED_OUT 也返回相同信封；非终态读取结果返回 `RUN_NOT_TERMINAL`。
 
 ### 7.2 数据与租户
 
-核心数据域包括 Registry/Strategy、Run/Task/Execution/Attempt、Command/Approval、Event/Outbox、Artifact/Blob、Audit、ToolEffect、Capability Pack/Workbench 和 Quality Evaluation。具体表、字段、索引和 RLS 以当前 ORM 与 Alembic migration 为准。
+核心数据域包括 Registry/Strategy、Run/Task/Execution/Attempt、Command/Approval、Event/Outbox、Artifact/Blob、Audit、ToolEffect、Capability Pack/Workbench、Business Context、Decision、Business Document Library 和 Quality Evaluation。具体表、字段、索引和 RLS 以当前 ORM 与 Alembic migration 为准。
 
 所有项目数据同时保留 tenant_id 和 project_id；应用过滤与 PostgreSQL RLS 同时生效。API/Worker 使用无 BYPASSRLS 角色，每个事务设置租户上下文；跨租户维护使用独立受审计角色。业务事务中禁止同步调用 Temporal、NATS、S3 或 Webhook。
 
@@ -338,5 +392,8 @@ Event Gateway 提供 SSE `after`/`Last-Event-ID`、心跳、背压、历史补�
 | ADR-012 | Registry、Readiness、Run 三层分离，健康状态不写回 Registry |
 | ADR-013 | 业务扩展采用五层三横切，复用 Capability Pack 与 Workbench |
 | ADR-014 | 业务 Evaluation 与 AI QualityEvaluation 分离 |
+| ADR-015 | BusinessObject、Case、Assessment 与 Run 分离，运行只消费冻结事实 |
+| ADR-016 | Case/Assessment/DecisionAsset 分别兼容投影到 WorkItem/Evaluation/RuleSet，不复制状态机或业务逻辑 |
+| ADR-017 | 业务资料库只管理用户文件及业务绑定；文件版本不可变，Assessment/Run 冻结实际使用的 Blob 与内容标识 |
 
 参考规范：Temporal Python/Workflow Determinism、MCP 2025-11-25、OpenTelemetry、NATS JetStream、Agno AgentOS、AG-UI。依赖版本以 lockfile 和部署清单为准。

@@ -103,7 +103,11 @@ class SwarmRunWorkflow:
                     return terminal
 
             for key in blocked_by_failure(self._nodes, self._states):
-                self._states[key] = NodeState.SKIPPED
+                self._states[key] = (
+                    NodeState.BLOCKED
+                    if workflow.patched("transitive-failure-blocking-v1")
+                    else NodeState.SKIPPED
+                )
                 await self._project("task.skipped", {"nodeKey": key})
 
             if self._all_terminal():
@@ -928,6 +932,7 @@ class SwarmRunWorkflow:
             NodeState.FAILED,
             NodeState.CANCELLED,
             NodeState.SKIPPED,
+            NodeState.BLOCKED,
         }
         return bool(self._states) and all(state in terminal for state in self._states.values())
 

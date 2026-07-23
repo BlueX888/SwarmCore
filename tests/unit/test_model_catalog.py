@@ -34,6 +34,7 @@ def test_registered_agent_definitions_are_available_for_safe_customization() -> 
         "agent://builtin/researcher@1",
         "agent://contract/document-classifier@1",
         "agent://contract/field-extractor@1",
+        "agent://contract/post-evaluation-analyst@1",
     }
     assert agents["agent://builtin/researcher@1"].model == "model://general@1"
     assert agents["agent://builtin/researcher@1"].tools == ["tool://search@1"]

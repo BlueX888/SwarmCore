@@ -23,3 +23,13 @@ def test_join_waits_for_all_dependencies() -> None:
 def test_failed_dependency_blocks_downstream() -> None:
     states = {"a": NodeState.FAILED, "b": NodeState.SUCCEEDED, "c": NodeState.PENDING}
     assert blocked_by_failure(NODES, states) == ("c",)
+
+
+def test_blocked_dependency_propagates_to_downstream() -> None:
+    states = {"a": NodeState.FAILED, "b": NodeState.SUCCEEDED, "c": NodeState.PENDING}
+    states["c"] = NodeState.BLOCKED
+    nodes = [*NODES, {"key": "d", "dependencies": ["c"]}]
+    states["d"] = NodeState.PENDING
+
+    assert ready_nodes(nodes, states, max_parallelism=8) == ()
+    assert blocked_by_failure(nodes, states) == ("d",)

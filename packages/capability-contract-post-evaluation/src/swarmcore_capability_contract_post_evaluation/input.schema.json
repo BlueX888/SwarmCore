@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "workItemId",
+    "workItemRevisionId",
+    "evaluationId",
+    "payload",
+    "subjects",
+    "documents",
+    "attachments",
+    "attachmentManifestHash",
+    "configuration"
+  ],
+  "properties": {
+    "workItemId": {"type": "string", "format": "uuid"},
+    "workItemRevisionId": {"type": "string", "format": "uuid"},
+    "evaluationId": {"type": "string", "format": "uuid"},
+    "payload": {"type": "object"},
+    "subjects": {"type": "array", "items": {"type": "object"}, "minItems": 1},
+    "documents": {"type": "array", "items": {"$ref": "#/$defs/boundDocument"}, "minItems": 1},
+    "attachments": {"type": "array", "items": {"type": "object"}},
+    "attachmentManifestHash": {"type": "string", "minLength": 1},
+    "configuration": {"type": "object"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "boundDocument": {
+      "type": "object",
+      "required": ["documentId", "documentVersionId", "blobId", "name", "category", "filename", "mediaType", "sizeBytes", "sha256", "version"],
+      "properties": {
+        "documentId": {"type": "string", "format": "uuid"},
+        "documentVersionId": {"type": "string", "format": "uuid"},
+        "blobId": {"type": "string", "format": "uuid"},
+        "name": {"type": "string", "minLength": 1},
+        "category": {"type": "string", "minLength": 1},
+        "filename": {"type": "string", "minLength": 1},
+        "mediaType": {"type": "string", "minLength": 1},
+        "sizeBytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "version": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    }
+  }
+}

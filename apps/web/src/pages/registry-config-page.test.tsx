@@ -70,6 +70,15 @@ describe("registry configuration pages", () => {
     expect(screen.getByText("tool://workbench/record-evaluation@1")).toBeVisible();
   });
 
+  it("opens the new tool route directly in creation mode", async () => {
+    renderPage(<ToolConfigurationPage initialCreate />);
+    expect(await screen.findByRole("heading", { name: "新建工具" })).toBeVisible();
+    expect(screen.getByText(/平台工具目录保持只读/)).toBeVisible();
+    expect(screen.getByLabelText("配置名称")).toHaveValue("我的工具配置");
+    expect(screen.getByLabelText("注册工具")).toHaveValue("tool://search@1");
+    expect(screen.getByRole("button", { name: "创建工具配置" })).toBeVisible();
+  });
+
   it("generates a registered agent node configuration", async () => {
     vi.mocked(api.listConfigurations).mockResolvedValue({ items: [{
       configurationId: "agent-config", kind: "agent", name: "资料智能体", sourceRef: "inline/agno",
@@ -97,6 +106,27 @@ describe("registry configuration pages", () => {
     expect(screen.getByLabelText("系统指令")).not.toHaveValue("");
     expect(screen.getByLabelText("首选逻辑模型")).toHaveValue("model://general@1");
     expect(screen.getByRole("checkbox", { name: new RegExp(tool.replaceAll("/", "\\/")) })).toBeChecked();
+  });
+
+  it("creates a project agent capability and returns to the agent catalog", async () => {
+    const saved: SavedConfiguration = {
+      configurationId: "7741c9d0-340e-4ef1-a0d0-a20961195c04", kind: "agent", name: "我的智能体", sourceRef: "inline/agno",
+      configuration: { spec: { agents: { agent: { role: "执行助手", instructions: "完成任务", model: "model://general@1" } }, graph: { entrypoint: "agent", nodes: { agent: { type: "agent", agent: "agent", dependsOn: [] } } } } }, revision: 1,
+      createdBy: "tester", updatedBy: "tester", createdAt: "2026-07-22T00:00:00Z", updatedAt: "2026-07-22T00:00:00Z",
+    };
+    vi.mocked(api.createConfiguration).mockResolvedValue(saved);
+    renderPage(<AgentConfigurationPage />);
+    expect(await screen.findByText(/生成当前项目的版本化智能体能力/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "创建智能体" }));
+    await waitFor(() => expect(api.createConfiguration).toHaveBeenCalledWith(expect.any(String), expect.any(String), "agent", expect.objectContaining({ sourceRef: "inline/agno" })));
+  });
+
+  it("shows save failures next to the agent save action", async () => {
+    vi.mocked(api.createConfiguration).mockRejectedValue(new Error("名称已存在"));
+    renderPage(<AgentConfigurationPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "创建智能体" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("保存失败：名称已存在");
+    expect(screen.getByRole("button", { name: "创建智能体" })).toBeVisible();
   });
 
   it("validates tool node input and exposes its schema", async () => {

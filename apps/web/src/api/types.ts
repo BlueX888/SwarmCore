@@ -69,6 +69,13 @@ export interface CapabilitySummary {
   outputSchema?: Record<string, unknown> | null;
 }
 export interface CapabilityCenterResponse { registrySnapshot: string; items: CapabilitySummary[]; }
+export interface ModelProviderConfiguration {
+  logicalModel: string; providerUrl: string; modelName: string; apiKeyConfigured: boolean;
+}
+export interface ModelProviderConfigurationRequest {
+  logicalModel: string; providerUrl: string; modelName: string; apiKey?: string;
+}
+export interface ModelProviderTestResult { connected: boolean; modelName: string; latencyMs: number; }
 export interface CapabilityPreset {
   presetId: string; kind: "agent" | "tool" | "model"; name: string; capabilityRef: string;
   parameters: Record<string, unknown>; revision: number; readiness: CapabilityReadiness | null;
@@ -185,38 +192,132 @@ export interface CapabilityPackSnapshot {
   manifest: Record<string, unknown>; enabled: boolean; bindingStatus: string | null;
   configuration: Record<string, unknown>;
   blockers: Array<{ ref: string; reasons: string[] }>;
+  deleteBlockedReason?: string | null;
 }
 export interface CapabilityPackListResponse { items: CapabilityPackSnapshot[]; }
 export interface CreateCapabilityPackRequest {
   manifest: Record<string, unknown>;
   strategyVersionId: string;
 }
+
 export interface WorkItemSnapshot {
-  workItemId: string; workItemType: string; schemaVersion: string; payload: Record<string, unknown>;
-  status: string; owner: string | null; revisionId: string; revision: number; payloadHash: string;
-  createdAt: string; updatedAt: string;
+  workItemId: string;
+  workItemType: string;
+  status: string;
+  revisionId: string;
+  revision: number;
 }
-export interface WorkItemListResponse { items: WorkItemSnapshot[]; total: number; }
+
+export interface PackBindings {
+  decisions: Array<{ slot: string; decisionVersionId: string; contentHash: string }>;
+  resources: Array<{ slot: string; resourceId: string; accessMode: string }>;
+}
+
+export interface DocumentVersionSnapshot {
+  documentVersionId: string;
+  blobId: string;
+  version: number;
+  filename: string;
+  mediaType: string;
+  sizeBytes: number;
+  sha256: string;
+  processingStatus: string;
+  createdAt: string;
+}
+
+export interface DocumentSnapshot {
+  documentId: string;
+  name: string;
+  category: string;
+  tags: string[];
+  status: "UPLOADING" | "PROCESSING" | "AVAILABLE" | "REVIEW_REQUIRED" | "FAILED";
+  currentVersion: number;
+  updatedAt: string;
+  current: DocumentVersionSnapshot | null;
+  businessObjectIds: string[];
+  businessWorkKeys: string[];
+  versions: DocumentVersionSnapshot[];
+}
+
+export interface DocumentListResponse { items: DocumentSnapshot[]; }
+
+export interface InitiateDocumentRequest {
+  documentId?: string;
+  name: string;
+  category: string;
+  tags: string[];
+  filename: string;
+  mediaType: string;
+  sizeBytes: number;
+  sha256: string;
+  businessObjectIds: string[];
+  businessWorkKeys: string[];
+  retentionDays?: number;
+}
+
+export interface DocumentUploadHandle {
+  documentId: string;
+  uploadId: string;
+  blobId: string;
+  version: number;
+  uploadRef: string;
+  capabilityToken: string | null;
+  status: string;
+}
+
+export interface DocumentDownloadHandle {
+  documentId: string;
+  documentVersionId: string;
+  filename: string;
+  mediaType: string;
+  downloadRef: string;
+  capabilityToken: string;
+}
+export interface BusinessObjectSnapshot {
+  businessObjectId: string; versionId: string; objectType: string; canonicalKey: string;
+  currentVersion: number; schemaRef: string; data: Record<string, unknown>;
+}
+export interface CaseSubjectInput {
+  businessObjectId: string; businessObjectVersionId: string; role: "PRIMARY" | "COMPARISON" | "EVIDENCE" | "RELATED"; subjectKey: string;
+}
+export interface CaseSnapshot {
+  caseId: string; scenarioType: string; caseRevisionId: string; revision: number;
+  payload: Record<string, unknown>; status: string; owner: string | null;
+  subjects: CaseSubjectInput[]; createdAt: string; updatedAt: string;
+}
+export interface PostEvaluationDimension {
+  code: string; name: string; weight: number; score: number | null; status: string;
+  summary: string; metrics: Record<string, string | number | boolean | null>; evidenceRefs: string[];
+}
+export interface PostEvaluationFinding {
+  dimension: string; severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  code: string; title: string; detail: string; evidenceRefs: string[];
+}
+export interface PostEvaluationResult {
+  schemaVersion: string; evaluationPeriod: { start: string; end: string }; contractId: string;
+  overallScore: number; grade: string; riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  passed: boolean; reviewRequired: boolean; executiveSummary: string;
+  dimensions: PostEvaluationDimension[]; findings: PostEvaluationFinding[];
+}
 export interface EvaluationSnapshot {
-  evaluationId: string; workItemId: string; workItemRevisionId: string; runId: string; status: string;
-  result: Record<string, unknown> | null; capabilityPackVersionId: string; ruleSetVersionId: string | null;
-  planHash: string; attachmentManifestHash: string; registrySnapshot: Record<string, unknown>; createdAt: string;
+  evaluationId: string; workItemId: string; workItemRevisionId: string; runId: string;
+  status: string; result: PostEvaluationResult | Record<string, unknown> | null; capabilityPackVersionId: string;
+  planHash: string; attachmentManifestHash: string; createdAt: string;
 }
-export interface FindingSnapshot {
-  findingId: string; workItemId: string; evaluationId: string; ruleKey: string; code: string;
-  category: string; severity: string; status: string; title: string; detail: string;
-  evidence: Record<string, unknown>;
-}
-export interface FindingListResponse { items: FindingSnapshot[]; }
+export interface AssessmentListResponse { items: EvaluationSnapshot[]; }
 export interface ReportSnapshot {
   reportId: string; evaluationId: string; format: string; templateVersion: string;
   resultSchemaVersion: string; content: Record<string, unknown> | null; contentHash: string; createdAt: string;
 }
 export interface ReportListResponse { items: ReportSnapshot[]; }
-export interface AttachmentUploadHandle {
-  attachmentId: string; blobId: string; uploadRef: string; capabilityToken: string | null;
-  objectKey: string; status: string;
+
+export interface RuleSetDraftSnapshot {
+  ruleSetId: string; draftId: string; revision: number; rules: Record<string, unknown>;
 }
-export interface RuleSetDraftSnapshot { ruleSetId: string; draftId: string; revision: number; rules: Record<string, unknown>; }
-export interface RuleSetValidationResponse { valid: boolean; normalizedRules: Record<string, unknown>; preview: Record<string, unknown> | null; }
-export interface RuleSetVersionSnapshot { ruleSetId: string; ruleSetVersionId: string; version: number; schemaVersion: string; contentHash: string; rules: Record<string, unknown>; }
+export interface RuleSetValidationResponse {
+  valid: boolean; normalizedRules: Record<string, unknown>; preview: Record<string, unknown> | null;
+}
+export interface RuleSetVersionSnapshot {
+  ruleSetId: string; ruleSetVersionId: string; version: number; schemaVersion: string;
+  contentHash: string; rules: Record<string, unknown>;
+}

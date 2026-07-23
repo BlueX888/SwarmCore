@@ -36,7 +36,8 @@ from swarmcore_application import (
     StrategyService,
     render_run_snapshot,
 )
-from swarmcore_capability_contract_integrity import MANIFEST
+from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2
+from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
 from swarmcore_domain import CapabilitySummary
 from swarmcore_governance import (
     ArtifactCapabilityIssuer,
@@ -93,6 +94,9 @@ from .schemas import (
     ExternalInputListResponse,
     ExternalInputSnapshot,
     HumanResponseRequest,
+    ModelProviderConfigurationRequest,
+    ModelProviderConfigurationSnapshot,
+    ModelProviderTestResult,
     ProjectConfigurationListResponse,
     ProjectConfigurationSnapshot,
     PublishRequest,
@@ -118,12 +122,46 @@ runs = RunService()
 commands = RunCommandService()
 run_queries = RunQueryService()
 run_results = RunResultService()
-capabilities = CapabilityCatalogService((MANIFEST,))
+capabilities = CapabilityCatalogService((MANIFEST, MANIFEST_V2, POST_EVALUATION_MANIFEST))
 project_configurations = ProjectConfigurationService()
 compilation = CompilationService(strategies)
 
 Scope = Annotated[RequestScope, Depends(request_scope)]
 Session = Annotated[AsyncSession, Depends(db_session)]
+
+
+async def _model_gateway_request(
+    request: Request,
+    scope: RequestScope,
+    path: str,
+    *,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    settings = request.app.state.settings
+
+    def send() -> dict[str, Any]:
+        gateway_request = UrlRequest(
+            f"{settings.model_gateway_url.rstrip('/')}{path}",
+            data=json.dumps(body).encode() if body is not None else None,
+            headers={"Content-Type": "application/json", "X-Tenant-ID": str(scope.tenant_id)},
+            method=method,
+        )
+        try:
+            with urlopen(gateway_request, timeout=35) as response:
+                return cast(dict[str, Any], json.loads(response.read()))
+        except HTTPError as exc:
+            try:
+                detail = json.loads(exc.read()).get("detail", str(exc))
+            except (ValueError, AttributeError):
+                detail = str(exc)
+            raise HTTPException(status_code=exc.code, detail=detail) from exc
+        except (URLError, TimeoutError) as exc:
+            raise HTTPException(
+                status_code=502, detail=f"Model Gateway unavailable: {exc}"
+            ) from exc
+
+    return await asyncio.to_thread(send)
 
 
 @router.get("/projects/{project_id}/capabilities", response_model=CapabilityCatalog)
@@ -132,10 +170,10 @@ async def get_capabilities(scope: Scope) -> CapabilityCatalog:
     return capabilities.get()
 
 
-@router.get(
-    "/projects/{project_id}/capability-center", response_model=CapabilityCenterResponse
-)
-async def get_capability_center(request: Request, scope: Scope) -> CapabilityCenterResponse:
+@router.get("/projects/{project_id}/capability-center", response_model=CapabilityCenterResponse)
+async def get_capability_center(
+    request: Request, scope: Scope, session: Session
+) -> CapabilityCenterResponse:
     settings = request.app.state.settings
     if not settings.capability_center_v2:
         raise HTTPException(status_code=404, detail="capability center v2 is disabled")
@@ -144,6 +182,7 @@ async def get_capability_center(request: Request, scope: Scope) -> CapabilityCen
         tenant_id=scope.tenant_id,
         project_id=scope.project_id,
         environment=settings.environment,
+        session=session,
     )
     return CapabilityCenterResponse(
         registrySnapshot=center.registry_snapshot_id,
@@ -151,9 +190,54 @@ async def get_capability_center(request: Request, scope: Scope) -> CapabilityCen
     )
 
 
-@router.post(
-    "/projects/{project_id}/capability-runs", response_model=RunHandle, status_code=202
+@router.get(
+    "/projects/{project_id}/model-provider",
+    response_model=ModelProviderConfigurationSnapshot,
 )
+async def get_model_provider_configuration(
+    request: Request, scope: Scope, logical_model: str = Query(alias="logicalModel")
+) -> dict[str, Any]:
+    return await _model_gateway_request(
+        request,
+        scope,
+        f"/internal/v1/projects/{scope.project_id}/model-provider?"
+        f"{urlencode({'logical_model': logical_model})}",
+    )
+
+
+@router.put(
+    "/projects/{project_id}/model-provider",
+    response_model=ModelProviderConfigurationSnapshot,
+)
+async def put_model_provider_configuration(
+    request: Request, scope: Scope, body: ModelProviderConfigurationRequest
+) -> dict[str, Any]:
+    return await _model_gateway_request(
+        request,
+        scope,
+        f"/internal/v1/projects/{scope.project_id}/model-provider",
+        method="PUT",
+        body=body.model_dump(mode="json", by_alias=True, exclude_none=True),
+    )
+
+
+@router.post(
+    "/projects/{project_id}/model-provider:test",
+    response_model=ModelProviderTestResult,
+)
+async def test_model_provider_configuration(
+    request: Request, scope: Scope, body: ModelProviderConfigurationRequest
+) -> dict[str, Any]:
+    return await _model_gateway_request(
+        request,
+        scope,
+        f"/internal/v1/projects/{scope.project_id}/model-provider:test",
+        method="POST",
+        body=body.model_dump(mode="json", by_alias=True, exclude_none=True),
+    )
+
+
+@router.post("/projects/{project_id}/capability-runs", response_model=RunHandle, status_code=202)
 async def create_capability_run(
     request: Request,
     body: CapabilityRunRequest,
@@ -187,9 +271,7 @@ async def create_capability_run(
     )
 
 
-@router.get(
-    "/projects/{project_id}/presets", response_model=CapabilityPresetListResponse
-)
+@router.get("/projects/{project_id}/presets", response_model=CapabilityPresetListResponse)
 async def list_capability_presets(
     request: Request,
     scope: Scope,
@@ -237,7 +319,7 @@ async def create_capability_preset(
         actor=scope.actor_id,
     )
     return _capability_preset_snapshot(
-        saved, await _find_capability_summary(request, scope, saved.source_ref)
+        saved, await _find_capability_summary(request, scope, saved.source_ref, session)
     )
 
 
@@ -266,7 +348,7 @@ async def update_capability_preset(
         actor=scope.actor_id,
     )
     return _capability_preset_snapshot(
-        saved, await _find_capability_summary(request, scope, saved.source_ref)
+        saved, await _find_capability_summary(request, scope, saved.source_ref, session)
     )
 
 
@@ -294,7 +376,7 @@ async def copy_capability_preset(
         actor=scope.actor_id,
     )
     return _capability_preset_snapshot(
-        saved, await _find_capability_summary(request, scope, saved.source_ref)
+        saved, await _find_capability_summary(request, scope, saved.source_ref, session)
     )
 
 
@@ -1578,13 +1660,17 @@ def _require_capability_center_v2(request: Request) -> None:
 
 
 async def _find_capability_summary(
-    request: Request, scope: RequestScope, capability_ref: str
+    request: Request,
+    scope: RequestScope,
+    capability_ref: str,
+    session: AsyncSession,
 ) -> CapabilitySummary | None:
     center: CapabilityCenterService = request.app.state.capability_center
     items = await center.list(
         tenant_id=scope.tenant_id,
         project_id=scope.project_id,
         environment=request.app.state.settings.environment,
+        session=session,
     )
     return next((item for item in items if item.ref == capability_ref), None)
 

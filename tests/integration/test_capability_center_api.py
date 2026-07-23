@@ -140,6 +140,66 @@ async def test_rest_and_mcp_direct_capability_run_share_standard_run_service() -
                 "parameters": {"apiKey": "plain-text-secret"},
             },
         )
+        created_agent = client.post(
+            f"/v1/projects/{project_id}/configurations/agent",
+            headers=headers,
+            json={
+                "name": "项目研究员",
+                "sourceRef": "inline/agno",
+                "configuration": {
+                    "spec": {
+                        "agents": {
+                            "researcher": {
+                                "role": "project-researcher",
+                                "instructions": "Research the supplied task.",
+                                "model": "model://general@1",
+                                "tools": ["tool://search@1"],
+                            }
+                        },
+                        "graph": {
+                            "entrypoint": "researcher",
+                            "nodes": {
+                                "researcher": {
+                                    "type": "agent",
+                                    "agent": "researcher",
+                                    "dependsOn": [],
+                                }
+                            },
+                        },
+                    }
+                },
+            },
+        )
+        center_catalog = client.get(
+            f"/v1/projects/{project_id}/capability-center", headers=headers
+        )
+        project_agent = next(
+            item
+            for item in center_catalog.json()["items"]
+            if item["name"] == "项目研究员"
+        )
+        project_agent_run = client.post(
+            f"/v1/projects/{project_id}/capability-runs",
+            headers={**headers, "Idempotency-Key": "project-agent-run"},
+            json={"capabilityRef": project_agent["ref"], "input": {"query": "swarm"}},
+        )
+        mcp_catalog = client.post(
+            "/mcp",
+            headers={
+                **headers,
+                "Authorization": "Bearer test",
+                "Mcp-Protocol-Version": "2025-11-25",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "swarm.capability-center.list",
+                    "arguments": {"projectId": str(project_id)},
+                },
+            },
+        )
 
     assert rest.status_code == 202, rest.text
     assert mcp.status_code == 200, mcp.text
@@ -155,3 +215,12 @@ async def test_rest_and_mcp_direct_capability_run_share_standard_run_service() -
     assert preset_run.status_code == 202, preset_run.text
     assert secret.status_code == 422
     assert "forbidden secret field" in secret.text
+    assert created_agent.status_code == 201, created_agent.text
+    assert center_catalog.status_code == 200, center_catalog.text
+    assert project_agent["ref"].startswith("agent://project/")
+    assert project_agent["source"] == "project"
+    assert project_agent["readiness"]["status"] == "READY"
+    assert project_agent_run.status_code == 202, project_agent_run.text
+    assert mcp_catalog.status_code == 200, mcp_catalog.text
+    mcp_items = mcp_catalog.json()["result"]["structuredContent"]["items"]
+    assert any(item["ref"] == project_agent["ref"] for item in mcp_items)

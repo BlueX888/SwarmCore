@@ -2,19 +2,34 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@radix-ui/react-tooltip";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Activity, Bot, ChartNoAxesCombined, ChevronLeft, ChevronRight, ClipboardList, Clock3, Cpu,
-  ExternalLink, FileCheck2, Inbox, LayoutDashboard, Menu, Moon, Network, Plus, Rocket, ScrollText, ShieldCheck, Sun, TableProperties, Workflow, Wrench, X,
+  Activity, Bot, BrainCircuit, BriefcaseBusiness, ChartNoAxesCombined, ChevronLeft, ChevronRight,
+  Clock3, Cpu, ExternalLink, FileCheck2, FileOutput, FileScan, Files, Gauge, Inbox,
+  LayoutDashboard, Menu, Moon, Network, Plus, ReceiptText, Rocket, ScrollText, ShieldCheck, Sun,
+  Workflow, Wrench, X,
 } from "lucide-react";
 import * as React from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/context/theme-context";
+import { BUSINESS_WORKS } from "@/lib/business-works";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 import { cn } from "@/lib/utils";
 
 interface NavigationProps { collapsed?: boolean; onNavigate?: () => void; }
 interface NavItem { label: string; to: string; icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>; active: (path: string) => boolean; badge?: number; }
+
+const BUSINESS_WORK_ICONS: Record<string, NavItem["icon"]> = {
+  "ai-foundation-quality": BrainCircuit,
+  "document-structuring": FileScan,
+  "document-integrity": FileCheck2,
+  "performance-plan-collection": BriefcaseBusiness,
+  "invoice-assurance": ReceiptText,
+  "deviation-analysis": Gauge,
+  "report-generation": FileOutput,
+  "swarm-calibration": Network,
+  "procurement-supplier-risk": ShieldCheck,
+};
 
 export function Navigation({ collapsed = false, onNavigate }: NavigationProps) {
   const { tenantId, projectId, workspacePath } = useWorkspaceScope();
@@ -30,9 +45,13 @@ export function Navigation({ collapsed = false, onNavigate }: NavigationProps) {
       { label: "工作台", to: `${workspacePath}/overview`, icon: LayoutDashboard, active: (path) => path.startsWith("/overview") },
     ] },
     { id: "business", label: "业务工作", items: [
-      { label: "业务工作项", to: `${workspacePath}/work-items`, icon: ClipboardList, active: (path) => path.startsWith("/work-items") },
-      { label: "业务能力包", to: `${workspacePath}/capability-packs`, icon: FileCheck2, active: (path) => path.startsWith("/capability-packs") },
-      { label: "规则集", to: `${workspacePath}/rule-sets`, icon: TableProperties, active: (path) => path.startsWith("/rule-sets") },
+      { label: "工作总览", to: `${workspacePath}/business-works`, icon: BriefcaseBusiness, active: (path) => path === "/business-works" || path === "/business-works/" },
+      ...BUSINESS_WORKS.map((work) => ({
+        label: work.shortName,
+        to: `${workspacePath}/business-works/${work.key}`,
+        icon: BUSINESS_WORK_ICONS[work.key] ?? FileCheck2,
+        active: (path: string) => path === `/business-works/${work.key}`,
+      })),
     ] },
     { id: "execution", label: "执行管理", items: [
       { label: "新建运行", to: `${workspacePath}/runs/new`, icon: Rocket, active: (path) => path === "/runs/new" },
@@ -42,6 +61,7 @@ export function Navigation({ collapsed = false, onNavigate }: NavigationProps) {
       { label: "编排画布", to: `${workspacePath}/canvas`, icon: Network, active: (path) => path.startsWith("/canvas") },
     ] },
     { id: "platform", label: "平台底座", items: [
+      { label: "业务资料库", to: `${workspacePath}/documents`, icon: Files, active: (path) => path.startsWith("/documents") },
       { label: "智能体", to: `${workspacePath}/agents`, icon: Bot, active: (path) => path.startsWith("/agents") || path.startsWith("/capabilities") },
       { label: "工具", to: `${workspacePath}/tools`, icon: Wrench, active: (path) => path.startsWith("/tools") },
       { label: "模型", to: `${workspacePath}/models`, icon: Cpu, active: (path) => path.startsWith("/models") },
@@ -89,13 +109,16 @@ function ExternalNavigationLink({ label, href, icon: Icon, collapsed }: { label:
 }
 
 function Brand({ collapsed, homePath }: { collapsed?: boolean; homePath: string }) {
-  return <Link to={homePath} aria-label="SwarmCore 工作台" className={cn("flex h-20 items-center gap-3 font-semibold text-gray-900 dark:text-white", collapsed && "justify-center")}><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-500 text-white shadow-theme-xs"><Bot /></span>{collapsed ? null : <div><span>SwarmCore</span><p className="mt-0.5 text-[11px] font-normal text-gray-500">本地工作区</p></div>}</Link>;
+  return <Link to={homePath} aria-label="SwarmCore 工作台" className={cn("group flex h-20 items-center gap-3 font-semibold text-gray-900 dark:text-white", collapsed && "justify-center")}><span className="relative grid size-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-linear-to-br from-brand-500 to-brand-700 text-white shadow-theme-float transition-transform group-hover:scale-105"><span className="absolute inset-x-1 top-0 h-px bg-white/50" /><Bot className="size-5" /></span>{collapsed ? null : <div><span className="tracking-[-0.02em]">SwarmCore</span><p className="mt-0.5 text-[11px] font-normal text-gray-500">智能体执行控制台</p></div>}</Link>;
 }
 
 function currentPage(pathname: string) {
-  if (pathname.includes("/work-items")) return "业务工作项";
+  if (/\/business-works\/[^/]+/.test(pathname)) return "业务工作详情";
+  if (pathname.includes("/business-works")) return "业务工作";
+  if (/\/capability-packs\/[^/]+\/workbench/.test(pathname)) return "能力包工作台";
+  if (/\/capability-packs\/[^/]+/.test(pathname)) return "能力包配置";
+  if (pathname.includes("/documents") || pathname.includes("/resources")) return "业务资料库";
   if (pathname.includes("/capability-packs")) return "业务能力包";
-  if (pathname.includes("/rule-sets")) return "规则集";
   if (pathname.includes("/overview")) return "工作台";
   if (pathname.endsWith("/runs/new") || pathname === "/runs/new") return "新建运行";
   if (pathname.includes("/actions")) return "待办中心";
@@ -116,18 +139,18 @@ export function AppShell() {
   const { workspacePath } = useWorkspaceScope();
   const location = useLocation();
   return <TooltipProvider>
-    <div className="min-h-screen overflow-x-hidden bg-gray-50 dark:bg-gray-900">
-      <aside className={cn("fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-gray-200 bg-white px-4 transition-[width] xl:flex dark:border-gray-800 dark:bg-gray-900", collapsed ? "w-[90px]" : "w-[290px]")}>
+    <div className="min-h-screen overflow-x-hidden bg-transparent">
+      <aside className={cn("fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-gray-200/80 bg-white/88 px-4 shadow-[8px_0_32px_-28px_rgba(16,24,40,.45)] backdrop-blur-xl transition-[width] xl:flex dark:border-gray-800 dark:bg-gray-900/88", collapsed ? "w-[90px]" : "w-[290px]")}>
         <Brand collapsed={collapsed} homePath={`${workspacePath}/overview`} />
         <div className="min-h-0 flex-1 overflow-y-auto pb-20"><Navigation collapsed={collapsed} /></div>
         <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"} onClick={() => setCollapsed((value) => !value)} className="absolute right-4 bottom-5">{collapsed ? <ChevronRight /> : <ChevronLeft />}</Button></TooltipTrigger><TooltipContent side="right" className="z-99999 rounded-lg bg-gray-900 px-3 py-2 text-xs text-white">{collapsed ? "展开侧边栏" : "收起侧边栏"}</TooltipContent></Tooltip>
       </aside>
       <div className={cn("transition-[margin]", collapsed ? "xl:ml-[90px]" : "xl:ml-[290px]")}>
-        <header className="z-30 sticky top-0 flex h-16 items-center justify-between gap-3 border-b border-gray-200 bg-white/95 px-4 backdrop-blur md:px-6 dark:border-gray-800 dark:bg-gray-900/95">
+        <header className="z-30 sticky top-0 flex h-[72px] items-center justify-between gap-3 border-b border-gray-200/70 bg-white/75 px-4 backdrop-blur-xl md:px-6 dark:border-gray-800 dark:bg-gray-900/75">
           <div className="flex min-w-0 items-center gap-3"><Button variant="ghost" size="icon" aria-label="打开导航" className="shrink-0 xl:hidden" onClick={() => setMobileOpen(true)}><Menu /></Button><div className="min-w-0"><p className="truncate text-sm font-medium text-gray-800 dark:text-white/90">{currentPage(location.pathname)}</p><p className="hidden text-xs text-gray-500 sm:block">可靠、耐久的多智能体运行管理</p></div></div>
           <div className="flex items-center gap-2"><Button asChild variant="outline" size="sm" className="hidden md:inline-flex"><Link to={`${workspacePath}/canvas`}><Network />编排画布</Link></Button><Button asChild size="sm" className="hidden sm:inline-flex"><Link to={`${workspacePath}/runs/new`}><Plus />新建运行</Link></Button><Button variant="outline" size="icon" aria-label="切换颜色主题" onClick={toggleTheme}>{theme === "dark" ? <Sun /> : <Moon />}</Button></div>
         </header>
-        <main className="mx-auto w-full max-w-(--breakpoint-2xl) p-4 pb-20 md:p-6 md:pb-24"><Outlet /></main>
+        <main className="mx-auto w-full max-w-(--breakpoint-2xl) p-4 pb-20 md:p-7 md:pb-24 xl:p-8"><Outlet /></main>
       </div>
       <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}><Dialog.Portal><Dialog.Overlay className="z-99999 fixed inset-0 bg-gray-900/50" /><Dialog.Content aria-describedby={undefined} className="z-99999 fixed inset-y-0 left-0 w-[310px] max-w-[88vw] overflow-y-auto bg-white px-5 shadow-theme-sm focus:outline-hidden dark:bg-gray-900"><Dialog.Title className="sr-only">导航</Dialog.Title><div className="flex items-center justify-between"><Brand homePath={`${workspacePath}/overview`} /><Dialog.Close asChild><Button variant="ghost" size="icon" aria-label="关闭导航"><X /></Button></Dialog.Close></div><Navigation onNavigate={() => setMobileOpen(false)} /></Dialog.Content></Dialog.Portal></Dialog.Root>
     </div>

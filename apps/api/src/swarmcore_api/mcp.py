@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from swarmcore_application import (
     CapabilityCatalogService,
     CapabilityCenterService,
+    CaseSubjectInput,
     CompilationService,
     RunCommandConflictError,
     RunCommandService,
@@ -19,7 +20,8 @@ from swarmcore_application import (
     RunService,
     StrategyService,
 )
-from swarmcore_capability_contract_integrity import MANIFEST
+from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2
+from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
 from swarmcore_governance import (
     PolicyDenied,
     PolicyError,
@@ -32,7 +34,10 @@ from swarmcore_persistence.errors import PersistenceConflictError
 from swarmcore_persistence.models import Project
 
 from .authentication import AuthenticationError, Identity, JwtAuthenticator
+from .business_routes import business_objects as _business_objects
 from .business_routes import capability_packs as _capability_packs
+from .business_routes import cases as _cases
+from .business_routes import documents as _documents
 from .business_routes import workbench as _workbench
 from .schemas import JsonRpcRequest
 
@@ -43,7 +48,7 @@ _runs = RunService()
 _commands = RunCommandService()
 _run_queries = RunQueryService()
 _run_results = RunResultService()
-_capabilities = CapabilityCatalogService((MANIFEST,))
+_capabilities = CapabilityCatalogService((MANIFEST, MANIFEST_V2, POST_EVALUATION_MANIFEST))
 _compilation = CompilationService(_strategies)
 logger = logging.getLogger(__name__)
 
@@ -190,6 +195,82 @@ _TOOLS = [
         ),
     },
     {
+        "name": "upsert_business_object",
+        "description": "Create or idempotently version a project-scoped business object.",
+        "inputSchema": _business_schema(
+            required=("objectType", "canonicalKey", "schemaRef", "data"),
+            properties={
+                "objectType": {"type": "string"},
+                "canonicalKey": {"type": "string"},
+                "schemaRef": {"type": "string"},
+                "data": {"type": "object"},
+                "provenance": {"type": "object"},
+            },
+        ),
+    },
+    {
+        "name": "create_case",
+        "description": "Create a scenario case with immutable business object subjects.",
+        "inputSchema": _business_schema(
+            required=("scenarioType", "payload", "subjects", "idempotencyKey"),
+            properties={
+                "scenarioType": {"type": "string"},
+                "payload": {"type": "object"},
+                "subjects": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "businessObjectId",
+                            "businessObjectVersionId",
+                            "role",
+                            "subjectKey",
+                        ],
+                        "properties": {
+                            "businessObjectId": {"type": "string", "format": "uuid"},
+                            "businessObjectVersionId": {
+                                "type": "string",
+                                "format": "uuid",
+                            },
+                            "role": {"type": "string"},
+                            "subjectKey": {"type": "string"},
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+                "owner": {"type": "string"},
+                "idempotencyKey": {"type": "string"},
+            },
+        ),
+    },
+    {
+        "name": "assess_case",
+        "description": "Durably accept a new assessment for the current case revision.",
+        "inputSchema": _business_schema(
+            required=("caseId", "idempotencyKey"),
+            properties={
+                "caseId": {"type": "string", "format": "uuid"},
+                "idempotencyKey": {"type": "string"},
+            },
+        ),
+    },
+    {
+        "name": "get_case_result",
+        "description": "Return a case and its latest assessment result.",
+        "inputSchema": _business_schema(
+            required=("caseId",),
+            properties={"caseId": {"type": "string", "format": "uuid"}},
+        ),
+    },
+    {
+        "name": "list_case_findings",
+        "description": "List the current finding projection for a case.",
+        "inputSchema": _business_schema(
+            required=("caseId",),
+            properties={"caseId": {"type": "string", "format": "uuid"}},
+        ),
+    },
+    {
         "name": "execute_work_item",
         "description": "Create one Evaluation and Run for a work item revision.",
         "inputSchema": _business_schema(
@@ -239,6 +320,17 @@ _TOOLS = [
         "inputSchema": _business_schema(
             required=("evaluationId",),
             properties={"evaluationId": {"type": "string", "format": "uuid"}},
+        ),
+    },
+    {
+        "name": "list_documents",
+        "description": "List files in the project business document library.",
+        "inputSchema": _business_schema(
+            properties={
+                "search": {"type": "string"},
+                "category": {"type": "string"},
+                "status": {"type": "string"},
+            }
         ),
     },
 ]
@@ -312,11 +404,7 @@ async def mcp_post(
     if body.method == "notifications/initialized":
         return JSONResponse(content={}, status_code=202)
     if body.method == "tools/list":
-        tools = (
-            [*_TOOLS, *_CAPABILITY_CENTER_TOOLS]
-            if settings.capability_center_v2
-            else _TOOLS
-        )
+        tools = [*_TOOLS, *_CAPABILITY_CENTER_TOOLS] if settings.capability_center_v2 else _TOOLS
         return _result(body.id, {"tools": tools})
     if body.method != "tools/call":
         return _error(body.id, -32601, "method not found")
@@ -389,11 +477,17 @@ async def _call_tool(
         "swarm.run.control": "run.control",
         "list_capability_packs": "capability.read",
         "create_work_item": "work-item.write",
+        "upsert_business_object": "business-object.write",
+        "create_case": "case.write",
+        "assess_case": "case.assess",
+        "get_case_result": "case.read",
+        "list_case_findings": "case.read",
         "execute_work_item": "work-item.execute",
         "get_evaluation": "work-item.read",
         "list_findings": "finding.read",
         "act_on_finding": "finding.act",
         "get_report": "report.read",
+        "list_documents": "document.read",
     }.get(name)
     if action is None:
         raise ValueError(f"unknown tool: {name}")
@@ -441,11 +535,16 @@ async def _call_tool(
         return _capabilities.get().model_dump(mode="json", by_alias=True)
     if name == "swarm.capability-center.list":
         center: CapabilityCenterService = request.app.state.capability_center
-        items = await center.list(
-            tenant_id=tenant_id,
-            project_id=project_id,
-            environment=request.app.state.settings.environment,
-        )
+        database = request.app.state.database
+        async with tenant_transaction(
+            database.sessions, tenant_id=tenant_id, project_id=project_id
+        ) as session:
+            items = await center.list(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                environment=request.app.state.settings.environment,
+                session=session,
+            )
         return {
             "registrySnapshot": center.registry_snapshot_id,
             "items": [item.model_dump(mode="json", by_alias=True) for item in items],
@@ -499,6 +598,7 @@ async def _call_tool(
                     tenant_id=tenant_id,
                     project_id=project_id,
                     version=version,
+                    session=session,
                 )
                 pack_items.append(
                     {
@@ -518,6 +618,54 @@ async def _call_tool(
                     }
                 )
             return {"items": pack_items}
+        if name == "list_documents":
+            document_rows = await _documents.list_documents(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                search=(
+                    str(arguments["search"])
+                    if arguments.get("search") is not None
+                    else None
+                ),
+                category=(
+                    str(arguments["category"])
+                    if arguments.get("category") is not None
+                    else None
+                ),
+                status=(
+                    str(arguments["status"])
+                    if arguments.get("status") is not None
+                    else None
+                ),
+            )
+            return {
+                "items": [
+                    {
+                        "documentId": str(document.id),
+                        "name": document.name,
+                        "category": document.category,
+                        "tags": list(document.tags),
+                        "status": document.status,
+                        "currentVersion": document.current_version,
+                        "updatedAt": document.updated_at.isoformat(),
+                        "current": (
+                            {
+                                "documentVersionId": str(version.id),
+                                "blobId": str(version.blob_id),
+                                "version": version.version,
+                                "filename": version.filename,
+                                "mediaType": version.media_type,
+                                "sizeBytes": version.size_bytes,
+                                "sha256": version.sha256,
+                            }
+                            if version is not None
+                            else None
+                        ),
+                    }
+                    for document, version in document_rows
+                ]
+            }
         if name == "create_work_item":
             item, revision = await _workbench.create_work_item(
                 session,
@@ -540,6 +688,109 @@ async def _call_tool(
                 "revision": revision.revision,
                 "payloadHash": revision.payload_hash,
             }
+        if name == "upsert_business_object":
+            value, object_version, created = await _business_objects.upsert(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                object_type=str(arguments["objectType"]),
+                canonical_key=str(arguments["canonicalKey"]),
+                schema_ref=str(arguments["schemaRef"]),
+                data=dict(arguments["data"]),
+                provenance=dict(arguments.get("provenance", {})),
+                actor=identity.subject_id,
+            )
+            return {
+                "businessObjectId": str(value.id),
+                "versionId": str(object_version.id),
+                "version": object_version.version,
+                "dataHash": object_version.data_hash,
+                "created": created,
+            }
+        if name == "create_case":
+            raw_subjects = arguments["subjects"]
+            if not isinstance(raw_subjects, list):
+                raise ValueError("subjects must be an array")
+            subject_inputs = [
+                CaseSubjectInput(
+                    business_object_id=UUID(str(value["businessObjectId"])),
+                    business_object_version_id=UUID(str(value["businessObjectVersionId"])),
+                    role=str(value["role"]),
+                    subject_key=str(value["subjectKey"]),
+                )
+                for value in raw_subjects
+                if isinstance(value, dict)
+            ]
+            item, revision, subjects = await _cases.create(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                scenario_type=str(arguments["scenarioType"]),
+                payload=dict(arguments["payload"]),
+                subjects=subject_inputs,
+                owner=(str(arguments["owner"]) if arguments.get("owner") else None),
+                idempotency_key=str(arguments["idempotencyKey"]),
+                actor=identity.subject_id,
+            )
+            return {
+                "caseId": str(item.id),
+                "caseRevisionId": str(revision.id),
+                "scenarioType": item.work_item_type,
+                "revision": revision.revision,
+                "subjectCount": len(subjects),
+            }
+        if name == "assess_case":
+            evaluation = await _cases.assess(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                case_id=UUID(str(arguments["caseId"])),
+                idempotency_key=str(arguments["idempotencyKey"]),
+                actor=identity.subject_id,
+                submitted_scopes=effective_scopes,
+                auth_context_hash=identity.context_hash,
+            )
+            return _evaluation_payload(evaluation)
+        if name == "get_case_result":
+            case_id = UUID(str(arguments["caseId"]))
+            item, revision, subjects = await _cases.get(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                case_id=case_id,
+            )
+            from sqlalchemy import select
+            from swarmcore_persistence.models import Evaluation
+
+            latest_evaluation = await session.scalar(
+                select(Evaluation)
+                .where(
+                    Evaluation.tenant_id == tenant_id,
+                    Evaluation.project_id == project_id,
+                    Evaluation.work_item_id == case_id,
+                )
+                .order_by(Evaluation.created_at.desc())
+                .limit(1)
+            )
+            return {
+                "caseId": str(item.id),
+                "caseRevisionId": str(revision.id),
+                "scenarioType": item.work_item_type,
+                "subjectCount": len(subjects),
+                "latestAssessment": (
+                    _evaluation_payload(latest_evaluation)
+                    if latest_evaluation is not None
+                    else None
+                ),
+            }
+        if name == "list_case_findings":
+            findings = await _workbench.list_findings(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                work_item_id=UUID(str(arguments["caseId"])),
+            )
+            return {"items": [_finding_payload(finding) for finding in findings]}
         if name == "execute_work_item":
             evaluation = await _workbench.execute(
                 session,
@@ -575,13 +826,9 @@ async def _call_tool(
                 project_id=project_id,
                 finding_id=UUID(str(arguments["findingId"])),
                 action=str(arguments["action"]),
-                reason=(
-                    str(arguments["reason"]) if arguments.get("reason") is not None else None
-                ),
+                reason=(str(arguments["reason"]) if arguments.get("reason") is not None else None),
                 assignee=(
-                    str(arguments["assignee"])
-                    if arguments.get("assignee") is not None
-                    else None
+                    str(arguments["assignee"]) if arguments.get("assignee") is not None else None
                 ),
                 expires_at=None,
                 idempotency_key=str(arguments["idempotencyKey"]),

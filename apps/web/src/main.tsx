@@ -9,6 +9,9 @@ import { ActionCenterPage } from "@/pages/action-center-page";
 import { AuditLogsPage } from "@/pages/audit-logs-page";
 import { AgentCapabilitiesPage, ModelCapabilitiesPage, PolicyCapabilitiesPage, ToolCapabilitiesPage } from "@/pages/capabilities-page";
 import { CapabilityPacksPage } from "@/pages/capability-packs-page";
+import { CapabilityPackWorkbenchPage } from "@/pages/capability-pack-workbench-page";
+import { CapabilityPackConfigurationPage } from "@/pages/contract-post-evaluation-page";
+import { BusinessWorksPage } from "@/pages/business-works-page";
 import { ThemeProvider } from "@/context/theme-context";
 import { RunsPage } from "@/pages/runs-page";
 import { NewRunPage } from "@/pages/new-run-page";
@@ -16,12 +19,16 @@ import { OverviewPage } from "@/pages/overview-page";
 import { StrategiesPage } from "@/pages/strategies-page";
 import { StrategyCreatePage } from "@/pages/strategy-create-page";
 import { StrategyDetailPage } from "@/pages/strategy-detail-page";
-import { RuleSetsPage } from "@/pages/rule-sets-page";
-import { AgentConfigurationPage } from "@/pages/registry-config-page";
-import { WorkItemDetailPage } from "@/pages/work-item-detail-page";
-import { WorkItemsPage } from "@/pages/work-items-page";
+import { AgentConfigurationPage, ToolConfigurationPage } from "@/pages/registry-config-page";
+import { DocumentLibraryPage } from "@/pages/resource-center-page";
+import { PolicyCreatePage } from "@/pages/policy-create-page";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DEMO_PROJECT_ID, DEMO_TENANT_ID, demoOverviewPath, demoWorkspacePath } from "@/lib/demo-scope";
+import {
+  DOCUMENT_LIBRARY_ROUTE,
+  LEGACY_RESOURCE_REDIRECT,
+  LEGACY_RESOURCE_ROUTE,
+} from "@/lib/document-library-routes";
 
 const RunDetailPage = lazy(() => import("@/pages/run-detail-page").then((module) => ({ default: module.RunDetailPage })));
 
@@ -41,19 +48,26 @@ const workspaceChildren = () => [
   { path: "canvas", element: <StrategyCreatePage standalone /> },
   { path: "actions", element: <ActionCenterPage /> },
   { path: "capabilities", element: <Navigate to="../agents" replace /> },
+  { path: "business-works", element: <BusinessWorksPage /> },
+  { path: "business-works/:workKey", element: <BusinessWorksPage /> },
   { path: "capability-packs", element: <CapabilityPacksPage /> },
-  { path: "work-items", children: [
-    { index: true, element: <WorkItemsPage /> },
-    { path: ":workItemId", element: <WorkItemDetailPage /> },
-  ] },
-  { path: "rule-sets", element: <RuleSetsPage /> },
+  { path: "capability-packs/:packName/workbench", element: <CapabilityPackWorkbenchPage /> },
+  { path: "capability-packs/:packName", element: <CapabilityPackConfigurationPage /> },
+  { path: DOCUMENT_LIBRARY_ROUTE, element: <DocumentLibraryPage /> },
+  { path: LEGACY_RESOURCE_ROUTE, element: <Navigate to={LEGACY_RESOURCE_REDIRECT} replace /> },
   { path: "agents", children: [
     { index: true, element: <AgentCapabilitiesPage /> },
     { path: "configure", element: <AgentConfigurationPage /> },
   ] },
-  { path: "tools", element: <ToolCapabilitiesPage /> },
+  { path: "tools", children: [
+    { index: true, element: <ToolCapabilitiesPage /> },
+    { path: "new", element: <ToolConfigurationPage initialCreate /> },
+  ] },
   { path: "models", element: <ModelCapabilitiesPage /> },
-  { path: "policies", element: <PolicyCapabilitiesPage /> },
+  { path: "policies", children: [
+    { index: true, element: <PolicyCapabilitiesPage /> },
+    { path: "new", element: <PolicyCreatePage /> },
+  ] },
   { path: "audit-logs", element: <AuditLogsPage /> },
 ];
 

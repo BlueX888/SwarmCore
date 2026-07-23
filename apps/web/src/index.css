@@ -33,20 +33,54 @@
   --color-warning-600: #dc6803;
   --shadow-theme-xs: 0 1px 2px 0 rgb(16 24 40 / 0.05);
   --shadow-theme-sm: 0 1px 3px 0 rgb(16 24 40 / 0.1), 0 1px 2px -1px rgb(16 24 40 / 0.1);
+  --shadow-theme-card: 0 1px 2px rgb(16 24 40 / 0.03), 0 8px 24px -12px rgb(16 24 40 / 0.14);
+  --shadow-theme-float: 0 16px 40px -18px rgb(42 49 216 / 0.28);
   --breakpoint-2xl: 1536px;
 }
 
 @utility menu-item {
-  @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-500/20;
+  @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-500/20;
 }
-@utility menu-item-active { @apply bg-brand-50 text-brand-500 dark:bg-brand-500/12 dark:text-brand-400; }
-@utility menu-item-inactive { @apply text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/5; }
+@utility menu-item-active { @apply bg-brand-50 text-brand-600 shadow-theme-xs dark:bg-brand-500/12 dark:text-brand-400; }
+@utility menu-item-inactive { @apply text-gray-600 hover:translate-x-0.5 hover:bg-gray-100/80 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/5 dark:hover:text-white; }
 @utility z-99999 { z-index: 99999; }
 
 html, body, #root { min-height: 100%; }
-body { margin: 0; font-family: var(--font-outfit); background: var(--color-gray-50); color: var(--color-gray-800); }
-.dark body { background: var(--color-gray-900); color: rgb(255 255 255 / 0.9); }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: var(--font-outfit);
+  background:
+    radial-gradient(circle at 78% -10%, rgb(70 95 255 / 0.09), transparent 28rem),
+    radial-gradient(circle at 18% 8%, rgb(156 185 255 / 0.12), transparent 22rem),
+    var(--color-gray-50);
+  color: var(--color-gray-800);
+  -webkit-font-smoothing: antialiased;
+}
+.dark body {
+  background:
+    radial-gradient(circle at 78% -10%, rgb(70 95 255 / 0.16), transparent 30rem),
+    radial-gradient(circle at 12% 14%, rgb(42 49 216 / 0.12), transparent 24rem),
+    var(--color-gray-900);
+  color: rgb(255 255 255 / 0.9);
+}
 * { box-sizing: border-box; }
+::selection { background: rgb(70 95 255 / 0.2); color: var(--color-brand-700); }
+.dark ::selection { color: white; }
+
+main > div { animation: page-enter 320ms ease-out both; }
+main h1 { letter-spacing: -0.025em; }
+main table tbody tr { transition: background-color 160ms ease; }
+
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  main > div { animation: none; }
+}
 
 .react-flow__node { font-family: var(--font-outfit); }
 .react-flow__controls { overflow: hidden; border: 1px solid var(--color-gray-200); border-radius: .5rem; box-shadow: var(--shadow-theme-sm); }

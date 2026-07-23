@@ -518,9 +518,7 @@ class Artifact(Base, IdMixin, TenantMixin, TimestampMixin):
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    data_classification: Mapped[str] = mapped_column(
-        String(32), default="internal", nullable=False
-    )
+    data_classification: Mapped[str] = mapped_column(String(32), default="internal", nullable=False)
     retention_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -805,9 +803,7 @@ class BlobObject(Base, IdMixin, TenantMixin, TimestampMixin):
     __tablename__ = "blob_objects"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_blob_objects_tenant_id"),
-        UniqueConstraint(
-            "tenant_id", "project_id", "id", name="uq_blob_objects_scope_id"
-        ),
+        UniqueConstraint("tenant_id", "project_id", "id", name="uq_blob_objects_scope_id"),
         UniqueConstraint("object_key", name="uq_blob_objects_object_key"),
         ForeignKeyConstraint(
             ["tenant_id", "project_id"],
@@ -892,6 +888,223 @@ class DocumentExtraction(Base, IdMixin, TenantMixin):
     cache_key: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     result: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BusinessDocument(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "business_documents"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "project_id", "id", name="uq_business_documents_scope_id"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id"],
+            ["projects.tenant_id", "projects.id"],
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_business_documents_list",
+            "project_id",
+            "status",
+            "category",
+            "updated_at",
+        ),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    name: Mapped[str] = mapped_column(String(512), nullable=False)
+    category: Mapped[str] = mapped_column(String(128), nullable=False)
+    tags: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="UPLOADING", nullable=False)
+    current_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False)
+
+
+class BusinessDocumentVersion(Base, IdMixin, TenantMixin):
+    __tablename__ = "business_document_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "id",
+            name="uq_business_document_versions_scope_id",
+        ),
+        UniqueConstraint(
+            "business_document_id",
+            "version",
+            name="uq_business_document_versions_number",
+        ),
+        UniqueConstraint(
+            "business_document_id",
+            "blob_id",
+            name="uq_business_document_versions_blob",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_document_id"],
+            [
+                "business_documents.tenant_id",
+                "business_documents.project_id",
+                "business_documents.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "blob_id"],
+            ["blob_objects.tenant_id", "blob_objects.project_id", "blob_objects.id"],
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_business_document_versions_document",
+            "business_document_id",
+            "version",
+        ),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_document_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    blob_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    filename: Mapped[str] = mapped_column(String(512), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(256), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    processing_status: Mapped[str] = mapped_column(
+        String(32), default="UPLOADING", nullable=False
+    )
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DocumentBusinessObjectLink(Base, IdMixin, TenantMixin):
+    __tablename__ = "document_business_object_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "id",
+            name="uq_document_business_object_links_scope_id",
+        ),
+        UniqueConstraint(
+            "business_document_id",
+            "business_object_id",
+            name="uq_document_business_object_links_object",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_document_id"],
+            [
+                "business_documents.tenant_id",
+                "business_documents.project_id",
+                "business_documents.id",
+            ],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_object_id"],
+            [
+                "business_objects.tenant_id",
+                "business_objects.project_id",
+                "business_objects.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_object_version_id"],
+            [
+                "business_object_versions.tenant_id",
+                "business_object_versions.project_id",
+                "business_object_versions.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_document_business_object_links_object", "business_object_id"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_document_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_object_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_object_version_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    relation_type: Mapped[str] = mapped_column(String(64), default="RELATED", nullable=False)
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DocumentWorkBinding(Base, IdMixin, TenantMixin):
+    __tablename__ = "document_work_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "id",
+            name="uq_document_work_bindings_scope_id",
+        ),
+        UniqueConstraint(
+            "business_document_id",
+            "business_work_key",
+            name="uq_document_work_bindings_work",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_document_id"],
+            [
+                "business_documents.tenant_id",
+                "business_documents.project_id",
+                "business_documents.id",
+            ],
+            ondelete="CASCADE",
+        ),
+        Index("ix_document_work_bindings_work", "project_id", "business_work_key"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_document_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_work_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DocumentProcessingResult(Base, IdMixin, TenantMixin):
+    __tablename__ = "document_processing_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "id",
+            name="uq_document_processing_results_scope_id",
+        ),
+        UniqueConstraint(
+            "business_document_version_id",
+            "result_type",
+            "result_version",
+            name="uq_document_processing_results_version",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_document_version_id"],
+            [
+                "business_document_versions.tenant_id",
+                "business_document_versions.project_id",
+                "business_document_versions.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_document_processing_results_document_version",
+            "business_document_version_id",
+            "result_type",
+        ),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_document_version_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), nullable=False
+    )
+    result_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    schema_ref: Mapped[str | None] = mapped_column(String(256))
+    producer_ref: Mapped[str | None] = mapped_column(String(256))
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
+    confirmed_by: Mapped[str | None] = mapped_column(String(256))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -1082,4 +1295,482 @@ class Report(Base, IdMixin, TenantMixin):
     content: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     artifact_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BusinessObject(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "business_objects"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "project_id", "id", name="uq_business_objects_scope_id"),
+        UniqueConstraint(
+            "project_id", "object_type", "canonical_key", name="uq_business_objects_key"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id"], ["projects.tenant_id", "projects.id"], ondelete="RESTRICT"
+        ),
+        Index("ix_business_objects_list", "project_id", "object_type", "lifecycle", "updated_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    object_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    canonical_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    lifecycle: Mapped[str] = mapped_column(String(32), default="ACTIVE", nullable=False)
+    current_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class BusinessObjectVersion(Base, IdMixin, TenantMixin):
+    __tablename__ = "business_object_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "project_id", "id", name="uq_business_object_versions_scope_id"
+        ),
+        UniqueConstraint(
+            "business_object_id", "version", name="uq_business_object_versions_number"
+        ),
+        UniqueConstraint(
+            "business_object_id", "data_hash", name="uq_business_object_versions_hash"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_object_id"],
+            ["business_objects.tenant_id", "business_objects.project_id", "business_objects.id"],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_business_object_versions_object", "business_object_id", "version"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_object_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    schema_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    data_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    recorded_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BusinessObjectRelation(Base, IdMixin, TenantMixin):
+    __tablename__ = "business_object_relations"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "project_id", "id", name="uq_business_object_relations_scope_id"
+        ),
+        UniqueConstraint("project_id", "content_hash", name="uq_business_object_relations_hash"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "source_object_id"],
+            ["business_objects.tenant_id", "business_objects.project_id", "business_objects.id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "target_object_id"],
+            ["business_objects.tenant_id", "business_objects.project_id", "business_objects.id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "source_version_id"],
+            [
+                "business_object_versions.tenant_id",
+                "business_object_versions.project_id",
+                "business_object_versions.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "target_version_id"],
+            [
+                "business_object_versions.tenant_id",
+                "business_object_versions.project_id",
+                "business_object_versions.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_business_object_relations_source", "source_object_id", "relation_type"),
+        Index("ix_business_object_relations_target", "target_object_id", "relation_type"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    source_object_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    target_object_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    source_version_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    target_version_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    relation_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    assertion_state: Mapped[str] = mapped_column(String(32), default="ACTIVE", nullable=False)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
+    supersedes_relation_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class WorkItemSubject(Base, IdMixin, TenantMixin):
+    __tablename__ = "work_item_subjects"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "project_id", "id", name="uq_work_item_subjects_scope_id"),
+        UniqueConstraint(
+            "work_item_revision_id",
+            "subject_key",
+            "business_object_id",
+            name="uq_work_item_subjects_binding",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "work_item_id"],
+            ["work_items.tenant_id", "work_items.project_id", "work_items.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "work_item_revision_id"],
+            ["work_item_revisions.tenant_id", "work_item_revisions.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_object_id"],
+            ["business_objects.tenant_id", "business_objects.project_id", "business_objects.id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_object_version_id"],
+            [
+                "business_object_versions.tenant_id",
+                "business_object_versions.project_id",
+                "business_object_versions.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_work_item_subjects_revision", "work_item_revision_id", "role"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    work_item_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    work_item_revision_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_object_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_object_version_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ProjectCapabilityDecisionBinding(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "project_capability_decision_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "project_id", "id", name="uq_capability_decision_bindings_scope_id"
+        ),
+        UniqueConstraint(
+            "project_capability_binding_id", "slot", name="uq_capability_decision_bindings_slot"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_capability_binding_id"],
+            ["project_capability_bindings.tenant_id", "project_capability_bindings.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "rule_set_version_id"],
+            ["rule_set_versions.tenant_id", "rule_set_versions.id"],
+            ondelete="RESTRICT",
+        ),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    project_capability_binding_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), nullable=False
+    )
+    slot: Mapped[str] = mapped_column(String(128), nullable=False)
+    rule_set_version_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    bound_by: Mapped[str] = mapped_column(String(256), nullable=False)
+
+
+class EvaluationDecision(Base, IdMixin, TenantMixin):
+    __tablename__ = "evaluation_decisions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_evaluation_decisions_tenant_id"),
+        UniqueConstraint("tenant_id", "project_id", "id", name="uq_evaluation_decisions_scope_id"),
+        UniqueConstraint("evaluation_id", "slot", name="uq_evaluation_decisions_slot"),
+        ForeignKeyConstraint(
+            ["tenant_id", "evaluation_id"],
+            ["evaluations.tenant_id", "evaluations.id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "rule_set_version_id"],
+            ["rule_set_versions.tenant_id", "rule_set_versions.id"],
+            ondelete="RESTRICT",
+        ),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    evaluation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    slot: Mapped[str] = mapped_column(String(128), nullable=False)
+    rule_set_version_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    decision_content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    input_schema_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    output_schema_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    engine: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class DecisionExecution(Base, IdMixin, TenantMixin):
+    __tablename__ = "decision_executions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "project_id", "id", name="uq_decision_executions_scope_id"),
+        UniqueConstraint(
+            "evaluation_decision_id",
+            "execution_key",
+            "attempt",
+            name="uq_decision_executions_attempt",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "evaluation_decision_id"],
+            ["evaluation_decisions.tenant_id", "evaluation_decisions.id"],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_decision_executions_evaluation", "evaluation_decision_id", "executed_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    evaluation_decision_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    run_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    task_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    trace_id: Mapped[str | None] = mapped_column(String(128))
+    execution_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    input_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    input_artifact_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    output: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    output_artifact_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    output_hash: Mapped[str | None] = mapped_column(String(64))
+    matched_rule_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_summary: Mapped[str | None] = mapped_column(String(512))
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Connection(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "connections"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "project_id", "id", name="uq_connections_scope_id"),
+        UniqueConstraint("project_id", "name", name="uq_connections_name"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id"], ["projects.tenant_id", "projects.id"], ondelete="RESTRICT"
+        ),
+        Index("ix_connections_list", "project_id", "lifecycle", "updated_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    connector_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    lifecycle: Mapped[str] = mapped_column(String(32), default="ACTIVE", nullable=False)
+    current_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class ConnectionVersion(Base, IdMixin, TenantMixin):
+    __tablename__ = "connection_versions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "project_id", "id", name="uq_connection_versions_scope_id"),
+        UniqueConstraint("connection_id", "version", name="uq_connection_versions_number"),
+        UniqueConstraint("connection_id", "configuration_hash", name="uq_connection_versions_hash"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "connection_id"],
+            ["connections.tenant_id", "connections.project_id", "connections.id"],
+            ondelete="RESTRICT",
+        ),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    connection_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    configuration: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    credential_ref: Mapped[str] = mapped_column(String(512), nullable=False)
+    policy_ref: Mapped[str | None] = mapped_column(String(256))
+    configuration_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ResourceDefinition(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "resource_definitions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "project_id", "id", name="uq_resource_definitions_scope_id"),
+        UniqueConstraint(
+            "project_id", "connection_id", "name", name="uq_resource_definitions_name"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "connection_id"],
+            ["connections.tenant_id", "connections.project_id", "connections.id"],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_resource_definitions_list", "project_id", "resource_kind", "lifecycle"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    connection_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    resource_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    locator: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    schema_ref: Mapped[str | None] = mapped_column(String(256))
+    media_type: Mapped[str | None] = mapped_column(String(256))
+    sensitivity: Mapped[str] = mapped_column(String(32), default="INTERNAL", nullable=False)
+    lifecycle: Mapped[str] = mapped_column(String(32), default="ACTIVE", nullable=False)
+
+
+class CapabilityResourceBinding(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "capability_resource_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "project_id", "id", name="uq_capability_resource_bindings_scope_id"
+        ),
+        UniqueConstraint(
+            "project_capability_binding_id", "slot", name="uq_capability_resource_bindings_slot"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_capability_binding_id"],
+            ["project_capability_bindings.tenant_id", "project_capability_bindings.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "resource_definition_id"],
+            [
+                "resource_definitions.tenant_id",
+                "resource_definitions.project_id",
+                "resource_definitions.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    project_capability_binding_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), nullable=False
+    )
+    slot: Mapped[str] = mapped_column(String(128), nullable=False)
+    resource_definition_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    access_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    mapping_configuration: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, nullable=False
+    )
+    bound_by: Mapped[str] = mapped_column(String(256), nullable=False)
+
+
+class ResourceSnapshot(Base, IdMixin, TenantMixin):
+    __tablename__ = "resource_snapshots"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "project_id", "id", name="uq_resource_snapshots_scope_id"),
+        UniqueConstraint("evaluation_id", "slot", "snapshot_key", name="uq_resource_snapshots_key"),
+        ForeignKeyConstraint(
+            ["tenant_id", "evaluation_id"],
+            ["evaluations.tenant_id", "evaluations.id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "resource_definition_id"],
+            [
+                "resource_definitions.tenant_id",
+                "resource_definitions.project_id",
+                "resource_definitions.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "connection_version_id"],
+            [
+                "connection_versions.tenant_id",
+                "connection_versions.project_id",
+                "connection_versions.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_resource_snapshots_evaluation", "evaluation_id", "retrieved_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    evaluation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    slot: Mapped[str] = mapped_column(String(128), nullable=False)
+    resource_definition_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    snapshot_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    connection_version_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False)
+    observed_version: Mapped[str | None] = mapped_column(String(256))
+    etag: Mapped[str | None] = mapped_column(String(512))
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    artifact_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    blob_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    replayability: Mapped[str] = mapped_column(String(32), nullable=False)
+    non_replayable_reason: Mapped[str | None] = mapped_column(String(512))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, default=dict, nullable=False
+    )
+
+
+class DocumentUsageSnapshot(Base, IdMixin, TenantMixin):
+    __tablename__ = "document_usage_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "id",
+            name="uq_document_usage_snapshots_scope_id",
+        ),
+        UniqueConstraint(
+            "evaluation_id",
+            "business_document_version_id",
+            "business_work_key",
+            name="uq_document_usage_snapshots_version",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "evaluation_id"],
+            ["evaluations.tenant_id", "evaluations.id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "run_id"],
+            ["runs.tenant_id", "runs.project_id", "runs.id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_document_id"],
+            [
+                "business_documents.tenant_id",
+                "business_documents.project_id",
+                "business_documents.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_document_version_id"],
+            [
+                "business_document_versions.tenant_id",
+                "business_document_versions.project_id",
+                "business_document_versions.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "blob_id"],
+            ["blob_objects.tenant_id", "blob_objects.project_id", "blob_objects.id"],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_document_usage_snapshots_evaluation", "evaluation_id", "created_at"),
+        Index("ix_document_usage_snapshots_run", "run_id", "created_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    evaluation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_work_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_document_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_document_version_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), nullable=False
+    )
+    blob_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    document_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    media_type: Mapped[str] = mapped_column(String(256), nullable=False)
+    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

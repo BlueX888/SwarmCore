@@ -26,12 +26,16 @@ from .settings import Settings
 
 
 class ReadinessHttpClient:
+    _stale_if_error_seconds = 30.0
+
     def __init__(self, url: str, timeout_seconds: float) -> None:
         self._url = url.rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._cached_at = 0.0
         self._cached: dict[str, Any] | None = None
         self._has_cached = False
+        self._last_success_at = 0.0
+        self._lock = asyncio.Lock()
 
     async def get(self) -> dict[str, Any] | None:
         now = time.monotonic()
@@ -39,10 +43,23 @@ class ReadinessHttpClient:
             return self._cached
         if not self._url:
             return None
-        self._cached = await asyncio.to_thread(self._get)
-        self._cached_at = time.monotonic()
-        self._has_cached = True
-        return self._cached
+        async with self._lock:
+            now = time.monotonic()
+            if self._has_cached and now - self._cached_at < 1.0:
+                return self._cached
+            inspected = await asyncio.to_thread(self._get)
+            inspected_at = time.monotonic()
+            if inspected is not None:
+                self._cached = inspected
+                self._last_success_at = inspected_at
+            elif (
+                self._cached is None
+                or inspected_at - self._last_success_at >= self._stale_if_error_seconds
+            ):
+                self._cached = None
+            self._cached_at = inspected_at
+            self._has_cached = True
+            return self._cached
 
     def _get(self) -> dict[str, Any] | None:
         try:
@@ -96,7 +113,14 @@ class HttpModelReadinessPort:
     ) -> ModelRuntimeStatus:
         del tenant_id, project_id, environment
         payload = await self._client.get()
-        rows = payload.get("models", []) if payload is not None else []
+        if payload is None:
+            return ModelRuntimeStatus(
+                route_registered=False,
+                secret_available=False,
+                endpoint_healthy=False,
+                inspected=False,
+            )
+        rows = payload.get("models", [])
         logical_model = registration.ref.rsplit("@", 1)[0]
         row = next(
             (
@@ -110,6 +134,7 @@ class HttpModelReadinessPort:
             route_registered=bool(row and row.get("routeRegistered")),
             secret_available=bool(row and row.get("secretAvailable")),
             endpoint_healthy=bool(row and row.get("endpointHealthy")),
+            inspected=True,
         )
 
 

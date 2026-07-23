@@ -122,10 +122,19 @@ function buildCreateRequest({ template, selectedStrategy, name, version, workIte
   const manifest = structuredClone(template.manifest);
   const spec = objectValue(manifest.spec);
   const strategyRef = `strategy://project/${selectedStrategy.version.strategyId}@${selectedStrategy.version.version}`;
-  manifest.apiVersion = "swarmcore.io/v1";
+  const apiVersion = manifest.apiVersion === "swarmcore.io/v2" ? "swarmcore.io/v2" : "swarmcore.io/v1";
+  manifest.apiVersion = apiVersion;
   manifest.kind = "CapabilityPack";
   manifest.metadata = { name, version };
-  manifest.spec = { ...spec, workItemType, strategies: { execute: strategyRef }, agents: dependencies.agents, tools: dependencies.tools, events: { namespace: `capability.${name}` } };
+  const caseDefinition = objectValue(spec.case);
+  manifest.spec = {
+    ...spec,
+    ...(apiVersion === "swarmcore.io/v2" ? { case: { ...caseDefinition, type: workItemType } } : { workItemType }),
+    strategies: { execute: strategyRef },
+    agents: dependencies.agents,
+    tools: dependencies.tools,
+    events: { namespace: `capability.${name}` },
+  };
   return { manifest, strategyVersionId: selectedStrategy.version.strategyVersionId };
 }
 

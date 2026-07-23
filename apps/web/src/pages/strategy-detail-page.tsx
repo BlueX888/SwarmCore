@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, RefreshCw, Rocket, Save } from "lucide-react";
 import * as React from "react";
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 import { api, ApiError } from "@/api/client";
 import type { Diagnostic, DraftSnapshot } from "@/api/types";
 import { StrategyEditor } from "@/components/strategy/strategy-editor";
 import { EMPTY_EDITOR_STATE, isSwarmSpecDocument, type EditorState, type SwarmSpecDocument } from "@/components/strategy/strategy-editor-model";
 import { Button } from "@/components/ui/button";
+import { BackLink } from "@/components/ui/back-link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
@@ -133,7 +134,7 @@ export function StrategyDetailPage() {
   if (strategies.isError || !strategy || draft.isError || !draft.data) return <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5"><p className="font-medium text-error-600">无法加载策略</p><Button onClick={() => void strategies.refetch()}>重试</Button></CardContent></Card>;
   if (!spec) return <Card><CardContent className="flex min-h-60 items-center justify-center pt-5"><p className="font-medium text-error-600">草稿不是有效的 SwarmSpec 文档。</p></CardContent></Card>;
   return <div className="min-w-0 space-y-6">
-    <div><Link to=".." className="text-sm text-brand-500">← 策略管理</Link><div className="mt-3 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-2xl font-semibold text-gray-900 dark:text-white">{strategy.name}</h1><p className="mt-1 text-sm text-gray-500">草稿修订 {revision}{dirty ? " · 未保存" : ""}</p></div><Button variant="outline" onClick={() => void reload()}><RefreshCw />重新加载</Button></div></div>
+    <div><BackLink to="..">策略管理</BackLink><div className="mt-4 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-2xl font-semibold text-gray-900 dark:text-white">{strategy.name}</h1><p className="mt-1 text-sm text-gray-500">草稿修订 {revision}{dirty ? " · 未保存" : ""}</p></div><Button variant="outline" onClick={() => void reload()}><RefreshCw />重新加载</Button></div></div>
     <Card><CardContent className="space-y-4 pt-5">
       <StrategyEditor spec={spec} editorState={editorState} nodeTypes={capabilities.data?.nodeTypes.map((item) => item.type) ?? []} diagnostics={diagnostics} onSpecChange={(value) => { setSpec(value); setDirty(true); setMessage(""); }} onEditorStateChange={(value) => { setEditorState(value); setDirty(true); }} onError={setMessage} />
       <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => compile.mutate()} loading={compile.isPending}><CheckCircle2 />校验</Button><Button variant="outline" onClick={() => save.mutate()} loading={save.isPending} disabled={conflict}><Save />保存草稿</Button><Button onClick={() => publish.mutate()} loading={publish.isPending} disabled={conflict}><Rocket />保存并发布</Button></div>

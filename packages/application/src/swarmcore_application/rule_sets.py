@@ -125,9 +125,7 @@ class RuleSetService:
             request_hash=request_hash,
         )
         if existing is not None:
-            draft = await session.scalar(
-                select(RuleSetDraft).where(RuleSetDraft.id == existing)
-            )
+            draft = await session.scalar(select(RuleSetDraft).where(RuleSetDraft.id == existing))
             if draft is None:
                 raise RuntimeError("rule set update idempotency record is invalid")
             return draft

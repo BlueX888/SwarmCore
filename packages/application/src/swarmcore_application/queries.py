@@ -30,9 +30,7 @@ class RunQueryService:
             raise LookupError("run not found")
         tasks = list(
             await session.scalars(
-                select(RunTask)
-                .where(RunTask.run_id == run_id)
-                .order_by(RunTask.task_instance_key)
+                select(RunTask).where(RunTask.run_id == run_id).order_by(RunTask.task_instance_key)
             )
         )
         task_events = list(

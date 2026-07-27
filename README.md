@@ -1,42 +1,111 @@
 # SwarmCore
 
-SwarmCore is a protocol-neutral, durable multi-agent orchestration execution runtime. The
-implementation follows [`docs/swarmcore-system-design.md`](docs/swarmcore-system-design.md), and
-development progress is tracked in
-[`docs/swarmcore-development-plan.md`](docs/swarmcore-development-plan.md).
+面向企业智能体应用的受控、多租户、耐久执行内核。
 
-## Development
+SwarmCore 接收已经明确的目标与执行策略，负责校验、编译、调度、状态管理、可靠性、
+安全治理、审计和结果交付。它不替上游调用方理解业务目标，也不把 Agent SDK 当作工作流
+状态源。
+
+> 项目当前处于 v1 候选基线建设阶段，尚未完成生产资格验证。准确的实现状态与开放门禁
+> 以 [开发计划](docs/swarmcore-development-plan.md) 为准。
+
+## 核心能力
+
+- **耐久编排**：将 SwarmSpec 编译为不可变 ExecutionPlan，由 Temporal 执行状态机、
+  重试、并发、暂停、恢复、取消和人工审批。
+- **统一入口**：REST API、MCP 和 Web 控制台复用同一套应用服务、权限、幂等与审计逻辑。
+- **受控能力调用**：Agent、Tool、Model、Artifact 和 Sandbox 通过 Adapter 或 Gateway
+  接入，统一执行策略、预算、Secret、租户边界和可观测性检查。
+- **可靠状态交付**：PostgreSQL 保存产品事实，Outbox 保证命令与事件可靠投递，NATS
+  JetStream 负责事件分发。
+- **业务能力扩展**：通过不可变 Capability Pack 组合策略、Agent、Tool、规则、证据和
+  报告，而不是为每种业务 Agent 复制一套运行时。
+- **业务工作台**：提供 Business Works、文档处理、Case、Assessment、Finding、Report
+  和 DecisionAsset 等统一产品入口。
+
+当前仓库包含合同完整性、合同七维后评价、偏差分析和发票一致性校验等能力包。它们的
+验收层级不同；请勿将本地实现状态等同于生产可用。
+
+## 架构概览
+
+```mermaid
+flowchart LR
+    Caller["上游系统 / Web 控制台"] --> Entry["REST / MCP"]
+    Entry --> App["统一应用服务"]
+    App --> Registry["Registry + SwarmSpec Compiler"]
+    App --> PG[("PostgreSQL + Outbox")]
+    PG --> Dispatcher["Command Dispatcher"]
+    Dispatcher --> Temporal["Temporal"]
+    Temporal --> Workers["Control / Agent / Tool Workers"]
+    Workers --> Gateways["Tool / Model / Artifact / Sandbox Gateways"]
+    PG --> NATS["NATS JetStream"]
+    NATS --> Caller
+```
+
+关键约束：
+
+1. Temporal 是唯一耐久执行引擎；Workflow 保持确定性，网络、数据库、模型和文件 I/O
+   只能进入 Activity、Tool 或 Adapter。
+2. PostgreSQL 是产品状态、权限、审计和查询的事实源；NATS 不保存最终业务状态。
+3. `packages/domain` 不依赖 FastAPI、数据库、Temporal 或具体 Agent SDK。
+4. 多租户访问始终保留 tenant/project 边界，不绕过幂等、状态机、Outbox 和审计机制。
+5. Agent SDK 通过 Adapter 接入；当前默认生产路径为 Agno Adapter。
+
+完整设计见 [SwarmCore 系统设计](docs/swarmcore-system-design.md)。
+
+## 技术栈
+
+| 领域 | 技术 |
+|---|---|
+| API 与应用 | Python 3.12、FastAPI、Pydantic v2、uv |
+| 编排与 Agent | Temporal Python SDK、Agno Adapter |
+| 数据与事件 | PostgreSQL 17、SQLAlchemy 2、Alembic、NATS JetStream |
+| 治理与存储 | OPA、Vault、S3 API、Artifact Gateway、Sandbox Manager |
+| 可观测性 | OpenTelemetry、Phoenix |
+| Web | React 19、TypeScript、Vite、TanStack Query、Zustand |
+| 质量 | Ruff、mypy strict、pytest、Vitest、Playwright |
+
+## 仓库结构
+
+```text
+apps/                   可独立运行的 API、Worker、Gateway 和 Web 应用
+packages/               领域、应用服务、编译器、持久化、运行时与能力包
+tests/unit/              快速、隔离的单元测试
+tests/integration/       PostgreSQL、Temporal 等集成测试
+deployments/compose/     本地基础设施
+docs/                    系统设计、开发计划和专题设计
+scripts/                 集成测试与系统评测脚本
+```
+
+`agno/` 和 `agent-ui/` 是上游参考代码，不属于 SwarmCore workspace，请勿修改。
+
+## 本地快速开始
+
+### 1. 环境要求
+
+- Python 3.12
+- [uv](https://docs.astral.sh/uv/)
+- Node.js 与 pnpm 10.26
+- Docker Compose
+
+### 2. 安装依赖与配置
 
 ```powershell
 uv sync --all-packages
-uv run pytest
-uv run ruff check .
-uv run mypy
 pnpm install
-pnpm web:lint
-pnpm web:test
-pnpm web:build
-pnpm web:e2e
+Copy-Item .env.example .env
 ```
 
-## Report generation guided demo
+`.env.example` 中的凭据仅用于本地开发。不要提交 `.env`，并在任何共享环境替换所有
+`replace-with-at-least-32-random-bytes` 占位值。
 
-The local Web console includes a credential-free, public-data guided demo for the report generation
-agent. Start it with:
+如需无需模型凭据的确定性本地链路，将 `.env` 中的配置改为：
 
-```powershell
-pnpm web:dev
+```dotenv
+SWARMCORE_USE_FAKE_AGENT=true
 ```
 
-Open `/business-works/report-generation`, select **体验公开数据 Demo**, and then select
-**开始生成七维报告**. The flow shows the 32-file public corpus coverage, a deterministic
-seven-dimension result, evidence notes, JSON download, and browser print/PDF output.
-
-The corpus contains materials from multiple public projects. The demo keeps core-project evidence
-separate from rule/classification samples and clearly labels supplemental structured records. Its
-result validates the user flow and is not a formal conclusion about any real contract.
-
-Start infrastructure and apply the schema:
+### 3. 启动基础设施与初始化数据库
 
 ```powershell
 docker compose -f deployments/compose/compose.yaml up -d
@@ -44,122 +113,136 @@ uv run alembic -c packages/persistence/alembic.ini upgrade head
 uv run swarmcore-seed
 ```
 
-The runtime processes expose these console scripts: `swarmcore-api`,
-`swarmcore-command-dispatcher`, `swarmcore-worker-control`, `swarmcore-worker-agent`,
-`swarmcore-worker-tool`, `swarmcore-tool-gateway-api`, `swarmcore-event-publisher`, and
-`swarmcore-projection-reconciler`, plus the M4 processes `swarmcore-worker-webhook`,
-`swarmcore-artifact-gateway`, `swarmcore-model-gateway`, and `swarmcore-sandbox-manager`. Copy
-`.env.example` to `.env` before starting them. The Control
-Worker, Tool Worker, and Tool Gateway must share `SWARMCORE_TOOL_CAPABILITY_SECRET`; replace the
-development value with at least 32 random bytes. The Gateway listens on port 8090 by default, and
-the Agent Worker reaches it through `SWARMCORE_TOOL_GATEWAY_URL`. Phoenix receives OTLP traces and
-metrics at port 4317; its UI is on port 6006.
+本地 Compose 暴露 PostgreSQL `5433`、Temporal `7233`、Temporal UI `8088`、NATS
+`4222`、OPA `8181`、Vault `8200`、Phoenix `6006` 和 OTLP `4317`。更多说明见
+[本地基础设施文档](deployments/compose/README.md)。
 
-Local mode uses header identity and the in-process role policy. Production deployments must set
-`SWARMCORE_DEPLOYMENT_MODE=production`, `SWARMCORE_AUTH_MODE=jwt`, configure issuer/audience/JWKS,
-set `SWARMCORE_POLICY_MODE=opa`, and use workload Vault authentication. Internal Gateway clients
-and servers require `SWARMCORE_WORKLOAD_TLS_CA_FILE`, `SWARMCORE_WORKLOAD_TLS_CERT_FILE`, and
-`SWARMCORE_WORKLOAD_TLS_KEY_FILE`; incomplete production security settings fail at startup.
-`secret://path` reads Vault KV v2; leased dynamic credentials use
-`secret://dynamic/<mount>/<path>` and are revoked when the activity exits. The Artifact, Model, and
-Sandbox capability secrets are independent and must also be replaced. Artifact Gateway uses the
-local store by default and can select S3 plus ClamAV; Model Gateway routes logical model names to
-LiteLLM by default, or directly to a local OpenAI-compatible endpoint configured with
-`SWARMCORE_MODEL_PROVIDER_URL` and `SWARMCORE_MODEL_PROVIDER_API_KEY`. Direct credentials are
-rejected in production, where Vault remains required. The production Agent Worker creates only
-run-scoped Model Gateway clients. `SWARMCORE_AGENT_MODEL_MAX_OUTPUT_TOKENS` controls the
-per-invocation structured-output ceiling (8192 by default); capability-pack run budgets remain the
-aggregate enforcement boundary. Sandbox
-Manager is dry-run locally and admits only digest-pinned allowlisted images.
+### 4. 启动运行进程
 
-Controlled filesystem tools (`tool://filesystem/read-text@1`, `write-text@1`, `list@1`,
-`stat@1`) are disabled by default. Enable them with `SWARMCORE_FILESYSTEM_TOOLS_ENABLED=true` and
-set `SWARMCORE_FILESYSTEM_EXECUTOR_MODE` to `local` (development/test only) or `sandbox`
-(production). Configure `SWARMCORE_FILESYSTEM_ROOT` as the deployment jail root; tenants and
-projects receive deterministic subdirectories under allowed logical mounts such as `workspace`.
-Production rejects `local` mode at startup. These tools are not a document library: durable business
-files remain BlobObject / BusinessDocument / Artifact.
+在独立终端中按需启动以下进程：
 
-M4 also adds scoped Artifact listing and one-time download grants, append-only Audit query/NDJSON
-export, and Webhook endpoint APIs under `/v1`. Every console process emits redacted JSON logs and
-exports OpenTelemetry traces/metrics when telemetry is enabled.
+```powershell
+uv run swarmcore-api
+uv run swarmcore-command-dispatcher
+uv run swarmcore-worker-control
+uv run swarmcore-worker-agent
+uv run swarmcore-worker-tool
+uv run swarmcore-tool-gateway-api
+uv run swarmcore-artifact-gateway
+uv run swarmcore-model-gateway
+uv run swarmcore-event-publisher
+uv run swarmcore-projection-reconciler
+```
 
-Project-scoped agent, tool, and model configurations are persisted through
-`/v1/projects/{project_id}/configurations/{agent|tool|model}`. Saved configurations reference the
-immutable built-in Registry, remain isolated by tenant and project RLS, and create audit records on
-create, update, and delete. Updates retain the configuration ID and increment its revision. Apply
-Alembic migrations before using these endpoints.
+Webhook Worker 和 Sandbox Manager 是按场景启用的附加进程：
 
-Strategy drafts are managed under `/v1/projects/{project_id}/strategies`. Use
-`GET .../strategies/{strategy_id}/delete-impact` to inspect blockers, and
-`DELETE .../strategies/{strategy_id}` to physically remove only unused draft-only `ACTIVE`
-strategies. Published versions, runs, assessments, business-work dependency snapshots, and
-`TRUSTED`/`EPHEMERAL` strategies return `409 STRATEGY_DELETE_BLOCKED` with stable blocker codes;
-cross-tenant or missing strategies return `404`.
+```powershell
+uv run swarmcore-worker-webhook
+uv run swarmcore-sandbox-manager
+```
 
-The unified Capability Center is enabled by default and can be disabled with
-`SWARMCORE_CAPABILITY_CENTER_V2=false`. It adds
-`/v1/projects/{project_id}/capability-center`, `/capability-runs`, and `/presets` while retaining the
-configuration APIs above. Readiness is projected from Tool Gateway executors, Model Gateway route,
-secret and endpoint checks, and the Agent Worker adapter probe on port 8094; unavailable resources
-remain visible only when explicitly requested and cannot be run. MCP exposes
-`swarm.capability-center.list` and `swarm.capability.run` under the same feature flag.
+最后启动 Web 控制台：
 
-The MCP endpoint is `/mcp` and exposes the canonical tools
-`swarm.capabilities.get`, `swarm.strategy.validate`, `swarm.strategy.compile`,
-`swarm.run.create`, `swarm.run.status`, `swarm.run.result`, and `swarm.run.control`.
-Business Workbench also exposes `list_capability_packs`, `create_work_item`,
-`execute_work_item`, `get_evaluation`, `list_findings`, `act_on_finding`, and `get_report`.
-Business Context adds `upsert_business_object`, `create_case`, `assess_case`,
-`get_case_result`, and `list_case_findings`; all of these tools call the same application services
-as REST.
-Run control actions, including cancellation, are submitted through `swarm.run.control`;
-the former `swarm.run.start`, `swarm.run.get`, and `swarm.run.cancel` aliases are not supported.
+```powershell
+pnpm web:dev
+```
 
-For a credential-free local demo, set `SWARMCORE_USE_FAKE_AGENT=true` before starting the Agent
-Worker. This selects the deterministic test adapter only; the default production path remains the
-Agno adapter. The seed command is idempotent and creates the documented local tenant, project, and
-one published example strategy without secrets.
+默认入口：
 
-Agent tools are exposed to Agno only as Gateway proxy functions. Side-effecting tools must be
-explicit `tool` nodes so Temporal can retain a stable effect ID across Activity retries; HIGH and
-CRITICAL tools enter the durable Approval flow before a capability token is issued.
+| 服务 | 地址 |
+|---|---|
+| Web 控制台 | <http://localhost:5173> |
+| REST API / OpenAPI | <http://localhost:8000/docs> |
+| MCP | <http://localhost:8000/mcp> |
+| Temporal UI | <http://localhost:8088> |
+| Phoenix | <http://localhost:6006> |
 
-The first trusted internal execution definitions are `contract-integrity` and
-`contract-post-evaluation`. Product users enter through **Business Works**
-(`/business-works`, `/business-works/:workKey`, `/settings`, `/workbench`) and Assessment results
-(`/assessments/:assessmentId`). Capability Pack remains the internal immutable execution model;
-legacy Web routes under `/capability-packs*` redirect to the mapped business work when possible.
-Compatibility Workbench resources remain under `/v1/projects/{project_id}/capability-packs`,
-`/work-items`, `/evaluations`, `/findings`, `/reports`, and `/rule-sets`. Product APIs add
-`/business-works`, `/business-objects`, `/cases`, `/decision-assets`, `/assessments`, and `/documents`. Document endpoints initiate
-uploads, list immutable versions and business bindings, complete hash-verified uploads, track
-processing runs/results, confirm classification and extracted fields, and expose the exact
-document-version snapshots used by an Assessment. Capability-pack list and enable responses include the current
-project binding `configuration`; updating it re-enables the same immutable version with new
-project-scoped parameters. `POST /v1/projects/{project_id}/capability-packs` publishes a custom
-Manifest bound to an existing published `StrategyVersion`; the server reads the frozen plan and
-rejects Agent/Tool declarations that differ from that version. The Web console builds this request
-from a trusted business-asset template and a version selected from Strategy Management. Input files
-are initiated through the API, uploaded to Artifact
-Gateway with a short-lived Blob capability, hash/scanned there, and only then attached to an
-immutable WorkItemRevision or BusinessDocumentVersion and processed by the shared document pipeline.
-The business document library manages only
-user files and their business bindings; it does not connect to ERP, SharePoint, databases, external
-APIs, or other business systems. Local disk and S3 remain deployment-level storage adapters.
-Optional OCR is configured with `SWARMCORE_OCR_ENDPOINT`; when unset, text-native files still process
-and scan images enter review with an explicit “OCR not configured” warning.
-The legacy `/connections`, `/resources`, resource-binding, and resource-snapshot contracts remain
-temporarily available for historical compatibility, but new document and business-work flows do
-not depend on them. Include the Web console origin in `SWARMCORE_CORS_ORIGINS`. Apply all migrations
-through `0014_document_processing_pipeline` before using upload batches and processing runs.
+只想体验无需后端和凭据的公开数据引导演示时，单独运行 `pnpm web:dev`，然后访问
+`/business-works/report-generation`，选择“体验公开数据 Demo”。演示结果用于验证交互
+流程，不构成对真实合同的正式结论。
 
-`WorkItem`, `Evaluation`, and `RuleSet` remain stable storage/API compatibility terms. New clients
-should use the product terms `Case`, `Assessment`, and `DecisionAsset`; the compatibility APIs are
-deprecated for new integrations but are not scheduled for removal in v1.
+## API 与产品入口
 
-To run the PostgreSQL RLS integration contract against a migrated test database, set
-`SWARMCORE_TEST_DATABASE_URL` before `uv run pytest`.
+核心 MCP 工具包括：
 
-The `agno/` and `agent-ui/` directories are upstream references and are not part of the SwarmCore
-workspace.
+- `swarm.capabilities.get`
+- `swarm.strategy.validate`
+- `swarm.strategy.compile`
+- `swarm.run.create`
+- `swarm.run.status`
+- `swarm.run.result`
+- `swarm.run.control`
+
+REST 与 MCP 都调用统一应用服务。产品侧优先使用 Business Work、Case、Assessment 和
+DecisionAsset 术语；`WorkItem`、`Evaluation` 与 `RuleSet` 仅作为兼容存储/API 术语保留。
+
+Web 控制台的主要入口：
+
+- `/business-works`：业务能力目录
+- `/strategies`：策略管理
+- `/runs`：运行记录与状态
+- `/agents`、`/tools`、`/models`：统一能力中心
+- `/documents`：业务文档库
+- `/actions`：人工复核与操作中心
+
+## 配置与安全
+
+配置项及本地默认值见 [.env.example](.env.example)。常用配置分组：
+
+- 基础设施：`SWARMCORE_DATABASE_URL`、`SWARMCORE_TEMPORAL_ADDRESS`、
+  `SWARMCORE_NATS_URL`
+- 模型：`SWARMCORE_MODEL_ROUTES`、`SWARMCORE_MODEL_PROVIDER_URL`、
+  `SWARMCORE_MODEL_PROVIDER_API_KEY`
+- Gateway：`SWARMCORE_TOOL_GATEWAY_URL`、`SWARMCORE_ARTIFACT_GATEWAY_URL`、
+  `SWARMCORE_MODEL_GATEWAY_URL`
+- 文档处理：`SWARMCORE_OCR_ENDPOINT`、`SWARMCORE_TESSERACT_CMD`
+- 受控文件系统：`SWARMCORE_FILESYSTEM_TOOLS_ENABLED`、
+  `SWARMCORE_FILESYSTEM_EXECUTOR_MODE`、`SWARMCORE_FILESYSTEM_ROOT`
+
+生产部署必须使用 JWT、OPA、Vault 工作负载认证和内部 mTLS，并关闭本地 Secret、直连
+Provider、dry-run Sandbox 及本地文件系统执行模式。不完整的生产安全配置会在启动时
+失败。具体约束以[系统设计](docs/swarmcore-system-design.md#8-安全治理与可观测)为准。
+
+## 开发与验证
+
+后端：
+
+```powershell
+uv run ruff check .
+uv run mypy
+uv run pytest -q tests/unit
+```
+
+前端：
+
+```powershell
+pnpm web:lint
+pnpm web:test
+pnpm web:build
+pnpm web:e2e
+```
+
+隔离的 PostgreSQL 与 Temporal 集成测试：
+
+```powershell
+./scripts/test-integration.ps1
+```
+
+Linux/CI：
+
+```bash
+bash scripts/test-integration.sh
+```
+
+测试脚本使用独立端口和数据卷，执行迁移及集成测试后自动清理。涉及 RLS 的单独测试也可
+通过 `SWARMCORE_TEST_DATABASE_URL` 指向已经迁移的测试数据库。
+
+## 项目状态与文档
+
+- [系统设计](docs/swarmcore-system-design.md)：产品边界与架构决策的事实来源
+- [开发计划](docs/swarmcore-development-plan.md)：里程碑、开放门禁、实现状态与验收证据
+- [本地基础设施](deployments/compose/README.md)：Compose 服务和集成测试说明
+
+当前主里程碑为 M5，目标是形成可从干净检出复现的 v1 候选基线；M6 及之后的生产同构、
+故障恢复、容量与发布资格仍待完成。只有通过对应测试和门禁的能力才应标记为
+`VERIFIED`。

@@ -1,0 +1,105 @@
+{
+  "factSet": {
+    "invoiceType": "数电发票(增值税专用发票)",
+    "invoiceCode": null,
+    "invoiceNumber": "99992000000000000001",
+    "issueDate": "2026-03-15",
+    "buyer": {
+      "name": "演示采购方有限公司",
+      "taxId": "91110000MA0DEMOBUY"
+    },
+    "seller": {
+      "name": "演示供应方科技有限公司",
+      "taxId": "91310000MA0DEMOSELL",
+      "bankAccount": "6222000000000001",
+      "bankName": "演示银行上海分行"
+    },
+    "lines": [
+      {
+        "lineId": "L1",
+        "name": "演示软件服务",
+        "quantity": 1.0,
+        "unitPrice": 1000.0,
+        "amount": 1000.0,
+        "taxRate": 0.13,
+        "taxAmount": 130.0,
+        "confidence": "HIGH",
+        "source": "JSON"
+      }
+    ],
+    "totals": {
+      "amountExcludingTax": 1000.0,
+      "taxAmount": 130.0,
+      "amountIncludingTax": 1130.0,
+      "currency": "CNY"
+    },
+    "isRed": false,
+    "blueInvoiceRef": null,
+    "needsFieldConfirmation": false,
+    "parseStatus": "STRUCTURED",
+    "evidenceRefs": ["fixture:demo-invoice:v1"],
+    "qualityFlags": []
+  },
+  "vendor": {
+    "name": "演示供应方科技有限公司",
+    "taxId": "91310000MA0DEMOSELL",
+    "approvedBankAccounts": [
+      {"accountNumber": "6222000000000001", "bankName": "演示银行上海分行"}
+    ]
+  },
+  "businessSnapshot": {
+    "asOf": "2026-03-20",
+    "sourceSystem": "demo-erp",
+    "contracts": [
+      {
+        "contractId": "CT-DEMO-001",
+        "amountIncludingTax": 10000.0,
+        "evidenceRefs": ["fixture:contract:v1"]
+      }
+    ],
+    "purchaseOrders": [
+      {
+        "purchaseOrderId": "PO-DEMO-001",
+        "amountIncludingTax": 1130.0,
+        "evidenceRefs": ["fixture:po:v1"]
+      }
+    ],
+    "acceptances": [
+      {
+        "id": "AC-DEMO-001",
+        "status": "ACCEPTED",
+        "evidenceRefs": ["fixture:acceptance:v1"]
+      }
+    ],
+    "receipts": [],
+    "apLedger": [],
+    "budget": {
+      "availableAmount": 5000.0,
+      "requestedAmount": 1130.0
+    },
+    "bankApprovals": [],
+    "vendor": {
+      "name": "演示供应方科技有限公司",
+      "taxId": "91310000MA0DEMOSELL",
+      "approvedBankAccounts": [
+        {"accountNumber": "6222000000000001", "bankName": "演示银行上海分行"}
+      ]
+    }
+  },
+  "humanReceipt": {
+    "status": "FACE_MATCHED",
+    "provider": "national-vat-verification-portal",
+    "verifiedAt": "2026-03-20T10:00:00+08:00",
+    "operator": "ap.demo@example.com",
+    "artifactHash": "abc123",
+    "returnedFields": {
+      "invoiceNumber": "99992000000000000001",
+      "amountExcludingTax": 1000.0
+    }
+  },
+  "expected": {
+    "outcome": "PAYMENT_READY",
+    "verificationStatus": "FACE_MATCHED",
+    "amountIncludingTax": 1130.0
+  }
+}

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic parser fixture only. NOT a real customer invoice. -->
+<EInvoice>
+  <TaxSuperInfo>
+    <InvoiceType>数电发票(增值税专用发票)</InvoiceType>
+    <InvoiceNumber>99992000000000000001</InvoiceNumber>
+    <InvoiceCode></InvoiceCode>
+    <IssueDate>2026-03-15</IssueDate>
+    <BuyerName>演示采购方有限公司</BuyerName>
+    <BuyerTaxId>91110000MA0DEMOBUY</BuyerTaxId>
+    <SellerName>演示供应方科技有限公司</SellerName>
+    <SellerTaxId>91310000MA0DEMOSELL</SellerTaxId>
+    <SellerBankName>演示银行上海分行</SellerBankName>
+    <SellerBankAccount>6222000000000001</SellerBankAccount>
+    <TotalAmount>1000.00</TotalAmount>
+    <TotalTax>130.00</TotalTax>
+    <AmountIncludingTax>1130.00</AmountIncludingTax>
+    <Currency>CNY</Currency>
+  </TaxSuperInfo>
+  <IssuItemInformation>
+    <ItemName>演示软件服务</ItemName>
+    <Specification>标准版</Specification>
+    <Unit>项</Unit>
+    <Quantity>1</Quantity>
+    <UnitPrice>1000.00</UnitPrice>
+    <Amount>1000.00</Amount>
+    <TaxRate>0.13</TaxRate>
+    <TaxAmount>130.00</TaxAmount>
+  </IssuItemInformation>
+</EInvoice>

@@ -931,6 +931,68 @@ _DEVIATION_RESULT_SCHEMA = {
     },
 }
 
+_INVOICE_FACT_SET_SCHEMA = {"type": "object"}
+
+_INVOICE_NORMALIZER_SCHEMA = _object_schema(
+    required=("invoiceFactSet",),
+    properties={
+        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+        "qualityFlags": {"type": "array", "items": {"type": "object"}},
+        "evidenceFacts": {"type": "array", "items": {"type": "object"}},
+        "conflicts": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_INVOICE_MATCH_CANDIDATE_SCHEMA = _object_schema(
+    required=("matchCandidates",),
+    properties={
+        "matchCandidates": {"type": "array", "items": {"type": "object"}},
+        "ambiguities": {"type": "array", "items": {"type": "object"}},
+        "missingEvidence": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_INVOICE_REVIEW_SCHEMA = _object_schema(
+    required=("reviewRequired", "narrative"),
+    properties={
+        "reviewRequired": {"type": "boolean"},
+        "narrative": {
+            "type": "object",
+            "required": ("executiveSummary",),
+            "properties": {
+                "executiveSummary": {"type": "string", "minLength": 1},
+                "riskSummary": {"type": "string"},
+                "recommendations": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "conflicts": {"type": "array", "items": {"type": "string"}},
+        "unsupportedConclusions": {"type": "array", "items": {"type": "string"}},
+        "outcomeHint": {
+            "enum": ["PAYMENT_READY", "REVIEW_REQUIRED", "PAYMENT_BLOCKED", "UNKNOWN"]
+        },
+    },
+)
+
+_INVOICE_ASSURANCE_RESULT_SCHEMA = {
+    "type": "object",
+    "required": [
+        "schemaVersion",
+        "outcome",
+        "reviewRequired",
+        "dimensions",
+        "provenance",
+    ],
+    "properties": {
+        "schemaVersion": {"const": "schema://invoice-assurance/result@1"},
+        "outcome": {"enum": ["PAYMENT_READY", "REVIEW_REQUIRED", "PAYMENT_BLOCKED"]},
+        "reviewRequired": {"type": "boolean"},
+        "dimensions": {"type": "object"},
+        "findings": {"type": "array", "items": {"type": "object"}},
+        "provenance": {"type": "object"},
+        "resultHash": {"type": "string"},
+    },
+}
+
 
 def builtin_registry() -> RegistrySnapshot:
     return RegistrySnapshot.create(
@@ -1552,6 +1614,88 @@ def builtin_registry() -> RegistrySnapshot:
                     },
                 ),
                 outputSchema=_DEVIATION_NARRATIVE_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://invoice/fact-normalizer@1",
+                version="1",
+                role="invoice-fact-normalizer",
+                instructions=(
+                    "Normalize only low-confidence OCR candidates and invoice line item "
+                    "semantics. Preserve all high-confidence XML or structured original values "
+                    "unchanged. Return invoiceFactSet with evidenceFacts for every change. "
+                    "Never invent tax IDs, invoice numbers, bank accounts, amounts or taxes. "
+                    "Never decide authenticity or payment readiness."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "invoiceFactSet", "coverage"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "parseQuality": {"type": "array", "items": {"type": "object"}},
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                        "fieldConfirmations": {"type": "array", "items": {"type": "object"}},
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_INVOICE_NORMALIZER_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://invoice/commercial-match-analyst@1",
+                version="1",
+                role="invoice-commercial-match-analyst",
+                instructions=(
+                    "Propose candidate mappings between invoice lines and contract, purchase "
+                    "order or acceptance lines when descriptions differ. Every candidate must "
+                    "include invoiceLineId, targetLineId, reasons, evidenceRefs and ambiguities. "
+                    "Do not approve over-quantity or over-price, and do not compute cumulative "
+                    "amounts. Deterministic tools own final matched amounts."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "invoiceFactSet", "businessSnapshot"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "businessSnapshot": {"type": "object"},
+                        "commercialEvidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_INVOICE_MATCH_CANDIDATE_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://invoice/evidence-risk-reviewer@1",
+                version="1",
+                role="invoice-evidence-risk-reviewer",
+                instructions=(
+                    "Review evidence coverage, conflicts and unsupported claims across "
+                    "verification, arithmetic, party, duplication, commercial match and payment "
+                    "gates. Write a concise Chinese risk narrative. Require human review for "
+                    "pending verification, hard blocks, material conflicts or missing required "
+                    "documents. Never change rule statuses, risk grades or payment outcomes."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=(
+                        "coverage",
+                        "verification",
+                        "ruleResults",
+                        "matchResults",
+                        "gateResults",
+                        "invoiceFactSet",
+                    ),
+                    properties={
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                        "verification": {"type": "object"},
+                        "ruleResults": {"type": "object"},
+                        "matchResults": {"type": "object"},
+                        "gateResults": {"type": "object"},
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_INVOICE_REVIEW_SCHEMA,
             ),
         ),
         models=(
@@ -2568,6 +2712,288 @@ def builtin_registry() -> RegistrySnapshot:
                     properties={
                         "evaluationId": {"type": "string", "format": "uuid"},
                         "result": _DEVIATION_RESULT_SCHEMA,
+                        "report": _PDF_REPORT_SCHEMA,
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=("evaluationId", "recorded", "effectId", "resultHash"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "recorded": {"type": "boolean"},
+                        "effectId": {"type": "string"},
+                        "resultHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=True,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://invoice/parse@1",
+                version="1",
+                operation="invoice.parse",
+                description=(
+                    "Parse invoice originals preferring XML structured data; mark low-confidence "
+                    "fields for human confirmation without inventing values."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=(),
+                    properties={
+                        "documents": {"type": "array", "items": {"type": "object"}},
+                        "payload": {"type": "object"},
+                        "configuration": {"type": "object"},
+                        "content": {"type": ["string", "object"]},
+                        "mediaType": {"type": "string"},
+                        "documentVersionId": {"type": "string"},
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=("invoiceFactSet",),
+                    properties={
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "needsFieldConfirmation": {"type": "boolean"},
+                        "qualityFlags": {"type": "array", "items": {"type": "object"}},
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://invoice/official-verify@1",
+                version="1",
+                operation="invoice.official_verify",
+                description=(
+                    "Run authorized tax verification or create a human-assisted verification "
+                    "task. Never fabricate a successful face match."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("invoiceFactSet",),
+                    properties={
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "verificationMode": {
+                            "enum": ["AUTHORIZED_CONNECTOR", "HUMAN_ASSISTED"]
+                        },
+                        "humanVerification": {"type": "object"},
+                        "connectorResult": {"type": "object"},
+                        "configuration": {"type": "object"},
+                    },
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://business/snapshot-read@1",
+                version="1",
+                operation="business.snapshot_read",
+                description=(
+                    "Normalize and hash frozen business snapshots for contracts, POs, "
+                    "acceptance, vendor, AP ledger and budget policy."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload",),
+                    properties={
+                        "payload": {"type": "object"},
+                        "subjects": {"type": "array", "items": {"type": "object"}},
+                        "documents": {"type": "array", "items": {"type": "object"}},
+                        "asOf": {"type": "string"},
+                        "configuration": {"type": "object"},
+                    },
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://invoice/deduplicate@1",
+                version="1",
+                operation="invoice.deduplicate",
+                description=(
+                    "Detect duplicate invoices and red/blue credit relationships in the AP ledger."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("invoiceFactSet",),
+                    properties={
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "businessSnapshot": {"type": "object"},
+                        "configuration": {"type": "object"},
+                    },
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://invoice/arithmetic-check@1",
+                version="1",
+                operation="invoice.arithmetic_check",
+                description=(
+                    "Deterministically validate invoice amounts, taxes and required face fields."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("invoiceFactSet",),
+                    properties={
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "configuration": {"type": "object"},
+                    },
+                ),
+                outputSchema={
+                    "type": "object",
+                    "required": ["ruleResults"],
+                    "properties": {
+                        "ruleResults": {"type": "array", "items": {"type": "object"}}
+                    },
+                },
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://invoice/party-check@1",
+                version="1",
+                operation="invoice.party_check",
+                description=(
+                    "Compare buyer/seller tax IDs and approved bank accounts against vendor master."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("invoiceFactSet",),
+                    properties={
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "businessSnapshot": {"type": "object"},
+                        "configuration": {"type": "object"},
+                    },
+                ),
+                outputSchema={
+                    "type": "object",
+                    "required": ["ruleResults"],
+                    "properties": {
+                        "ruleResults": {"type": "array", "items": {"type": "object"}}
+                    },
+                },
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://invoice/commercial-match@1",
+                version="1",
+                operation="invoice.commercial_match",
+                description=(
+                    "Deterministically match invoice amounts to contract, PO and acceptance lines."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("invoiceFactSet", "businessSnapshot"),
+                    properties={
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "businessSnapshot": {"type": "object"},
+                        "matchCandidates": {"type": "array", "items": {"type": "object"}},
+                        "configuration": {"type": "object"},
+                    },
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://invoice/payment-gate@1",
+                version="1",
+                operation="invoice.payment_gate",
+                description=(
+                    "Evaluate payment readiness gates including hard blocks that cannot auto-pass."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("verification",),
+                    properties={
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "verification": {"type": "object"},
+                        "ruleResults": {"type": "object"},
+                        "matchResults": {"type": "object"},
+                        "businessSnapshot": {"type": "object"},
+                        "configuration": {"type": "object"},
+                    },
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://invoice/finalize@1",
+                version="1",
+                operation="invoice.finalize",
+                description=(
+                    "Assemble the immutable InvoiceAssuranceResult and payment outcome."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=(
+                        "invoiceFactSet",
+                        "verification",
+                        "ruleResults",
+                        "matchResults",
+                        "gateResults",
+                    ),
+                    properties={
+                        "payload": {"type": "object"},
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "verification": {"type": "object"},
+                        "businessSnapshotHash": {"type": "string"},
+                        "businessSnapshot": {"type": "object"},
+                        "ruleResults": {"type": "object"},
+                        "matchResults": {"type": "object"},
+                        "gateResults": {"type": "object"},
+                        "coverage": {"type": "object"},
+                        "evidenceReview": {"type": "object"},
+                        "approvals": {"type": "object"},
+                        "provenance": {"type": "object"},
+                    },
+                ),
+                outputSchema=_INVOICE_ASSURANCE_RESULT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://report/render-invoice-assurance@1",
+                version="1",
+                operation="report.render_invoice_assurance",
+                description="Render a deterministic Chinese PDF from the invoice assurance result.",
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("result",),
+                    properties={"result": _INVOICE_ASSURANCE_RESULT_SCHEMA},
+                ),
+                outputSchema=_PDF_REPORT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://workbench/record-invoice-assurance@1",
+                version="1",
+                operation="workbench.record_invoice_assurance",
+                description=(
+                    "Idempotently persist invoice assurance JSON/PDF, findings, audit and outbox."
+                ),
+                risk=ToolRisk.HIGH,
+                inputSchema=_object_schema(
+                    required=("evaluationId", "result", "report"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "result": _INVOICE_ASSURANCE_RESULT_SCHEMA,
                         "report": _PDF_REPORT_SCHEMA,
                     },
                 ),

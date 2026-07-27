@@ -18,6 +18,7 @@ dependencies = [
   "swarmcore-capability-contract-integrity",
   "swarmcore-capability-contract-post-evaluation",
   "swarmcore-capability-deviation-analysis",
+  "swarmcore-capability-invoice-assurance",
   "uvicorn[standard]==0.35.0",
 ]
 
@@ -37,6 +38,7 @@ swarmcore-governance = { workspace = true }
 swarmcore-capability-contract-integrity = { workspace = true }
 swarmcore-capability-contract-post-evaluation = { workspace = true }
 swarmcore-capability-deviation-analysis = { workspace = true }
+swarmcore-capability-invoice-assurance = { workspace = true }
 
 [build-system]
 requires = ["hatchling==1.27.0"]

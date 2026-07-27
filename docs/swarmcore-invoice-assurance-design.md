@@ -1,5 +1,13 @@
 # 智能体业务开发功能设计文档
 
+状态：IMPLEMENTED / LOCAL  
+目标业务：`invoice-assurance`  
+能力包：`capability://invoice-assurance@1.0.0`  
+策略：`strategy://invoice-assurance/assess@1`
+
+> 本地已落地 Capability Pack、确定性规则 Tool、3 个窄职责 Agent、JSON/PDF 报告与 Assessment 结果视图；
+> 真实授权发票 + Temporal/官方查验/模型资格验收前不得标记为 `VERIFIED`。
+
 ## 1. 需求概述
 
 ### 1.1 业务目标
@@ -85,7 +93,8 @@ Approval、Finding、Outbox 和审计，不建立发票专用微服务。REST �
 - 必须使用经授权的真实发票和真实业务数据；财政部标准包中的实例仅用于解析器契约测试。
 - 外部连接不可用时可展示真实失败与人工恢复，不用 Fake Connector 冒充成功。
 - 敏感数据只在受控环境展示；演示录屏可遮罩银行账号、手机号和地址，但后台证据保留原值哈希。
-- 设计状态为 `DESIGNED / NOT IMPLEMENTED`，不得在开发计划中标为 `IMPLEMENTED` 或 `VERIFIED`。
+- 设计状态原为 `DESIGNED / NOT IMPLEMENTED`；本地实现完成后更新为 `IMPLEMENTED / LOCAL`，
+  真实授权发票与 Temporal/官方查验资格通过前不得标记 `VERIFIED`。
 
 ## 4. 业务角色
 
@@ -508,4 +517,4 @@ list_case_findings → get_report`。
 | 内控阈值被随意修改 | 风险绕过 | Decision Asset 草稿校验、发布审批、Run 冻结版本、变更审计 |
 | 真实 Demo 数据难以共享 | 无法重复验收 | 客户受控环境运行；保留哈希、授权和证据清单，录屏只展示脱敏视图 |
 | 模型/OCR/外部接口成本或限流 | 超预算、延迟 | XML 直读优先、Top-K 证据、单票预算门、降级到规则+人工 |
-| 设计被误报为已实现 | 进度失真 | 本文保持 `DESIGNED / NOT IMPLEMENTED`；只有实现完成并通过对应测试后更新开发计划 |
+| 设计被误报为已实现 | 进度失真 | 本文状态与开发计划同步；仅本地门禁通过记 `IMPLEMENTED / LOCAL`，真实运行资格通过后才记 `VERIFIED` |

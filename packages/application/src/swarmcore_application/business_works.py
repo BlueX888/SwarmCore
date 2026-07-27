@@ -164,6 +164,7 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         short_name="发票一致性校验",
         category="business",
         summary="识别发票事实，并与合同、订单、履约和付款条件执行一致性及合规检查。",
+        pack_name="invoice-assurance",
         functions=(
             BusinessWorkFunction("发票信息识别", "提取购买方、销售方、税号、金额、税率、品项和日期。"),
             BusinessWorkFunction("多维一致性校验", "与合同、订单、收货、验收和付款计划进行交叉核验。"),
@@ -284,6 +285,8 @@ def document_binding_keys(pack_name: str, work_item_type: str) -> tuple[str, ...
             "document-integrity",
             "invoice-assurance",
         )
+    if pack_name == "invoice-assurance":
+        return (pack_name, work_item_type, "invoice-assurance")
     mapped = work_key_for_pack_name(pack_name)
     if mapped is not None:
         return (pack_name, work_item_type, mapped)

@@ -4,10 +4,10 @@
 |---|---|
 | 状态 | Living Document |
 | 版本 | 3.1 |
-| 最近更新 | 2026-07-26 |
+| 最近更新 | 2026-07-27 |
 | 已提交基线 | `eb75ac3`（受控 Tool 与有界编排） |
-| 当前候选 | M3/M4、业务扩展 E0-E4、业务上下文/决策、业务资料库、能力中心统一化位于未提交工作树 |
-| 当前焦点 | M5 / G0；B1 剩余 E5 |
+| 当前候选 | M3/M4、业务扩展 E0-E4、业务上下文/决策、业务资料库、能力中心统一化、发票一致性位于工作树 |
+| 当前焦点 | M5 / G0；发票一致性 IA-E1 本地实现 |
 | 唯一下一门禁 | G0：形成干净、不可变、CI 可复现的候选基线 |
 | 架构事实源 | [SwarmCore 系统设计](./swarmcore-system-design.md) |
 
@@ -40,7 +40,8 @@
 | 业务资料库与运行文件快照 | IN_PROGRESS / LOCAL | DLIB-E1 | 完整本地回归、PostgreSQL/RLS/API 集成和 G0 |
 | 合同七维后评价能力包 | IN_PROGRESS / LOCAL | CPE-E1、CPE-E2、CPE-E3、DLIB-E1 | 文件链替换后的完整回归；有效模型 Provider 凭据、二进制文档 OCR 与生产环境资格验收 |
 | 独立偏差分析能力包 | VERIFIED / LOCAL | DA-E1、DA-E2 | 已完成 PostgreSQL、真实 Temporal/Agno/Kimi、人工审批、报告持久化与中文 PDF 页面渲染验收；图像型资料未配置 OCR，按策略归档且不进入计算选择 |
-| 业务工作信息架构与九项规划扩展 | IMPLEMENTED / LOCAL | BW-E1、DA-E1 | 除文件完整性和偏差分析外，其余规划业务的真实执行链尚未实现 |
+| 发票一致性校验能力包 | IMPLEMENTED / LOCAL | IA-E1 | 真实授权发票、官方查验人工/授权连接、Temporal/模型资格与 PostgreSQL 集成未验收 |
+| 业务工作信息架构与九项规划扩展 | IMPLEMENTED / LOCAL | BW-E1、DA-E1、IA-E1 | 除文件完整性、偏差分析和发票一致性外，其余规划业务的真实执行链尚未实现 |
 | 业务工作唯一入口与 Assessment 结果页 | IMPLEMENTED / LOCAL | BW-E2、DA-E1 | 其余七项规划业务仍为“规划中”；未执行 Playwright 与 PostgreSQL 集成 |
 | 受控本地文件系统工具 | IMPLEMENTED / LOCAL | FS-E1 | 生产 Sandbox/gVisor 同构执行与卷同步仍属 G3；默认 fail-closed |
 
@@ -71,6 +72,7 @@
 | CPE-E4 | `contract-post-evaluation@2.0.5`、策略 `generate@13`：8 类资料要求、最多 100 份冻结文件、4 个领域分析 Agent、证据复核与报告叙述 Agent、14 个 Tool、4 路并行、全量扫描后每域 Top 6 注入、Agent `node_only` 上下文隔离、资料覆盖/一致性/金额/发票/偏差/风险诊断、条件人工审批、v2 结果与 CJK PDF/JSON 持久化；配置页展示冻结 Agent/Tool 与分类数量 | VERIFIED / LOCAL：真实模型 Run `019f93dd-58a1-747b-bd46-c462917d9677` 冻结 35 份文件，6 个 Agent、25 个执行节点成功并完成人工审批；Evaluation `019f93dd-5892-7b8d-aafd-15a464b3ea64` 得分 84.55，七维结果及 JSON/PDF 已持久化，PDF 哈希 `1b05e8c5f42e70c52e9bde1b8b5e44c59cd851d9dc4ffe747e9835a3768084f1` 经文本提取与页面渲染核验。Ruff、mypy（129 个源文件）、304 单元、121 Vitest、Web lint/build 通过。PostgreSQL/Temporal 由本地真实运行覆盖，独立 pytest 集成套件仍依赖隔离测试数据库 |
 | DA-E1 | `deviation-analysis@1.0.5`、策略 `execute@6`：10 类资料要求、确定性文件/基线选择与四类冻结哈希、6 个窄职责 Agent、14 个 Tool、时间/内容/成本计算、同口径历史趋势、AI 根因、仅 `PROPOSED` 的责任建议、条件人工审批、结构化 JSON/CJK PDF 幂等持久化；统一 REST/MCP/Workbench 和专用 Assessment 指标/趋势/责任视图 | VERIFIED / LOCAL：Crossrail 公开案例 2018、2019、2021、2022 四期真实 PostgreSQL/Temporal/Agno/Kimi 运行均为 `SUCCEEDED`，每期冻结 24 个不可变文件版本并完成人工审批、Finding、Audit、Outbox 和 JSON/PDF 持久化；最终趋势为 4 点，2022 时间偏差 1,262 天、成本偏差 £4.1bn（27.70%），责任输出保持 `PROPOSED / PENDING_CONFIRMATION`。中文 PDF 通过文本提取和 3 页渲染检查。验收清单见 `.tmp/business-data/deviation-analysis/crossrail-public-case/08-run-evidence/2026-07-26-real-runtime/final-verification.json`；本结果仅为公开案例本地运行验收，不构成法律责任认定 |
 | DA-E2 | Crossrail 真实资料接入与四期历史回填：复核 21 份官方来源，上传 25 个版本，选择 24 个可解析版本；同一显式基线、配置和文件选择贯穿四期运行；原件、派生 Markdown、事实包、来源 URL、SHA-256 与派生关系留档 | VERIFIED / LOCAL：四期 `baselineHash=6fe0e0b724f0b789478720841f6e904b6fc688418834030a928cc7721fb8f1bc`、`configurationHash=808a5168ca05ad02b8cd4adcac95461dd7fbc197d18b8d67d0fb7a7f7d7540ad`；图像型完工跟踪表保留归档但未进入计算。Kimi token 用量已持久化；当前价格表缺少该 Provider 定价，因此美元成本记录为 0，但每期 `maxCostUsd=2` 预算门禁仍生效 |
+| IA-E1 | `invoice-assurance@1.0.0`、策略 `assess@1`：8 类资料槽位、XML 优先解析、官方查验人工/授权两种模式（不伪造成功）、算术/主体/重复/商业匹配/付款门禁确定性 Tool、3 个窄职责 Agent、条件人工审批、结构化 JSON/CJK PDF 幂等持久化；BusinessWork 映射与 Assessment 结果分栏视图 | IMPLEMENTED / LOCAL：定向单元 `test_invoice_assurance*` 与 `test_business_work_service` 相关断言通过；Capability Pack 引用与策略编译通过。未执行全量 `uv run pytest`、Ruff/mypy、Vitest（本机 Application Control 阻断 grpc/rollup 原生库）、Playwright、PostgreSQL/Temporal 真实发票验收与官方查验资格 |
 | STRAT-DEL-1 | 策略管理支持安全物理删除：仅 `ACTIVE` 且无 StrategyVersion/Run/Evaluation/能力包依赖快照的草稿策略可删；`GET delete-impact` + `DELETE` 返回稳定 blockers；列表/详情 Radix 确认对话框 | Ruff、mypy（115 source files）、247 单元、策略删除定向 Vitest 8/8、相关能力包 Vitest 12/12、Web lint/build 通过；`tests/integration/test_strategy_api_postgres.py::test_strategy_delete_impact_and_conservative_delete` 因未配置 `SWARMCORE_TEST_DATABASE_URL` 未执行；未执行 Playwright |
 
 以上是历史记录，不表示本次文档更新重新执行了测试。

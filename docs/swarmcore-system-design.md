@@ -341,6 +341,24 @@ AI 只提取证据事实、形成根因假设、责任建议和报告叙述，�
 经 Router 进入 Approval。`schema://deviation-analysis/result@1` 是趋势图、结果页和 PDF 的唯一
 事实源，JSON/PDF 由同一幂等记录 Tool 持久化并写入审计与 Outbox。
 
+### 6.7 发票一致性校验能力包
+
+`invoice-assurance@1.0.0` 是独立业务能力包，复用 Business Work、Case、Workbench、
+Business Document Library、Temporal、Evaluation、Report、Approval、Finding、Audit 和 Outbox，
+不建立发票专用微服务。发票作为 `PRIMARY` Subject；资料槽位覆盖发票原件、合同/订单、收货/验收、
+供应商主数据、应付台账与预算付款政策。
+
+策略 `strategy://invoice-assurance/assess@1` 使用 3 个窄职责 Agent、14 个 Tool、
+`maxParallelism=3`、`maxTokens=80000`、`maxCostUsd=1.5` 和 `node_only` Agent 上下文。
+XML/结构化原件优先解析；金额税额、主体、重复、商业匹配和付款门禁由确定性 Tool 计算。
+官方查验支持授权连接器与人工协助两种模式，缺失回执时进入 `PENDING_HUMAN`/`UNAVAILABLE`，
+禁止伪造成功。Agent 仅做低置信语义规范化、候选匹配和证据复核叙述，不得输出最终
+`PAYMENT_READY` 或改写 Tool 规则结果。硬阻断（查验不一致、已付款重复、销售方税号不一致、
+未批准收款账户等）只能补正后新建 Assessment。
+
+`schema://invoice-assurance/result@1` 是页面、JSON 与 PDF 的唯一事实源；总体结论为
+`PAYMENT_READY`、`REVIEW_REQUIRED` 或 `PAYMENT_BLOCKED`，与 Run 成功状态分离。
+
 ## 7. 公共契约
 
 公共契约以 Pydantic/JSON Schema、OpenAPI、数据库 migration 和事件 Schema 为机器可执行事实；本文只固定语义，避免复制完整字段表。

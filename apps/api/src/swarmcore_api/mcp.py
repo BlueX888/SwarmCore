@@ -23,6 +23,7 @@ from swarmcore_application import (
 from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2, MANIFEST_V2_1
 from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
 from swarmcore_capability_deviation_analysis import MANIFEST as DEVIATION_ANALYSIS_MANIFEST
+from swarmcore_capability_invoice_assurance import MANIFEST as INVOICE_ASSURANCE_MANIFEST
 from swarmcore_governance import (
     PolicyDenied,
     PolicyError,
@@ -58,6 +59,7 @@ _capabilities = CapabilityCatalogService(
         MANIFEST_V2_1,
         POST_EVALUATION_MANIFEST,
         DEVIATION_ANALYSIS_MANIFEST,
+        INVOICE_ASSURANCE_MANIFEST,
     )
 )
 _compilation = CompilationService(_strategies)

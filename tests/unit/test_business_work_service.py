@@ -47,16 +47,19 @@ def test_central_mapping_covers_implemented_packs() -> None:
     assert pack_name_for_work_key("document-integrity") == "contract-integrity"
     assert pack_name_for_work_key("contract-post-evaluation") == "contract-post-evaluation"
     assert pack_name_for_work_key("deviation-analysis") == "deviation-analysis"
+    assert pack_name_for_work_key("invoice-assurance") == "invoice-assurance"
     assert pack_name_for_work_key("report-generation") is None
     assert work_key_for_pack_name("contract-integrity") == "document-integrity"
     assert work_key_for_pack_name("contract-post-evaluation") == "contract-post-evaluation"
     assert work_key_for_pack_name("deviation-analysis") == "deviation-analysis"
-    assert pack_name_for_work_key("invoice-assurance") is None
+    assert work_key_for_pack_name("invoice-assurance") == "invoice-assurance"
     keys = document_binding_keys("contract-post-evaluation", "contract-post-evaluation-case")
     assert keys == ("contract-post-evaluation", "contract-post-evaluation-case")
     deviation_keys = document_binding_keys("deviation-analysis", "deviation-analysis-case")
     assert "performance-plan-collection" in deviation_keys
     assert "invoice-assurance" in deviation_keys
+    invoice_keys = document_binding_keys("invoice-assurance", "invoice-assurance-case")
+    assert invoice_keys == ("invoice-assurance", "invoice-assurance-case", "invoice-assurance")
 
 
 @pytest.mark.asyncio
@@ -79,7 +82,7 @@ async def test_list_works_marks_unmapped_as_planned_and_maps_pack_status() -> No
 
     assert len(items) == len(BUSINESS_WORK_DEFINITIONS)
     by_key = {item.work_key: item for item in items}
-    assert by_key["invoice-assurance"].status == "planned"
+    assert by_key["invoice-assurance"].status == "not_configured"
     assert by_key["report-generation"].status == "planned"
     assert by_key["document-integrity"].status == "runnable"
     assert by_key["document-integrity"].pack_name == "contract-integrity"

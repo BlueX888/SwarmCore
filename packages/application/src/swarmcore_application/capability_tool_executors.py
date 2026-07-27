@@ -40,6 +40,19 @@ from .deviation_analysis import (
     merge_deviation_facts,
     validate_deviation_result,
 )
+from .invoice_assurance import (
+    arithmetic_check,
+    commercial_match,
+    deduplicate,
+    finalize_invoice_assurance,
+    invoice_assurance_report_lines,
+    official_verify,
+    parse_invoice,
+    party_check,
+    payment_gate,
+    read_business_snapshot,
+    validate_invoice_assurance_result,
+)
 from .document_intelligence import (
     CrossFileRule,
     DocumentIntelligenceResult,
@@ -1262,6 +1275,445 @@ class DeviationRecorderExecutor(EvaluationRecorderExecutor):
             return self._receipt(evaluation_id, effect_id, result_hash, recorded=True)
 
 
+def _invoice_original_content(input_value: dict[str, Any]) -> tuple[Any, str | None, str | None]:
+    if "content" in input_value and input_value["content"] is not None:
+        return (
+            input_value["content"],
+            input_value.get("mediaType"),
+            input_value.get("documentVersionId"),
+        )
+    payload = input_value.get("payload")
+    if isinstance(payload, dict):
+        if isinstance(payload.get("invoiceFactSet"), dict):
+            return payload["invoiceFactSet"], "application/json", None
+        if payload.get("invoiceContent") is not None:
+            return (
+                payload["invoiceContent"],
+                payload.get("invoiceMediaType") or "application/xml",
+                payload.get("invoiceDocumentVersionId"),
+            )
+    documents = input_value.get("documents")
+    if isinstance(documents, list):
+        preferred = [
+            item
+            for item in documents
+            if isinstance(item, dict)
+            and str(item.get("category") or "").upper()
+            in {"INVOICE_ORIGINAL", "INVOICE"}
+        ] or [item for item in documents if isinstance(item, dict)]
+        for document in preferred:
+            version_id = document.get("documentVersionId")
+            media_type = document.get("mediaType")
+            data = document.get("data")
+            if isinstance(data, dict):
+                content = data.get("content")
+                if isinstance(content, dict):
+                    for key in ("text", "rawText", "xml", "markdown"):
+                        if content.get(key):
+                            return content[key], media_type, str(version_id) if version_id else None
+                for key in ("text", "rawText", "xml", "extractedText"):
+                    if data.get(key):
+                        return data[key], media_type, str(version_id) if version_id else None
+                if data.get("invoiceFactSet"):
+                    return data["invoiceFactSet"], "application/json", (
+                        str(version_id) if version_id else None
+                    )
+            if document.get("text"):
+                return document["text"], media_type, str(version_id) if version_id else None
+    raise ValueError("invoice original content is not available for parsing")
+
+
+def _flatten_invoice_rules(rule_results: Any) -> list[dict[str, Any]]:
+    flat: list[dict[str, Any]] = []
+    if isinstance(rule_results, list):
+        flat.extend(dict(item) for item in rule_results if isinstance(item, dict))
+        return flat
+    if not isinstance(rule_results, dict):
+        return flat
+    for value in rule_results.values():
+        if isinstance(value, list):
+            flat.extend(dict(item) for item in value if isinstance(item, dict))
+        elif isinstance(value, dict):
+            nested = value.get("ruleResults")
+            if isinstance(nested, list):
+                flat.extend(dict(item) for item in nested if isinstance(item, dict))
+            else:
+                flat.append(dict(value))
+    return flat
+
+
+async def invoice_parse(input_value: dict[str, Any], effect_id: str, context: Any) -> dict[str, Any]:
+    del effect_id, context
+    content, media_type, document_version_id = _invoice_original_content(input_value)
+    fact_set = parse_invoice(
+        content,
+        media_type=media_type,
+        document_version_id=document_version_id,
+    )
+    return {
+        "invoiceFactSet": fact_set,
+        "needsFieldConfirmation": bool(fact_set.get("needsFieldConfirmation")),
+        "qualityFlags": list(fact_set.get("qualityFlags") or []),
+    }
+
+
+async def invoice_official_verify(
+    input_value: dict[str, Any], effect_id: str, context: Any
+) -> dict[str, Any]:
+    del effect_id, context
+    payload = input_value.get("payload") if isinstance(input_value.get("payload"), dict) else {}
+    configuration = (
+        input_value.get("configuration")
+        if isinstance(input_value.get("configuration"), dict)
+        else {}
+    )
+    mode = (
+        input_value.get("verificationMode")
+        or payload.get("verificationMode")
+        or configuration.get("verificationMode")
+        or "HUMAN_ASSISTED"
+    )
+    human_receipt = input_value.get("humanVerification") or payload.get("humanVerification")
+    connector_result = input_value.get("connectorResult") or payload.get("connectorResult")
+    return official_verify(
+        dict(input_value["invoiceFactSet"]),
+        mode=str(mode),
+        human_receipt=human_receipt if isinstance(human_receipt, dict) else None,
+        connector_result=connector_result if isinstance(connector_result, dict) else None,
+    )
+
+
+async def business_snapshot_read(
+    input_value: dict[str, Any], effect_id: str, context: Any
+) -> dict[str, Any]:
+    del effect_id, context
+    payload = dict(input_value.get("payload") or {})
+    if input_value.get("documents") and "documents" not in payload:
+        payload["documents"] = input_value["documents"]
+    if input_value.get("subjects") and "subjects" not in payload:
+        payload["subjects"] = input_value["subjects"]
+    if input_value.get("asOf") and "asOf" not in payload:
+        payload["asOf"] = input_value["asOf"]
+    return read_business_snapshot(payload)
+
+
+async def invoice_arithmetic_check(
+    input_value: dict[str, Any], effect_id: str, context: Any
+) -> dict[str, Any]:
+    del effect_id, context
+    rules = arithmetic_check(dict(input_value["invoiceFactSet"]))
+    return {"ruleResults": rules, "status": "FAIL" if any(r["status"] == "FAIL" for r in rules) else "PASS"}
+
+
+async def invoice_party_check(
+    input_value: dict[str, Any], effect_id: str, context: Any
+) -> dict[str, Any]:
+    del effect_id, context
+    snapshot = input_value.get("businessSnapshot")
+    vendor = None
+    buyer_tax_id = None
+    if isinstance(snapshot, dict):
+        vendor = snapshot.get("vendor") if isinstance(snapshot.get("vendor"), dict) else None
+        configuration = input_value.get("configuration")
+        if isinstance(configuration, dict):
+            buyer_tax_id = configuration.get("buyerTaxId")
+        buyer_tax_id = buyer_tax_id or snapshot.get("buyerTaxId")
+    rules = party_check(
+        dict(input_value["invoiceFactSet"]),
+        vendor,
+        buyer_tax_id=str(buyer_tax_id) if buyer_tax_id else None,
+    )
+    return {
+        "ruleResults": rules,
+        "status": "FAIL" if any(r.get("status") == "FAIL" for r in rules) else "PASS",
+    }
+
+
+async def invoice_deduplicate(
+    input_value: dict[str, Any], effect_id: str, context: Any
+) -> dict[str, Any]:
+    del effect_id, context
+    snapshot = input_value.get("businessSnapshot")
+    ledger = None
+    if isinstance(snapshot, dict):
+        ledger = snapshot.get("apLedger")
+    return deduplicate(dict(input_value["invoiceFactSet"]), ledger)
+
+
+async def invoice_commercial_match(
+    input_value: dict[str, Any], effect_id: str, context: Any
+) -> dict[str, Any]:
+    del effect_id, context
+    candidates = input_value.get("matchCandidates")
+    return commercial_match(
+        dict(input_value["invoiceFactSet"]),
+        dict(input_value.get("businessSnapshot") or {}),
+        candidates if isinstance(candidates, list) else None,
+    )
+
+
+async def invoice_payment_gate(
+    input_value: dict[str, Any], effect_id: str, context: Any
+) -> dict[str, Any]:
+    del effect_id, context
+    nested = input_value.get("ruleResults")
+    arithmetic = []
+    parties = []
+    duplication: dict[str, Any] = {}
+    if isinstance(nested, dict):
+        arithmetic_block = nested.get("arithmetic")
+        parties_block = nested.get("parties")
+        duplication_block = nested.get("duplication")
+        if isinstance(arithmetic_block, dict):
+            arithmetic = list(arithmetic_block.get("ruleResults") or [])
+        elif isinstance(arithmetic_block, list):
+            arithmetic = arithmetic_block
+        if isinstance(parties_block, dict):
+            parties = list(parties_block.get("ruleResults") or [])
+        elif isinstance(parties_block, list):
+            parties = parties_block
+        if isinstance(duplication_block, dict):
+            duplication = duplication_block
+    snapshot = input_value.get("businessSnapshot") if isinstance(input_value.get("businessSnapshot"), dict) else {}
+    return payment_gate(
+        {
+            "verification": input_value.get("verification") or {},
+            "duplication": duplication,
+            "ruleResults": [*arithmetic, *parties],
+            "commercialMatch": input_value.get("matchResults") or {},
+            "budget": snapshot.get("budget") if isinstance(snapshot, dict) else {},
+        }
+    )
+
+
+async def invoice_finalize(
+    input_value: dict[str, Any], effect_id: str, context: Any
+) -> dict[str, Any]:
+    del effect_id, context
+    nested = input_value.get("ruleResults")
+    duplication: dict[str, Any] = {}
+    rules = _flatten_invoice_rules(nested)
+    if isinstance(nested, dict) and isinstance(nested.get("duplication"), dict):
+        duplication = nested["duplication"]
+        rules.extend(_flatten_invoice_rules(duplication.get("ruleResults")))
+    payload = input_value.get("payload") if isinstance(input_value.get("payload"), dict) else {}
+    evidence_review = (
+        input_value.get("evidenceReview")
+        if isinstance(input_value.get("evidenceReview"), dict)
+        else {}
+    )
+    narrative = evidence_review.get("narrative") if isinstance(evidence_review, dict) else None
+    business_snapshot = input_value.get("businessSnapshot")
+    if not isinstance(business_snapshot, dict):
+        business_snapshot = {
+            "hash": input_value.get("businessSnapshotHash"),
+            **(payload.get("businessSnapshot") or {}),
+        }
+    approvals_raw = input_value.get("approvals")
+    approvals: list[dict[str, Any]] = []
+    if isinstance(approvals_raw, dict):
+        for key, value in approvals_raw.items():
+            if isinstance(value, dict):
+                approvals.append({"source": key, **value})
+    elif isinstance(approvals_raw, list):
+        approvals = [dict(item) for item in approvals_raw if isinstance(item, dict)]
+    return finalize_invoice_assurance(
+        fact_set=dict(input_value["invoiceFactSet"]),
+        verification=dict(input_value.get("verification") or {}),
+        business_snapshot=business_snapshot,
+        rule_results=rules,
+        match_result=dict(input_value.get("matchResults") or {}),
+        duplication=duplication,
+        gate_result=dict(input_value.get("gateResults") or {}),
+        narrative=narrative if isinstance(narrative, dict) else None,
+        provenance=dict(input_value.get("provenance") or {}),
+        approvals=approvals,
+        title=str(payload.get("title") or "发票一致性校验"),
+        as_of=payload.get("asOf"),
+    )
+
+
+async def invoice_assurance_report_render(
+    input_value: dict[str, Any], effect_id: str, context: Any
+) -> dict[str, Any]:
+    del effect_id, context
+    result = validate_invoice_assurance_result(dict(input_value["result"]))
+    return pdf_report_payload(render_embedded_text_pdf(invoice_assurance_report_lines(result)))
+
+
+class InvoiceAssuranceRecorderExecutor(EvaluationRecorderExecutor):
+    async def execute(
+        self, input_value: dict[str, Any], effect_id: str, context: Any
+    ) -> dict[str, Any]:
+        tenant_id = UUID(str(context.tenant_id))
+        project_id = UUID(str(context.project_id))
+        evaluation_id = UUID(str(input_value["evaluationId"]))
+        result_payload = validate_invoice_assurance_result(dict(input_value["result"]))
+        result_hash = str(result_payload.get("resultHash") or canonical_hash(result_payload))
+        report_payload = dict(input_value["report"])
+        content = base64.b64decode(str(report_payload["contentBase64"]), validate=True)
+        if hashlib.sha256(content).hexdigest() != report_payload["sha256"]:
+            raise ValueError("invoice-assurance report sha256 does not match content")
+        async with tenant_transaction(
+            self._sessions, tenant_id=tenant_id, project_id=project_id
+        ) as session:
+            evaluation = await session.scalar(
+                select(Evaluation)
+                .where(
+                    Evaluation.id == evaluation_id,
+                    Evaluation.tenant_id == tenant_id,
+                    Evaluation.project_id == project_id,
+                )
+                .with_for_update()
+            )
+            if evaluation is None:
+                raise LookupError("evaluation not found in capability scope")
+            if evaluation.result is not None:
+                if canonical_hash(evaluation.result) != canonical_hash(result_payload):
+                    raise ValueError("evaluation already contains a different result")
+                return self._receipt(evaluation_id, effect_id, result_hash, recorded=False)
+            if evaluation.status != "RUNNING":
+                raise ValueError(f"evaluation cannot be recorded from {evaluation.status}")
+            item = await session.scalar(
+                select(WorkItem)
+                .where(
+                    WorkItem.id == evaluation.work_item_id,
+                    WorkItem.tenant_id == tenant_id,
+                    WorkItem.project_id == project_id,
+                )
+                .with_for_update()
+            )
+            if item is None:
+                raise LookupError("work item not found in capability scope")
+            evaluation.result = result_payload
+            evaluation.status = "SUCCEEDED"
+            outcome = str(result_payload.get("outcome") or "")
+            item.status = "COMPLETED" if outcome == "PAYMENT_READY" else "IN_REVIEW"
+            reports = (
+                Report(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    work_item_id=item.id,
+                    evaluation_id=evaluation.id,
+                    format="JSON",
+                    template_version=evaluation.report_template_version,
+                    result_schema_version=evaluation.output_schema_version,
+                    content=result_payload,
+                    content_hash=result_hash,
+                ),
+                Report(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    work_item_id=item.id,
+                    evaluation_id=evaluation.id,
+                    format="PDF",
+                    template_version=evaluation.report_template_version,
+                    result_schema_version=evaluation.output_schema_version,
+                    content=report_payload,
+                    content_hash=str(report_payload["sha256"]),
+                ),
+            )
+            existing_findings = {
+                value.rule_key: value
+                for value in (
+                    await session.scalars(
+                        select(Finding)
+                        .where(Finding.work_item_id == item.id)
+                        .with_for_update()
+                    )
+                ).all()
+            }
+            for finding_payload in result_payload.get("findings", []):
+                if not isinstance(finding_payload, dict):
+                    continue
+                code = str(finding_payload.get("code") or "INVOICE_REVIEW")
+                rule_key = f"invoice-assurance:{code}"
+                finding = existing_findings.get(rule_key)
+                severity = str(finding_payload.get("severity") or "MEDIUM")
+                detail = str(
+                    finding_payload.get("summary")
+                    or finding_payload.get("detail")
+                    or "发票一致性校验关注项"
+                )
+                evidence = {
+                    "evidenceRefs": list(finding_payload.get("evidenceRefs", [])),
+                    "resultHash": result_hash,
+                    "blocking": bool(finding_payload.get("blocking")),
+                }
+                if finding is None:
+                    finding = Finding(
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        work_item_id=item.id,
+                        evaluation_id=evaluation.id,
+                        rule_key=rule_key,
+                        code=code,
+                        category=str(finding_payload.get("dimension") or "INVOICE_ASSURANCE"),
+                        severity=severity,
+                        status="OPEN",
+                        title=f"发票校验 · {code}",
+                        detail=detail,
+                        evidence=evidence,
+                    )
+                    session.add(finding)
+                    existing_findings[rule_key] = finding
+                else:
+                    finding.evaluation_id = evaluation.id
+                    finding.detail = detail
+                    finding.severity = severity
+                    finding.evidence = evidence
+            session.add_all(reports)
+            await session.flush()
+            session.add(
+                OutboxEvent(
+                    id=uuid7(),
+                    tenant_id=tenant_id,
+                    aggregate_id=evaluation.id,
+                    destination="nats",
+                    partition_key=str(evaluation.id),
+                    source_id=evaluation.id,
+                    type="capability.invoice-assurance.assessment.completed",
+                    payload={
+                        "evaluationId": str(evaluation.id),
+                        "effectId": effect_id,
+                        "resultHash": result_hash,
+                        "outcome": outcome,
+                        "reviewRequired": bool(result_payload.get("reviewRequired")),
+                    },
+                )
+            )
+            for report in reports:
+                session.add(
+                    OutboxEvent(
+                        id=uuid7(),
+                        tenant_id=tenant_id,
+                        aggregate_id=evaluation.id,
+                        destination="nats",
+                        partition_key=str(evaluation.id),
+                        source_id=report.id,
+                        type="report.created",
+                        payload={
+                            "reportId": str(report.id),
+                            "evaluationId": str(evaluation.id),
+                            "format": report.format,
+                            "contentHash": report.content_hash,
+                        },
+                    )
+                )
+            await AuditRepository().append(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                actor_id=str(context.execution_id),
+                action="evaluation.record-invoice-assurance",
+                resource_type="evaluation",
+                resource_id=str(evaluation.id),
+                run_id=UUID(str(context.run_id)),
+                metadata={"effectId": effect_id, "resultHash": result_hash, "outcome": outcome},
+            )
+            return self._receipt(evaluation_id, effect_id, result_hash, recorded=True)
+
+
 def capability_executors(sessions: async_sessionmaker[Any]) -> dict[str, Any]:
     recorder = EvaluationRecorderExecutor(sessions)
     return {
@@ -1303,4 +1755,15 @@ def capability_executors(sessions: async_sessionmaker[Any]) -> dict[str, Any]:
         "deviation.finalize": deviation_finalize,
         "report.render_deviation_analysis": deviation_report_render,
         "workbench.record_deviation_analysis": DeviationRecorderExecutor(sessions),
+        "invoice.parse": invoice_parse,
+        "invoice.official_verify": invoice_official_verify,
+        "business.snapshot_read": business_snapshot_read,
+        "invoice.deduplicate": invoice_deduplicate,
+        "invoice.arithmetic_check": invoice_arithmetic_check,
+        "invoice.party_check": invoice_party_check,
+        "invoice.commercial_match": invoice_commercial_match,
+        "invoice.payment_gate": invoice_payment_gate,
+        "invoice.finalize": invoice_finalize,
+        "report.render_invoice_assurance": invoice_assurance_report_render,
+        "workbench.record_invoice_assurance": InvoiceAssuranceRecorderExecutor(sessions),
     }

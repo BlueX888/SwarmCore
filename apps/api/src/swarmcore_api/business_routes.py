@@ -60,6 +60,18 @@ from swarmcore_capability_deviation_analysis import (
 from swarmcore_capability_deviation_analysis import (
     STRATEGIES as DEVIATION_ANALYSIS_STRATEGIES,
 )
+from swarmcore_capability_invoice_assurance import (
+    MANIFEST as INVOICE_ASSURANCE_MANIFEST,
+)
+from swarmcore_capability_invoice_assurance import (
+    REFERENCES as INVOICE_ASSURANCE_REFERENCES,
+)
+from swarmcore_capability_invoice_assurance import (
+    SCHEMAS as INVOICE_ASSURANCE_SCHEMAS,
+)
+from swarmcore_capability_invoice_assurance import (
+    STRATEGIES as INVOICE_ASSURANCE_STRATEGIES,
+)
 from swarmcore_governance import BlobCapabilityIssuer
 from swarmcore_persistence.models import (
     BusinessDocument,
@@ -156,7 +168,12 @@ from .dependencies import (
 router = APIRouter(prefix="/v1", dependencies=[Depends(authorize_rest)])
 capability_packs = CapabilityPackService(
     CapabilityReferenceCatalog.from_iterable(
-        (*REFERENCES, *POST_EVALUATION_REFERENCES, *DEVIATION_ANALYSIS_REFERENCES)
+        (
+            *REFERENCES,
+            *POST_EVALUATION_REFERENCES,
+            *DEVIATION_ANALYSIS_REFERENCES,
+            *INVOICE_ASSURANCE_REFERENCES,
+        )
     ),
     trusted_manifests=(
         MANIFEST,
@@ -164,17 +181,24 @@ capability_packs = CapabilityPackService(
         MANIFEST_V2_1,
         POST_EVALUATION_MANIFEST,
         DEVIATION_ANALYSIS_MANIFEST,
+        INVOICE_ASSURANCE_MANIFEST,
     ),
     trusted_strategies={
         **STRATEGIES,
         **POST_EVALUATION_STRATEGIES,
         **DEVIATION_ANALYSIS_STRATEGIES,
+        **INVOICE_ASSURANCE_STRATEGIES,
     },
 )
 rule_sets = RuleSetService()
 workbench = WorkbenchService(
     capability_packs,
-    schemas={**SCHEMAS, **POST_EVALUATION_SCHEMAS, **DEVIATION_ANALYSIS_SCHEMAS},
+    schemas={
+        **SCHEMAS,
+        **POST_EVALUATION_SCHEMAS,
+        **DEVIATION_ANALYSIS_SCHEMAS,
+        **INVOICE_ASSURANCE_SCHEMAS,
+    },
     rule_sets=rule_sets,
 )
 business_objects = BusinessObjectService()

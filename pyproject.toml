@@ -32,6 +32,7 @@ members = [
   "packages/capability-contract-integrity",
   "packages/capability-contract-post-evaluation",
   "packages/capability-deviation-analysis",
+  "packages/capability-invoice-assurance",
 ]
 
 [dependency-groups]
@@ -77,6 +78,7 @@ pythonpath = [
   "packages/capability-contract-integrity/src",
   "packages/capability-contract-post-evaluation/src",
   "packages/capability-deviation-analysis/src",
+  "packages/capability-invoice-assurance/src",
 ]
 
 [tool.ruff]
@@ -144,4 +146,5 @@ mypy_path = [
   "packages/capability-contract-integrity/src",
   "packages/capability-contract-post-evaluation/src",
   "packages/capability-deviation-analysis/src",
+  "packages/capability-invoice-assurance/src",
 ]

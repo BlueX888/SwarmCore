@@ -42,6 +42,11 @@ from swarmcore_persistence import (
     tenant_transaction,
 )
 from swarmcore_persistence.models import ModelUsageRecord, ProjectConfiguration, Run
+from swarmcore_registry import (
+    is_project_model_ref,
+    parse_project_model_id,
+    runtime_provider_name,
+)
 
 
 class Settings(BaseSettings):
@@ -127,6 +132,7 @@ class ModelProviderConfigurationBody(BaseModel):
     provider_url: AnyHttpUrl = Field(alias="providerUrl")
     model_name: str = Field(alias="modelName", min_length=1, max_length=256)
     api_key: str | None = Field(default=None, alias="apiKey", max_length=8192)
+    display_name: str | None = Field(default=None, alias="displayName", max_length=128)
 
 
 TenantHeader = Annotated[UUID, Header(alias="X-Tenant-ID")]
@@ -166,8 +172,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def execute(body: InvokeBody, request: HttpRequest) -> dict[str, Any]:
         try:
             capability = tokens.verify(body.capability_token)
-            provider_model = configured.model_routes[capability.logical_model]
-        except (KeyError, ValueError) as exc:
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        tenant_id = UUID(capability.tenant_id)
+        project_id = UUID(capability.project_id)
+        run_id = UUID(capability.run_id)
+        request_id = _model_request_id(capability.jti, body)
+        database: Database = request.app.state.database
+        runtime_provider = await _runtime_provider_configuration(
+            database,
+            secrets,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            logical_model=capability.logical_model,
+        )
+        try:
+            if capability.logical_model in configured.model_routes:
+                provider_model = configured.model_routes[capability.logical_model]
+            elif runtime_provider is not None:
+                provider_model = runtime_provider[2]
+            else:
+                raise KeyError(capability.logical_model)
+        except KeyError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         decision = (
             await policy.evaluate(
@@ -187,18 +213,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
             )
         ).enforce()
-        tenant_id = UUID(capability.tenant_id)
-        project_id = UUID(capability.project_id)
-        run_id = UUID(capability.run_id)
-        request_id = _model_request_id(capability.jti, body)
-        database: Database = request.app.state.database
-        runtime_provider = await _runtime_provider_configuration(
-            database,
-            secrets,
-            tenant_id=tenant_id,
-            project_id=project_id,
-            logical_model=capability.logical_model,
-        )
         provider_url = runtime_provider[0] if runtime_provider else configured.model_provider_url
         provider_api_key = (
             runtime_provider[1] if runtime_provider else configured.model_provider_api_key
@@ -412,12 +426,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "providerUrl": "",
                 "modelName": configured.model_routes.get(logical_model, ""),
                 "apiKeyConfigured": False,
+                "displayName": "",
             }
         return {
             "logicalModel": logical_model,
             "providerUrl": saved[0],
             "modelName": saved[1],
             "apiKeyConfigured": bool(saved[2]),
+            "displayName": saved[3] or saved[1],
         }
 
     @app.put("/internal/v1/projects/{project_id}/model-provider")
@@ -427,6 +443,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: HttpRequest,
         x_tenant_id: TenantHeader,
     ) -> dict[str, Any]:
+        if is_project_model_ref(body.logical_model) and parse_project_model_id(body.logical_model) is None:
+            raise HTTPException(status_code=422, detail="project model id must be a UUID")
         if body.api_key and (not configured.vault_token or secrets is None):
             raise HTTPException(status_code=503, detail="Vault is required to store the API key")
         database: Database = request.app.state.database
@@ -448,6 +466,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         elif existing is None or not existing[2]:
             raise HTTPException(status_code=422, detail="API key is required")
+        display_name = (body.display_name or "").strip() or body.model_name.strip()
         async with tenant_transaction(
             database.sessions, tenant_id=x_tenant_id, project_id=project_id
         ) as session:
@@ -464,23 +483,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "providerUrl": str(body.provider_url).rstrip("/"),
                 "modelName": body.model_name.strip(),
                 "secretRef": secret_ref,
+                "displayName": display_name,
             }
             if saved is None:
                 session.add(ProjectConfiguration(
                     tenant_id=x_tenant_id, project_id=project_id, kind="model", name=name,
-                    source_ref=body.logical_model, configuration=document,
+                    source_ref=body.logical_model.rsplit("@", 1)[0], configuration=document,
                     created_by="model-provider-ui", updated_by="model-provider-ui",
                 ))
             else:
-                saved.source_ref = body.logical_model
+                saved.source_ref = body.logical_model.rsplit("@", 1)[0]
                 saved.configuration = document
                 saved.revision += 1
                 saved.updated_by = "model-provider-ui"
         return {
-            "logicalModel": body.logical_model,
+            "logicalModel": body.logical_model.rsplit("@", 1)[0],
             "providerUrl": str(body.provider_url).rstrip("/"),
             "modelName": body.model_name.strip(),
             "apiKeyConfigured": True,
+            "displayName": display_name,
         }
 
     @app.post("/internal/v1/projects/{project_id}/model-provider:test")
@@ -764,7 +785,7 @@ def _provider_root(url: str) -> str:
 
 
 def _model_runtime_name(logical_model: str) -> str:
-    return f"__runtime_provider__:{logical_model.rsplit('@', 1)[0]}"
+    return runtime_provider_name(logical_model)
 
 
 def _model_secret_ref(tenant_id: UUID, project_id: UUID, logical_model: str) -> str:
@@ -778,7 +799,7 @@ async def _saved_runtime_provider(
     tenant_id: UUID,
     project_id: UUID,
     logical_model: str,
-) -> tuple[str, str, str] | None:
+) -> tuple[str, str, str, str] | None:
     async with tenant_transaction(
         database.sessions, tenant_id=tenant_id, project_id=project_id
     ) as session:
@@ -797,6 +818,7 @@ async def _saved_runtime_provider(
             str(document.get("providerUrl", "")),
             str(document.get("modelName", "")),
             str(document.get("secretRef", "")),
+            str(document.get("displayName", "")),
         )
 
 
@@ -813,7 +835,7 @@ async def _runtime_provider_configuration(
     )
     if saved is None:
         return None
-    provider_url, model_name, secret_ref = saved
+    provider_url, model_name, secret_ref, _display_name = saved
     if not provider_url or not model_name or not secret_ref or secrets is None:
         return None
     try:

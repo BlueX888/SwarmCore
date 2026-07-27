@@ -108,6 +108,22 @@ describe("workspace navigation", () => {
   });
 });
 
+describe("AppShell sticky header", () => {
+  beforeEach(() => {
+    vi.mocked(api.listApprovals).mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(api.listInputs).mockResolvedValue({ items: [], total: 0 });
+  });
+
+  it("does not keep 编排画布 or 新建运行 as permanent header actions", () => {
+    renderAppShell(0);
+    const header = document.querySelector("header");
+    expect(header).not.toBeNull();
+    expect(within(header as HTMLElement).queryByRole("link", { name: "编排画布" })).not.toBeInTheDocument();
+    expect(within(header as HTMLElement).queryByRole("link", { name: "新建运行" })).not.toBeInTheDocument();
+    expect(within(header as HTMLElement).getByRole("button", { name: "切换颜色主题" })).toBeInTheDocument();
+  });
+});
+
 describe("AppShell history back button", () => {
   beforeEach(() => {
     vi.mocked(api.listApprovals).mockResolvedValue({ items: [], total: 0 });

@@ -90,6 +90,7 @@ test("splits the capability center into agent, tool, model and policy pages", as
   await expect(page.getByRole("checkbox", { name: /tool:\/\/document\/read@1/ })).toBeChecked();
   await page.goto("/tools");
   await expect(page.getByRole("heading", { name: "工具", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "按风险分类" })).toBeVisible();
   await expect(page.getByRole("button", { name: /受控检索/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /未接入工具/ })).toHaveCount(0);
   await page.getByRole("checkbox", { name: "显示未就绪" }).check();
@@ -169,7 +170,7 @@ function capabilityCenter() {
     registrySnapshot: "registry:e2e",
     items: [
       { ref: "agent://contract/document-classifier@1", kind: "agent", name: "合同分类", description: "识别合同类型。", source: "system", readiness: ready, inputSchema: { type: "object" }, outputSchema: { type: "object" } },
-      { ref: "tool://search@1", kind: "tool", name: "受控检索", description: "搜索项目知识。", source: "system", readiness: ready, risk: "LOW", inputSchema: { type: "object", required: ["query"], properties: { query: { type: "string", title: "检索词" } }, additionalProperties: false }, outputSchema: { type: "object" } },
+      { ref: "tool://search@1", kind: "tool", name: "受控检索", description: "在已配置的知识源中检索内容。", source: "system", readiness: ready, risk: "LOW", inputSchema: { type: "object", required: ["query"], properties: { query: { type: "string", title: "检索词" } }, additionalProperties: false }, outputSchema: { type: "object" } },
       { ref: "tool://missing@1", kind: "tool", name: "未接入工具", description: "尚无执行器。", source: "system", readiness: { status: "NOT_READY", reasons: [{ code: "EXECUTOR_MISSING", message: "missing" }] }, risk: "LOW", inputSchema: { type: "object" }, outputSchema: { type: "object" } },
       { ref: "model://general@1", kind: "model", name: "通用模型", description: "通用模型路由。", source: "system", readiness: ready, inputSchema: { type: "object" }, outputSchema: { type: "object" } },
       { ref: "policy://default@1", kind: "policy", name: "默认策略", description: "默认能力治理策略。", source: "system", readiness: ready, inputSchema: { type: "object" }, outputSchema: { type: "object" } },

@@ -37,6 +37,11 @@ from swarmcore_application import (
     is_retryable_run_failure,
     render_run_snapshot,
 )
+from swarmcore_application.capabilities import ModelCapability
+from swarmcore_application.project_models import (
+    is_runtime_provider_name,
+    project_model_logical_id,
+)
 from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2, MANIFEST_V2_1
 from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
 from swarmcore_capability_deviation_analysis import MANIFEST as DEVIATION_ANALYSIS_MANIFEST
@@ -48,7 +53,7 @@ from swarmcore_governance import (
     validate_secret_ref,
     validate_webhook_target,
 )
-from swarmcore_persistence import AuditRepository, tenant_transaction
+from swarmcore_persistence import AuditRepository, Database, tenant_transaction
 from swarmcore_persistence.models import (
     ApprovalRequest,
     Artifact,
@@ -179,25 +184,63 @@ async def _model_gateway_request(
 
 
 @router.get("/projects/{project_id}/capabilities", response_model=CapabilityCatalog)
-async def get_capabilities(scope: Scope) -> CapabilityCatalog:
-    del scope
-    return capabilities.get()
+async def get_capabilities(request: Request, scope: Scope) -> CapabilityCatalog:
+    catalog = capabilities.get()
+    database: Database = request.app.state.database
+    try:
+        async with tenant_transaction(
+            database.sessions, tenant_id=scope.tenant_id, project_id=scope.project_id
+        ) as session:
+            rows, _ = await ProjectConfigurationService().list(
+                session,
+                tenant_id=scope.tenant_id,
+                project_id=scope.project_id,
+                kind=ConfigurationKind.MODEL,
+                limit=1000,
+            )
+    except Exception:
+        return catalog
+    project_models = [
+        ModelCapability(
+            ref=f"{project_model_logical_id(str(row.source_ref))}@{row.revision}",
+            runtime="agno",
+            environments=["development", "production"],
+        )
+        for row in rows
+        if is_runtime_provider_name(row.name)
+        and str(row.source_ref).startswith("model://project/")
+    ]
+    if not project_models:
+        return catalog
+    return catalog.model_copy(update={"models": [*project_models, *catalog.models]})
 
 
 @router.get("/projects/{project_id}/capability-center", response_model=CapabilityCenterResponse)
-async def get_capability_center(
-    request: Request, scope: Scope, session: Session
-) -> CapabilityCenterResponse:
+async def get_capability_center(request: Request, scope: Scope) -> CapabilityCenterResponse:
     settings = request.app.state.settings
     if not settings.capability_center_v2:
         raise HTTPException(status_code=404, detail="capability center v2 is disabled")
     center: CapabilityCenterService = request.app.state.capability_center
-    items = await center.list(
-        tenant_id=scope.tenant_id,
-        project_id=scope.project_id,
-        environment=settings.environment,
-        session=session,
-    )
+    database: Database = request.app.state.database
+    try:
+        async with tenant_transaction(
+            database.sessions, tenant_id=scope.tenant_id, project_id=scope.project_id
+        ) as session:
+            items = await center.list(
+                tenant_id=scope.tenant_id,
+                project_id=scope.project_id,
+                environment=settings.environment,
+                session=session,
+            )
+    except Exception:
+        # Registry projection must still load when project-config DB access fails
+        # (for example native greenlet/DLL blocks in local Windows environments).
+        items = await center.list(
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            environment=settings.environment,
+            session=None,
+        )
     return CapabilityCenterResponse(
         registrySnapshot=center.registry_snapshot_id,
         items=items,
@@ -555,10 +598,25 @@ async def list_strategies(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> StrategyListResponse:
+    # Prefer the later of strategy row vs latest draft so historical draft edits
+    # still sort as "最近修改" even when Strategy.updated_at was not bumped.
+    latest_draft_updated = (
+        select(func.max(StrategyDraft.updated_at))
+        .where(
+            StrategyDraft.strategy_id == Strategy.id,
+            StrategyDraft.tenant_id == Strategy.tenant_id,
+        )
+        .correlate(Strategy)
+        .scalar_subquery()
+    )
+    effective_updated_at = func.greatest(
+        Strategy.updated_at,
+        func.coalesce(latest_draft_updated, Strategy.updated_at),
+    )
     query = (
         select(Strategy)
         .where(Strategy.tenant_id == scope.tenant_id, Strategy.project_id == scope.project_id)
-        .order_by(Strategy.updated_at.desc(), Strategy.id)
+        .order_by(effective_updated_at.desc(), Strategy.id)
         .offset(offset)
         .limit(limit)
     )
@@ -1677,12 +1735,15 @@ async def _strategy_summary(session: AsyncSession, strategy: Strategy) -> Strate
             StrategyVersion.tenant_id == strategy.tenant_id,
         )
     )
+    updated_at = strategy.updated_at
+    if draft is not None and draft.updated_at > updated_at:
+        updated_at = draft.updated_at
     return StrategySummary(
         strategyId=strategy.id,
         name=strategy.name,
         lifecycle=strategy.lifecycle,
         createdAt=strategy.created_at,
-        updatedAt=strategy.updated_at,
+        updatedAt=updated_at,
         draftId=draft.id if draft else None,
         draftRevision=draft.revision if draft else None,
         latestVersion=latest_version,

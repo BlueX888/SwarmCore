@@ -247,6 +247,7 @@ class StrategyService:
             schema_version=spec.api_version,
             runtime_version=plan.runtime_version,
         )
+        strategy.updated_at = datetime.now(UTC)
         session.add(version)
         await session.flush()
         await self._audit.append(
@@ -290,17 +291,23 @@ class StrategyService:
             raise PersistenceConflictError(
                 f"draft revision is {draft.revision}, expected {expected_revision}"
             )
+        strategy = await session.scalar(
+            select(Strategy)
+            .where(Strategy.id == strategy_id, Strategy.tenant_id == tenant_id)
+            .with_for_update()
+        )
+        if strategy is None:
+            raise LookupError("strategy not found")
+        now = datetime.now(UTC)
         draft.raw_spec = raw_spec
         if editor_state is not None:
             draft.editor_state = editor_state
         draft.revision += 1
         draft.updated_by = actor
-        draft.updated_at = datetime.now(UTC)
+        draft.updated_at = now
         draft.diagnostics = []
+        strategy.updated_at = now
         await session.flush()
-        strategy = await session.get(Strategy, strategy_id)
-        if strategy is None:
-            raise LookupError("strategy not found")
         await self._audit.append(
             session,
             tenant_id=tenant_id,

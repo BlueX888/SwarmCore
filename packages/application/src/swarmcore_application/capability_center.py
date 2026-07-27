@@ -15,6 +15,11 @@ from swarmcore_spec.models import AgentSpec
 
 from .capability_readiness import CapabilityReadinessService
 from .configurations import ConfigurationKind, ProjectConfigurationService
+from .project_models import (
+    is_runtime_provider_name,
+    project_model_capability_summary,
+    project_model_logical_id,
+)
 from .services import RunService
 
 
@@ -67,16 +72,28 @@ class CapabilityCenterService:
         )
         if session is None:
             return builtins
-        rows, _ = await self._configurations.list(
-            session,
-            tenant_id=tenant_id,
-            project_id=project_id,
-            kind=ConfigurationKind.AGENT,
-            limit=1000,
-        )
+        try:
+            agent_rows, _ = await self._configurations.list(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                kind=ConfigurationKind.AGENT,
+                limit=1000,
+            )
+            model_rows, _ = await self._configurations.list(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                kind=ConfigurationKind.MODEL,
+                limit=1000,
+            )
+        except Exception:
+            return builtins
+        project_models = self._project_model_summaries(model_rows)
+        projection = (*builtins, *project_models)
         builtin_agents = {item.ref: item for item in builtins if item.kind is CapabilityKind.AGENT}
         project_agents: list[CapabilitySummary] = []
-        for row in rows:
+        for row in agent_rows:
             declaration = self._agent_declaration(row.configuration)
             if declaration is None:
                 continue
@@ -90,7 +107,7 @@ class CapabilityCenterService:
                         update={
                             "ref": project_ref,
                             "name": row.name,
-                            "description": f"项目智能体, 基于 {declaration.ref}",
+                            "description": f"基于系统智能体 {declaration.ref} 的项目配置。",
                             "source": "project",
                         }
                     )
@@ -100,6 +117,7 @@ class CapabilityCenterService:
                 ref=project_ref,
                 version=str(row.revision),
                 role=declaration.role or row.name,
+                description="项目自定义智能体。",
                 instructions=declaration.instructions or "",
                 model=declaration.model or "",
                 tools=tuple(declaration.tools),
@@ -110,12 +128,12 @@ class CapabilityCenterService:
                 environment=environment,
                 registration=registration,
                 registry=self._registry,
-                projection=builtins,
+                projection=projection,
             )
             project_agents.append(
                 summary.model_copy(update={"name": row.name, "source": "project"})
             )
-        return (*project_agents, *builtins)
+        return (*project_agents, *project_models, *builtins)
 
     async def run(
         self,
@@ -143,7 +161,9 @@ class CapabilityCenterService:
                 capability_ref=capability_ref,
             )
             input_data = {**preset_input, **input_data}
-        project_capability = capability_ref.startswith("agent://project/")
+        project_capability = capability_ref.startswith(
+            "agent://project/"
+        ) or capability_ref.startswith("model://project/")
         summaries = await self.list(
             tenant_id=tenant_id,
             project_id=project_id,
@@ -183,6 +203,22 @@ class CapabilityCenterService:
     @staticmethod
     def project_agent_ref(configuration_id: UUID, revision: int) -> str:
         return f"agent://project/{configuration_id}@{revision}"
+
+    @staticmethod
+    def _project_model_summaries(rows: list[Any]) -> tuple[CapabilitySummary, ...]:
+        summaries: list[CapabilitySummary] = []
+        for row in rows:
+            if not is_runtime_provider_name(row.name):
+                continue
+            logical = project_model_logical_id(str(row.source_ref))
+            summary = project_model_capability_summary(
+                logical_model=logical,
+                revision=int(row.revision),
+                configuration=row.configuration if isinstance(row.configuration, dict) else {},
+            )
+            if summary is not None:
+                summaries.append(summary)
+        return tuple(summaries)
 
     @staticmethod
     def _agent_declaration(configuration: dict[str, Any]) -> AgentSpec | None:

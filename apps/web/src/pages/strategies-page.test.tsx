@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter, Outlet, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "@/api/client";
-import { StrategiesPage } from "./strategies-page";
+import { sortStrategiesByUpdatedAtDesc, StrategiesPage } from "./strategies-page";
 import { StrategyDetailPage } from "./strategy-detail-page";
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -97,6 +97,34 @@ describe("strategy delete ui", () => {
     renderList();
     expect(await screen.findByRole("button", { name: "删除 draft-only" })).toBeVisible();
     expect(screen.getByRole("button", { name: "删除 published-strategy" })).toBeVisible();
+  });
+
+  it("shows a short description for every strategy", async () => {
+    renderList();
+    const descriptions = await screen.findAllByText("项目自定义执行策略，用于编排智能体、工具与业务流程。");
+    expect(descriptions).toHaveLength(2);
+  });
+
+  it("sorts strategies by updatedAt descending even when API order differs", async () => {
+    const older = { ...draftOnly, strategyId: "strategy-old", name: "older-strategy", updatedAt: "2026-07-20T00:00:00Z" };
+    const newer = { ...published, strategyId: "strategy-new", name: "newer-strategy", updatedAt: "2026-07-25T12:00:00Z" };
+    vi.mocked(api.listStrategies).mockResolvedValue({ items: [older, newer], total: 2 });
+    renderList();
+    expect(await screen.findByText("newer-strategy")).toBeVisible();
+    const names = screen.getAllByRole("link").map((node) => node.textContent ?? "");
+    const newerIndex = names.findIndex((text) => text.includes("newer-strategy"));
+    const olderIndex = names.findIndex((text) => text.includes("older-strategy"));
+    expect(newerIndex).toBeGreaterThanOrEqual(0);
+    expect(olderIndex).toBeGreaterThan(newerIndex);
+  });
+
+  it("sortStrategiesByUpdatedAtDesc puts newest first", () => {
+    const sorted = sortStrategiesByUpdatedAtDesc([
+      { ...draftOnly, strategyId: "a", updatedAt: "2026-07-21T00:00:00Z" },
+      { ...draftOnly, strategyId: "b", updatedAt: "2026-07-23T00:00:00Z" },
+      { ...draftOnly, strategyId: "c", updatedAt: "2026-07-22T00:00:00Z" },
+    ]);
+    expect(sorted.map((item) => item.strategyId)).toEqual(["b", "c", "a"]);
   });
 
   it("does not navigate when clicking delete on a card", async () => {

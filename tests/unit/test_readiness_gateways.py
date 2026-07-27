@@ -336,11 +336,12 @@ async def test_runtime_provider_falls_back_when_vault_lease_fails(
         def lease(self, _secret_ref: str) -> Any:
             raise model_gateway.SecretError("Vault read failed: HTTPError")
 
-    async def saved(*_args: Any, **_kwargs: Any) -> tuple[str, str, str]:
+    async def saved(*_args: Any, **_kwargs: Any) -> tuple[str, str, str, str]:
         return (
             "https://gateway.example/v1",
             "kimi-k2.5",
             "secret://projects/demo/models/general",
+            "kimi-k2.5",
         )
 
     monkeypatch.setattr(model_gateway, "_saved_runtime_provider", saved)

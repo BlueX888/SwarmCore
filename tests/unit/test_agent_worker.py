@@ -41,3 +41,27 @@ def test_gateway_model_resolver_scopes_agno_to_run_and_logical_model() -> None:
     assert model.http_client.timeout.read == 321
     assert model.max_tokens == 6543
     assert model.max_retries == 0
+
+
+def test_gateway_model_resolver_allows_project_scoped_models() -> None:
+    tokens = ModelCapabilityIssuer(b"m" * 32)
+    resolver = GatewayModelResolver(
+        "http://model-gateway:8093",
+        tokens,
+        frozenset({"model://general"}),
+    )
+    model_id = "11111111-1111-1111-1111-111111111111"
+    model = resolver.resolve(
+        f"model://project/{model_id}@1",
+        {
+            "run": {
+                "tenantId": "tenant-1",
+                "projectId": "project-1",
+                "runId": "run-1",
+            },
+            "agentInstanceId": "agent-1",
+            "taskExecutionId": "task-1",
+        },
+    )
+    capability = tokens.verify(str(model.api_key))
+    assert capability.logical_model == f"model://project/{model_id}"

@@ -190,6 +190,7 @@ class ModelProviderConfigurationRequest(ApiModel):
     provider_url: str = Field(alias="providerUrl", min_length=1, max_length=2048)
     model_name: str = Field(alias="modelName", min_length=1, max_length=256)
     api_key: str | None = Field(default=None, alias="apiKey", max_length=8192)
+    display_name: str | None = Field(default=None, alias="displayName", max_length=128)
 
 
 class ModelProviderConfigurationSnapshot(ApiModel):
@@ -197,6 +198,7 @@ class ModelProviderConfigurationSnapshot(ApiModel):
     provider_url: str = Field(alias="providerUrl")
     model_name: str = Field(alias="modelName")
     api_key_configured: bool = Field(alias="apiKeyConfigured")
+    display_name: str = Field(default="", alias="displayName")
 
 
 class ModelProviderTestResult(ApiModel):

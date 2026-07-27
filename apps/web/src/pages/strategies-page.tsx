@@ -25,10 +25,46 @@ function formatDeleteError(error: unknown): string {
   return error instanceof Error ? error.message : "网络错误，删除失败。";
 }
 
+function strategyDescription(strategy: StrategySummary): string {
+  const name = strategy.name.toLowerCase();
+  if (name.includes("invoice") || name.includes("发票")) return "核验发票、业务凭证与付款条件，输出一致性结论。";
+  if (name.includes("deviation") || name.includes("偏差")) return "分析合同履约偏差及风险，形成可追溯的处置结论。";
+  if (name.includes("post-evaluation") || name.includes("后评价")) return "汇总合同履约证据，生成结构化合同后评价结果。";
+  if (name.includes("integrity") || name.includes("完整性")) return "校验合同材料的完整性、一致性与关键风险。";
+  if (name.startsWith("inline-") || strategy.lifecycle === "EPHEMERAL") return "由运行任务临时生成，用于执行一次性内联流程。";
+  if (/phase\d+-demo/.test(name)) return "用于验证阶段能力与端到端执行链路的演示策略。";
+  if (name === "untitled-strategy") return "待补充名称和流程配置的策略草稿。";
+  if (strategy.lifecycle === "TRUSTED") return "平台托管的可信执行策略，可直接用于稳定运行。";
+  return "项目自定义执行策略，用于编排智能体、工具与业务流程。";
+}
+
+export function sortStrategiesByUpdatedAtDesc(items: StrategySummary[]): StrategySummary[] {
+  return [...items].sort((left, right) => {
+    const delta = Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+    if (delta !== 0) return delta;
+    return left.strategyId.localeCompare(right.strategyId);
+  });
+}
+
+function formatUpdatedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function StrategiesPage() {
   const { tenantId, projectId } = useWorkspaceScope();
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["strategies", tenantId, projectId], queryFn: () => api.listStrategies(tenantId, projectId) });
+  const items = React.useMemo(
+    () => sortStrategiesByUpdatedAtDesc(query.data?.items ?? []),
+    [query.data?.items],
+  );
   const [target, setTarget] = React.useState<StrategySummary | null>(null);
   const [impact, setImpact] = React.useState<StrategyDeleteImpact | null>(null);
   const [impactError, setImpactError] = React.useState("");
@@ -67,12 +103,13 @@ export function StrategiesPage() {
     {query.isPending ? <Card><CardContent className="space-y-4 pt-5">{[1,2,3].map((item) => <Skeleton key={item} className="h-16" />)}</CardContent></Card> : null}
     {query.isError ? <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-error-600">无法加载策略</p><p className="text-sm text-gray-500">{query.error.message}</p><Button onClick={() => void query.refetch()}>重试</Button></CardContent></Card> : null}
     {query.data?.items.length === 0 ? <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium">暂无策略</p><p className="text-sm text-gray-500">请创建并校验草稿，然后发布第一个版本。</p><Button asChild><Link to="new">创建策略</Link></Button></CardContent></Card> : null}
-    {query.data?.items.length ? <Card className="overflow-hidden"><CardHeader><CardTitle>项目策略</CardTitle><span className="text-sm text-gray-500">共 {query.data.total} 条</span></CardHeader><CardContent className="grid gap-3">{query.data.items.map((strategy) => (
+    {items.length ? <Card className="overflow-hidden"><CardHeader><CardTitle>项目策略</CardTitle><span className="text-sm text-gray-500">共 {query.data?.total ?? items.length} 条</span></CardHeader><CardContent className="grid gap-3">{items.map((strategy) => (
       <div key={strategy.strategyId} className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 p-4 hover:border-brand-300 dark:border-gray-800">
         <Link to={strategy.strategyId} className="flex min-w-0 flex-1 items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="font-medium text-gray-900 dark:text-white">{strategy.name}</p>
-            <p className="mt-1 text-xs text-gray-500">草稿修订 {strategy.draftRevision ?? "—"} · 最新版本 {strategy.latestVersion ?? "—"}</p>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{strategyDescription(strategy)}</p>
+            <p className="mt-1 text-xs text-gray-500">草稿修订 {strategy.draftRevision ?? "—"} · 最新版本 {strategy.latestVersion ?? "—"} · 更新于 {formatUpdatedAt(strategy.updatedAt)}</p>
           </div>
           <ArrowRight className="shrink-0 text-gray-400" />
         </Link>

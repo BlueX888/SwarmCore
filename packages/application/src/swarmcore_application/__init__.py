@@ -58,6 +58,11 @@ from .commands import (
 )
 from .compilation import CompilationResult, CompilationService
 from .configurations import ConfigurationKind, ProjectConfigurationService
+from .project_models import (
+    is_project_model_ref,
+    project_model_capability_summary,
+    synthesize_project_model_registration,
+)
 from .decision_assets import (
     DecisionAssetService,
     DecisionEnvelope,
@@ -243,6 +248,9 @@ __all__ = [
     "CompilationService",
     "ConfigurationKind",
     "ConnectionService",
+    "is_project_model_ref",
+    "project_model_capability_summary",
+    "synthesize_project_model_registration",
     "ContractFacts",
     "CrossFileFinding",
     "CrossFileRule",

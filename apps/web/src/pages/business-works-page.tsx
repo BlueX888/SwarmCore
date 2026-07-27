@@ -216,15 +216,15 @@ function BusinessWorkDetail({ workKey }: { workKey: string }) {
     ) : null}
 
     {isContractPostEvaluation ? (
-      <section className="grid items-start gap-4 xl:grid-cols-2" aria-label="项目配置摘要">
+      <section className="grid items-stretch gap-4 xl:grid-cols-2" aria-label="项目配置摘要">
         <StrategyBindingCard work={work} workspacePath={workspacePath} hasImplementation={hasImplementation} compact />
         <ExternalFilesCard work={work} workspacePath={workspacePath} tenantId={tenantId} projectId={projectId} title="外部文件" compact />
       </section>
     ) : (
       <>
-        <section className="grid items-start gap-4 xl:grid-cols-2">
+        <section className="grid items-stretch gap-4 xl:grid-cols-2">
           <ExternalFilesCard work={work} workspacePath={workspacePath} tenantId={tenantId} projectId={projectId} title="所需资料及准备状态" compact />
-          <Card><CardContent className="space-y-3 p-4">
+          <Card className="h-full"><CardContent className="flex h-full flex-col space-y-3 p-4">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">决策或规则配置</h2>
             {work.decisionSlots.length ? <ul className="space-y-1.5 text-sm text-gray-600 dark:text-gray-300">{work.decisionSlots.map((item) => <li key={item.slot} className="flex justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-800/60"><span>{item.slot}</span><span className="text-xs text-gray-400">{item.required ? "必需" : "可选"}</span></li>)}</ul> : <p className="text-sm text-gray-500">当前无强制决策槽位。</p>}
           </CardContent></Card>
@@ -241,7 +241,7 @@ function BusinessWorkDetail({ workKey }: { workKey: string }) {
       </>
     )}
 
-    <WorkFunctionsSection functions={work.functions} collapsedByDefault={isContractPostEvaluation} />
+    <WorkFunctionsSection functions={work.functions} collapsible={isContractPostEvaluation} />
 
     {!isContractPostEvaluation ? (
       <section aria-labelledby="work-foundation-title" className="rounded-[16px] border border-brand-100 bg-brand-50/50 px-4 py-3 dark:border-brand-500/20 dark:bg-brand-500/5">
@@ -263,10 +263,10 @@ function BusinessWorkDetail({ workKey }: { workKey: string }) {
 
 function WorkFunctionsSection({
   functions,
-  collapsedByDefault,
+  collapsible,
 }: {
   functions: BusinessWorkSnapshot["functions"];
-  collapsedByDefault: boolean;
+  collapsible: boolean;
 }) {
   const body = (
     <div className="grid gap-2 md:grid-cols-2">
@@ -287,10 +287,10 @@ function WorkFunctionsSection({
     </div>
   );
 
-  if (collapsedByDefault) {
+  if (collapsible) {
     return (
-      <details className="group rounded-xl border border-gray-200/80 bg-white/80 open:pb-3 dark:border-gray-800 dark:bg-white/[0.02]">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-gray-900 marker:content-none dark:text-white [&::-webkit-details-marker]:hidden">
+      <details open className="group mx-auto w-full max-w-3xl rounded-xl border border-gray-200/80 bg-white/80 open:pb-3 dark:border-gray-800 dark:bg-white/[0.02]">
+        <summary className="flex cursor-pointer list-none items-center justify-center gap-3 px-4 py-3 text-sm font-semibold text-gray-900 marker:content-none dark:text-white [&::-webkit-details-marker]:hidden">
           <span id="work-functions-title">业务说明</span>
           <span className="flex items-center gap-2 text-xs font-medium text-gray-400">
             {functions.length} 项
@@ -333,8 +333,8 @@ function StrategyBindingCard({
   const settingsHref = `${workspacePath}/business-works/${work.workKey}/settings`;
 
   return (
-    <Card className="min-w-0">
-      <CardContent className={cn("flex h-full flex-col", compact ? "gap-3 p-4" : "gap-4 p-5")}>
+    <Card className="flex h-full min-w-0 flex-col">
+      <CardContent className={cn("flex h-full min-h-0 flex-1 flex-col", compact ? "gap-3 p-4" : "gap-4 p-5")}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2.5">
             <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10">
@@ -353,7 +353,7 @@ function StrategyBindingCard({
         </div>
 
         {bound ? (
-          <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-3 dark:border-gray-800 dark:bg-gray-900/50">
+          <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-3 dark:border-gray-800 dark:bg-gray-900/50">
             <p className="text-xs font-medium text-gray-500">当前执行策略</p>
             <p className="mt-1 truncate text-sm font-semibold text-gray-900 dark:text-white" title={work.boundStrategyName ?? undefined}>
               {work.boundStrategyName}
@@ -365,7 +365,7 @@ function StrategyBindingCard({
             </div>
           </div>
         ) : (
-          <div className={cn("flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 text-center dark:border-gray-700", compact ? "px-3 py-5" : "px-4 py-8")}>
+          <div className={cn("flex min-h-0 flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 text-center dark:border-gray-700", compact ? "px-3 py-5" : "px-4 py-8")}>
             <Workflow className="size-6 text-gray-300" />
             <p className="mt-2 text-sm font-medium text-gray-700 dark:text-gray-200">尚未绑定执行策略</p>
             <p className="mt-0.5 text-xs text-gray-500">绑定后即可按策略办理本业务工作。</p>
@@ -432,8 +432,8 @@ function ExternalFilesCard({
     : (boundDocuments.length ? "已关联" : "无要求");
 
   return (
-    <Card className="min-w-0">
-      <CardContent className={cn("flex h-full flex-col", compact ? "gap-3 p-4" : "gap-4 p-5")}>
+    <Card className="flex h-full min-w-0 flex-col">
+      <CardContent className={cn("flex h-full min-h-0 flex-1 flex-col", compact ? "gap-3 p-4" : "gap-4 p-5")}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2.5">
             <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10">
@@ -457,7 +457,7 @@ function ExternalFilesCard({
         ) : null}
         {documentsQuery.isPending && work.status !== "planned" ? <Skeleton className="h-20" /> : null}
         {!documentsQuery.isPending || work.status === "planned" ? (
-          <div className={cn(compact && "max-h-56 overflow-y-auto pr-1")}>
+          <div className={cn("min-h-0 flex-1", compact && "overflow-y-auto pr-1")}>
             <ExternalFilesBody
               requirements={requirements}
               readyCategories={readyCategories}

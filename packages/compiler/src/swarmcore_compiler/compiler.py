@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from jsonschema import Draft202012Validator, SchemaError
 from pydantic import BaseModel, ConfigDict, Field
-from swarmcore_registry import RegistrySnapshot, builtin_registry
+from swarmcore_registry import RegistrySnapshot, builtin_registry, synthesize_project_model_registration
 from swarmcore_spec import ExpressionError, validate_condition
 from swarmcore_spec.models import (
     AgentNode,
@@ -399,7 +399,7 @@ class Compiler:
                     message="declared agents exceed budget.maxAgents",
                 )
             )
-        if spec.defaults.model and self._registry.resolve_model(spec.defaults.model) is None:
+        if spec.defaults.model and self._resolve_model(spec.defaults.model) is None:
             diagnostics.append(
                 Diagnostic(
                     severity="error",
@@ -434,7 +434,7 @@ class Compiler:
                 )
             resolved = self._agent_values(strategy, key)
             model_ref = resolved.get("model") or spec.defaults.model
-            if isinstance(model_ref, str) and self._registry.resolve_model(model_ref) is None:
+            if isinstance(model_ref, str) and self._resolve_model(model_ref) is None:
                 diagnostics.append(
                     Diagnostic(
                         severity="error",
@@ -701,7 +701,7 @@ class Compiler:
         return {
             reference: registration.model_dump(mode="json", by_alias=True)
             for reference in sorted(references)
-            if (registration := self._registry.resolve_model(reference)) is not None
+            if (registration := self._resolve_model(reference)) is not None
         }
 
     def _resolved_tools(self, strategy: SwarmStrategy) -> dict[str, dict[str, Any]]:
@@ -720,6 +720,11 @@ class Compiler:
             for reference in sorted(references)
             if (registration := self._registry.resolve_tool(reference)) is not None
         }
+
+    def _resolve_model(self, reference: str):
+        return self._registry.resolve_model(reference) or synthesize_project_model_registration(
+            reference
+        )
 
     @staticmethod
     def _resolve_local_schema(strategy: SwarmStrategy, reference: str) -> dict[str, Any] | None:

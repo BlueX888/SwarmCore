@@ -23,6 +23,7 @@ class AgentRegistration(FrozenModel):
     ref: str
     version: str
     role: str
+    description: str = ""
     instructions: str
     model: str
     tools: tuple[str, ...] = ()
@@ -37,6 +38,7 @@ class ModelRegistration(FrozenModel):
     version: str
     runtime: str
     provider_model: str = Field(alias="providerModel")
+    description: str = ""
     environments: tuple[str, ...]
 
 
@@ -1001,6 +1003,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://builtin/researcher@1",
                 version="1",
                 role="researcher",
+                description="使用受控检索调研主题，并整理结构化结论。",
                 instructions=(
                     "Research the requested topic with the controlled search tool. Prioritize "
                     "authoritative and recent sources, separate verified facts from inference, "
@@ -1037,6 +1040,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/document-classifier@1",
                 version="1",
                 role="contract-document-classifier",
+                description="根据候选类型对合同文本做证据化分类。",
                 instructions=(
                     "Classify the supplied contract text using the requested candidate types. "
                     "Base the decision only on document evidence, preserve the most relevant "
@@ -1076,6 +1080,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/field-extractor@1",
                 version="1",
                 role="contract-field-extractor",
+                description="从合同文本提取指定字段，并附证据与置信度。",
                 instructions=(
                     "Extract only the requested fields from the supplied contract text. Never "
                     "invent missing values; attach page-level or text evidence and a calibrated "
@@ -1117,6 +1122,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/post-evaluation-analyst@1",
                 version="1",
                 role="contract-post-evaluation-analyst",
+                description="基于上传文件与流程说明，生成规范化的合同后评价结果。",
                 instructions=(
                     "Read every supplied file and the user-defined workflow, then produce one "
                     "normalized contract post-evaluation payload. Extract contract facts, required "
@@ -1142,6 +1148,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/baseline-analyst@1",
                 version="1",
                 role="contract-baseline-analyst",
+                description="分析合同基准证据，归一化主体、金额、周期与必备资料。",
                 instructions=(
                     "Analyze only contract-baseline evidence: primary contracts, amendments, "
                     "procurement commitments, parties, amount, period, and required documents. "
@@ -1165,6 +1172,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/performance-quality-analyst@1",
                 version="1",
                 role="contract-performance-quality-analyst",
+                description="分析交付、里程碑与验收证据，归一化履约义务。",
                 instructions=(
                     "Analyze only delivery, milestone, acceptance, timeliness, and quality "
                     "evidence. Return domain='performance' and normalized obligations in "
@@ -1187,6 +1195,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/finance-invoice-analyst@1",
                 version="1",
                 role="contract-finance-invoice-analyst",
+                description="分析金额、成本与发票证据，归一化财务事实。",
                 instructions=(
                     "Analyze only contract amount, amendments, actual cost, invoices, tax and "
                     "payment evidence. Return domain='finance'; place contract updates and "
@@ -1209,6 +1218,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/deviation-risk-analyst@1",
                 version="1",
                 role="contract-deviation-risk-analyst",
+                description="分析偏差与风险证据，归一化治理类事实。",
                 instructions=(
                     "Analyze only deviations, changes, remediation, supplier and risk evidence. "
                     "Return domain='governance' with normalized deviations and risks in "
@@ -1231,6 +1241,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/baseline-analyst@2",
                 version="2",
                 role="contract-baseline-analyst",
+                description="分析合同基准证据，输出字符串化事实与证据引用。",
                 instructions=(
                     "Analyze only contract-baseline evidence: contracts, amendments, procurement "
                     "commitments, parties, amount, period, and required documents. Return "
@@ -1253,6 +1264,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/performance-quality-analyst@2",
                 version="2",
                 role="contract-performance-quality-analyst",
+                description="分析履约质量证据，输出字符串化事实与证据引用。",
                 instructions=(
                     "Analyze only delivery, milestone, acceptance, timeliness, and quality "
                     "evidence. Return domain='performance' and normalized obligations in "
@@ -1274,6 +1286,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/finance-invoice-analyst@2",
                 version="2",
                 role="contract-finance-invoice-analyst",
+                description="分析财务发票证据，输出字符串化事实与证据引用。",
                 instructions=(
                     "Analyze only contract amount, amendments, actual cost, invoices, tax and "
                     "payment evidence. Return domain='finance'; place normalized contract updates "
@@ -1295,6 +1308,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/deviation-risk-analyst@2",
                 version="2",
                 role="contract-deviation-risk-analyst",
+                description="分析偏差风险证据，输出字符串化事实与证据引用。",
                 instructions=(
                     "Analyze only deviations, changes, remediation, supplier and risk evidence. "
                     "Return domain='governance' with normalized deviations and risks in "
@@ -1316,6 +1330,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/evidence-reviewer@1",
                 version="1",
                 role="contract-evidence-reviewer",
+                description="复核诊断与证据冲突，判断是否需要人工介入。",
                 instructions=(
                     "Review the deterministic coverage, consistency, timeline, finance, invoice, "
                     "deviation and risk diagnostics. Require human review for unresolved material "
@@ -1340,6 +1355,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/report-narrator@1",
                 version="1",
                 role="contract-post-evaluation-report-narrator",
+                description="用中文阐释冻结的七维评价结果与建议。",
                 instructions=(
                     "Explain the frozen deterministic seven-dimension result in concise Chinese. "
                     "Do not alter scores, grades, risk level, findings, or evidence. Provide one "
@@ -1361,6 +1377,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/performance-report-writer@1",
                 version="1",
                 role="contract-performance-report-writer",
+                description="撰写资料完备性、交付时效与质量相关报告章节。",
                 instructions=(
                     "Write the Chinese business-report sections for document completeness, "
                     "delivery timeliness and delivery quality. Use only the frozen score, "
@@ -1384,6 +1401,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/governance-report-writer@1",
                 version="1",
                 role="contract-governance-report-writer",
+                description="撰写成本、发票、偏差与风险治理相关报告章节。",
                 instructions=(
                     "Write the Chinese business-report sections for cost, invoice, deviation "
                     "and risk governance. Use only frozen deterministic results and cited "
@@ -1407,6 +1425,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/report-narrator@2",
                 version="2",
                 role="contract-post-evaluation-executive-editor",
+                description="统稿正式中文合同后评价报告的决策摘要与结论。",
                 instructions=(
                     "Act as the executive editor for a formal Chinese contract post-evaluation "
                     "report. Reconcile the two section drafts with the frozen seven-dimension "
@@ -1440,6 +1459,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://contract/report-quality-reviewer@1",
                 version="1",
                 role="contract-post-evaluation-report-quality-reviewer",
+                description="对照冻结结果审查正式报告完整性与用语。",
                 instructions=(
                     "Review the composed formal report against the frozen result, citation "
                     "check and readability gate. Flag only concrete omissions, contradictions, "
@@ -1470,6 +1490,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://deviation/schedule-scope-fact-analyst@1",
                 version="1",
                 role="deviation-schedule-scope-fact-analyst",
+                description="提取进度与范围事实，不计算偏差指标。",
                 instructions=(
                     "Extract only schedule baselines, actual or forecast milestone dates, "
                     "critical-path indicators, PV/EV, scope items, delivery and acceptance "
@@ -1494,6 +1515,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://deviation/cost-change-fact-analyst@1",
                 version="1",
                 role="deviation-cost-change-fact-analyst",
+                description="提取预算与变更成本事实，不计算成本指标。",
                 instructions=(
                     "Extract only original budget, approved changes, current budget, AC, "
                     "commitments, EAC, PV/EV, currency and frozen exchange-rate facts. Separate "
@@ -1517,6 +1539,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://deviation/root-cause-analyst@1",
                 version="1",
                 role="deviation-root-cause-analyst",
+                description="基于诊断与证据提出可核验的根因假设。",
                 instructions=(
                     "Explain plausible root causes only from deterministic dimension diagnostics "
                     "and cited evidence. Separate observation, causal hypothesis and impact. "
@@ -1538,6 +1561,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://deviation/responsibility-analyst@1",
                 version="1",
                 role="deviation-responsibility-analyst",
+                description="基于证据提出待确认的责任归属建议。",
                 instructions=(
                     "Propose possible responsibility allocation from root causes, RACI, contract "
                     "clauses, approvals and meeting evidence. Every item is a proposal only and "
@@ -1559,6 +1583,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://deviation/evidence-reviewer@1",
                 version="1",
                 role="deviation-evidence-reviewer",
+                description="复核偏差证据与责任建议，判断是否需人工确认。",
                 instructions=(
                     "Review coverage, immutable evidence, conflicts, baseline ambiguity, blocked "
                     "dimensions and responsibility proposals. Require human review for missing "
@@ -1589,6 +1614,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://deviation/report-narrator@1",
                 version="1",
                 role="deviation-report-narrator",
+                description="基于冻结指标撰写中文偏差管理叙述。",
                 instructions=(
                     "Write a concise Chinese management narrative from frozen deterministic "
                     "metrics, evidence review, root causes, trends and proposed responsibility. "
@@ -1619,6 +1645,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://invoice/fact-normalizer@1",
                 version="1",
                 role="invoice-fact-normalizer",
+                description="规范化低置信度发票字段，保留高置信原始值。",
                 instructions=(
                     "Normalize only low-confidence OCR candidates and invoice line item "
                     "semantics. Preserve all high-confidence XML or structured original values "
@@ -1644,6 +1671,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://invoice/commercial-match-analyst@1",
                 version="1",
                 role="invoice-commercial-match-analyst",
+                description="提出发票行与业务行的候选匹配，不裁定金额。",
                 instructions=(
                     "Propose candidate mappings between invoice lines and contract, purchase "
                     "order or acceptance lines when descriptions differ. Every candidate must "
@@ -1668,6 +1696,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="agent://invoice/evidence-risk-reviewer@1",
                 version="1",
                 role="invoice-evidence-risk-reviewer",
+                description="复核发票核验与匹配风险，输出中文风险叙述。",
                 instructions=(
                     "Review evidence coverage, conflicts and unsupported claims across "
                     "verification, arithmetic, party, duplication, commercial match and payment "
@@ -1704,6 +1733,7 @@ def builtin_registry() -> RegistrySnapshot:
                 version="1",
                 runtime="agno",
                 providerModel="openai:gpt-4o-mini",
+                description="通用对话与结构化输出模型路由。",
                 environments=("development", "production"),
             ),
             ModelRegistration(
@@ -1711,6 +1741,7 @@ def builtin_registry() -> RegistrySnapshot:
                 version="1",
                 runtime="agno",
                 providerModel="DeepSeek-V4-Flash",
+                description="DeepSeek V4 Flash 快速推理模型路由。",
                 environments=("development", "production"),
             ),
             ModelRegistration(
@@ -1718,6 +1749,7 @@ def builtin_registry() -> RegistrySnapshot:
                 version="1",
                 runtime="agno",
                 providerModel="DeepSeek-V4-Pro",
+                description="DeepSeek V4 Pro 高强度推理模型路由。",
                 environments=("development", "production"),
             ),
             ModelRegistration(
@@ -1725,6 +1757,7 @@ def builtin_registry() -> RegistrySnapshot:
                 version="1",
                 runtime="agno",
                 providerModel="kimi-k2.5",
+                description="Kimi K2.5 通用模型路由。",
                 environments=("development", "production"),
             ),
             ModelRegistration(
@@ -1732,6 +1765,7 @@ def builtin_registry() -> RegistrySnapshot:
                 version="1",
                 runtime="agno",
                 providerModel="kimi-k2.7-code",
+                description="Kimi K2.7 代码向模型路由。",
                 environments=("development", "production"),
             ),
             ModelRegistration(
@@ -1739,6 +1773,7 @@ def builtin_registry() -> RegistrySnapshot:
                 version="1",
                 runtime="fake-deterministic",
                 providerModel="fake:deterministic",
+                description="测试用确定性假模型路由。",
                 environments=("development", "test"),
             ),
         ),
@@ -1747,7 +1782,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://search@1",
                 version="1",
                 operation="builtin.search",
-                description="Search the configured knowledge source.",
+                description="在已配置的知识源中检索内容。",
                 risk=ToolRisk.LOW,
                 inputSchema={
                     "type": "object",
@@ -1769,7 +1804,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://publish-report@1",
                 version="1",
                 operation="builtin.publish_report",
-                description="Publish an approved report to the controlled business sink.",
+                description="将已审批的报告发布到受控业务出口。",
                 risk=ToolRisk.HIGH,
                 inputSchema={
                     "type": "object",
@@ -1795,7 +1830,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://document/read@1",
                 version="1",
                 operation="contract.document_read",
-                description="Read a controlled project document for contract analysis.",
+                description="读取受控项目文档，供合同分析使用。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("documentId", "filename", "mediaType", "sha256", "contentBase64"),
@@ -1835,7 +1870,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://rules/evaluate@1",
                 version="1",
                 operation="contract.rules_evaluate",
-                description="Evaluate a versioned contract rule set against structured facts.",
+                description="用结构化事实评估版本化合同规则集。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("ruleSetVersionId", "rules", "attachments", "attachmentManifestHash"),
@@ -1855,7 +1890,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://contract/cross-file-consistency@1",
                 version="1",
                 operation="contract.cross_file_consistency",
-                description="Check evidence-backed fields for consistency across contract files.",
+                description="核对跨合同文件中有证据支撑字段的一致性。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("results", "rules"),
@@ -1879,7 +1914,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://workbench/record-evaluation@1",
                 version="1",
                 operation="workbench.record_evaluation",
-                description="Record an idempotent business workbench evaluation result.",
+                description="幂等记录业务工作台评价结果。",
                 risk=ToolRisk.MEDIUM,
                 inputSchema=_object_schema(
                     required=("evaluationId", "result"),
@@ -1905,7 +1940,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/render@1",
                 version="1",
                 operation="report.render",
-                description="Render a deterministic report from a structured evaluation result.",
+                description="根据结构化评价结果确定性渲染报告。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("title", "results"),
@@ -1931,9 +1966,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://resource/read-bound@1",
                 version="1",
                 operation="resource.read_bound",
-                description=(
-                    "Read a frozen capability resource binding and record its content hash."
-                ),
+                description="读取已冻结的能力资源绑定并记录其内容哈希。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("evaluationId", "resource"),
@@ -1951,7 +1984,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://document/read-versions@1",
                 version="1",
                 operation="document.read_versions",
-                description="Read the immutable document versions frozen for an assessment.",
+                description="读取评估已冻结的不可变文档版本。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("evaluationId", "documents"),
@@ -1972,9 +2005,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://evidence/search@1",
                 version="1",
                 operation="evidence.search",
-                description=(
-                    "Search compact processed content from frozen document versions by domain."
-                ),
+                description="按领域检索已冻结文档版本中的精简处理内容。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("documents", "domain"),
@@ -1996,9 +2027,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://document/coverage-check@1",
                 version="1",
                 operation="document.coverage_check",
-                description=(
-                    "Evaluate required document categories, readability and duplicate content."
-                ),
+                description="评估必需文档类别、可读性与重复内容。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("documents", "requirements"),
@@ -2016,9 +2045,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://contract/post-evaluation/merge-domains@1",
                 version="1",
                 operation="contract.post_evaluation_merge_domains",
-                description=(
-                    "Merge four evidence-backed domain analyses into one normalized payload."
-                ),
+                description="将四类有证据支撑的领域分析合并为归一化载荷。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("basePayload", "analyses"),
@@ -2036,7 +2063,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://contract/timeline-calculate@1",
                 version="1",
                 operation="contract.post_evaluation_timeline",
-                description="Calculate deterministic obligation timeliness diagnostics.",
+                description="确定性计算履约义务时效诊断。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload",),
@@ -2051,9 +2078,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://finance/amount-reconcile@1",
                 version="1",
                 operation="finance.post_evaluation_amounts",
-                description=(
-                    "Reconcile contract amount, actual cost and invoiced amount deterministically."
-                ),
+                description="确定性核对合同金额、实际成本与已开票金额。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload",),
@@ -2068,9 +2093,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://invoice/assurance@1",
                 version="1",
                 operation="invoice.post_evaluation_assurance",
-                description=(
-                    "Calculate invoice matching, duplicate and compliance diagnostics."
-                ),
+                description="计算发票匹配、重复与合规诊断。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload",),
@@ -2085,7 +2108,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://deviation/aggregate@1",
                 version="1",
                 operation="deviation.post_evaluation_aggregate",
-                description="Aggregate deviation closure, severity, delay and cost impact.",
+                description="汇总偏差闭环、严重程度、延期与成本影响。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload",),
@@ -2100,7 +2123,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://risk/aggregate@1",
                 version="1",
                 operation="risk.post_evaluation_aggregate",
-                description="Aggregate risk closure, level and overdue remediation diagnostics.",
+                description="汇总风险闭环、级别与逾期整改诊断。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload",),
@@ -2115,9 +2138,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://evidence/consistency-check@1",
                 version="1",
                 operation="evidence.consistency_check",
-                description=(
-                    "Check identifiers, declared conflicts, evidence references and confidence."
-                ),
+                description="检查标识符、已声明冲突、证据引用与置信度。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload", "evidenceFacts", "declaredConflicts"),
@@ -2139,9 +2160,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://contract/post-evaluation/assemble@1",
                 version="1",
                 operation="contract.post_evaluation_assemble",
-                description=(
-                    "Normalize five bound data sources into one contract post-evaluation payload."
-                ),
+                description="将五类绑定数据源归一化为合同后评价载荷。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload", "sources"),
@@ -2164,10 +2183,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://contract/post-evaluation@1",
                 version="1",
                 operation="contract.post_evaluation",
-                description=(
-                    "Calculate a deterministic seven-dimension contract post-evaluation from "
-                    "structured document, performance, deviation, invoice, and risk facts."
-                ),
+                description="基于结构化文档、履约、偏差、发票与风险事实，确定性计算七维合同后评价。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload", "configuration", "attachmentManifestHash"),
@@ -2186,10 +2202,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://contract/post-evaluation/finalize@2",
                 version="2",
                 operation="contract.post_evaluation_finalize",
-                description=(
-                    "Freeze deterministic scoring, evidence review, diagnostics and narrative "
-                    "into the version 2 post-evaluation result."
-                ),
+                description="将确定性评分、证据复核、诊断与叙述冻结为第 2 版后评价结果。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=(
@@ -2220,7 +2233,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/render-post-evaluation@1",
                 version="1",
                 operation="report.render_post_evaluation",
-                description="Render a PDF from the structured seven-dimension evaluation result.",
+                description="根据结构化七维评价结果渲染 PDF。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("title", "result"),
@@ -2238,9 +2251,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/render-post-evaluation@2",
                 version="2",
                 operation="report.render_post_evaluation_v2",
-                description=(
-                    "Render a PDF from the evidence-backed version 2 post-evaluation result."
-                ),
+                description="根据有证据支撑的第 2 版后评价结果渲染 PDF。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("title", "result"),
@@ -2258,10 +2269,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/render-post-evaluation@3",
                 version="3",
                 operation="report.render_post_evaluation_v3",
-                description=(
-                    "Render a CJK-capable PDF from the evidence-backed version 2 "
-                    "post-evaluation result."
-                ),
+                description="根据有证据支撑的第 2 版后评价结果渲染支持中日韩文字的 PDF。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("title", "result"),
@@ -2279,10 +2287,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://document/readability-gate@1",
                 version="1",
                 operation="document.post_evaluation_readability_gate",
-                description=(
-                    "Classify a frozen document set as formal-report eligible or pre-review "
-                    "using a deterministic readable-content threshold."
-                ),
+                description="按确定性可读内容阈值，将冻结文档集判定为可出正式报告或需预审。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("coverage", "formalThreshold"),
@@ -2304,10 +2309,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/compose-post-evaluation@1",
                 version="1",
                 operation="report.compose_post_evaluation",
-                description=(
-                    "Compose a complete business-grade report document from frozen results, "
-                    "diagnostics, approved evidence and bounded model narratives."
-                ),
+                description="基于冻结结果、诊断、已批证据与有界模型叙述，编排完整业务级报告文档。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=(
@@ -2344,10 +2346,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/verify-post-evaluation-citations@1",
                 version="1",
                 operation="report.verify_post_evaluation_citations",
-                description=(
-                    "Verify report citations and prove that all displayed scores match the "
-                    "frozen evaluation."
-                ),
+                description="核验报告引用，并证明展示分数与冻结评价一致。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("reportDocument", "sourceResult"),
@@ -2365,10 +2364,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/check-post-evaluation-quality@1",
                 version="1",
                 operation="report.check_post_evaluation_quality",
-                description=(
-                    "Apply the deterministic formal-report completeness, score, citation and "
-                    "business-language gate and emit the version 3 frozen result."
-                ),
+                description="应用确定性正式报告完整性、分数、引用与业务用语门槛，并输出第 3 版冻结结果。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=(
@@ -2395,10 +2391,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/render-post-evaluation@4",
                 version="4",
                 operation="report.render_post_evaluation_v4",
-                description=(
-                    "Render a quality-gated, multi-section Chinese contract post-evaluation "
-                    "PDF with cover, score chart, tables, evidence, remediation and approval."
-                ),
+                description="渲染经质量门槛把关的多章节中文合同后评价 PDF，含封面、得分图、表格、证据、整改与审批。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("result",),
@@ -2413,7 +2406,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://workbench/record-post-evaluation@1",
                 version="1",
                 operation="workbench.record_post_evaluation",
-                description="Record an idempotent contract post-evaluation result.",
+                description="幂等记录合同后评价结果。",
                 risk=ToolRisk.MEDIUM,
                 inputSchema=_object_schema(
                     required=("evaluationId", "result", "report"),
@@ -2440,9 +2433,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://workbench/record-post-evaluation@2",
                 version="2",
                 operation="workbench.record_post_evaluation",
-                description=(
-                    "Idempotently persist an evidence-backed version 2 evaluation and reports."
-                ),
+                description="幂等持久化有证据支撑的第 2 版评价与报告。",
                 risk=ToolRisk.MEDIUM,
                 inputSchema=_object_schema(
                     required=("evaluationId", "result", "report"),
@@ -2469,10 +2460,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://workbench/record-post-evaluation@3",
                 version="3",
                 operation="workbench.record_post_evaluation",
-                description=(
-                    "Idempotently persist the version 3 evaluation, formal report document, "
-                    "quality gate and rendered PDF."
-                ),
+                description="幂等持久化第 3 版评价、正式报告文档、质量门槛与已渲染 PDF。",
                 risk=ToolRisk.MEDIUM,
                 inputSchema=_object_schema(
                     required=("evaluationId", "result", "report"),
@@ -2499,9 +2487,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://deviation/facts-merge@1",
                 version="1",
                 operation="deviation.facts_merge",
-                description=(
-                    "Merge evidence-backed deviation fact patches without calculating metrics."
-                ),
+                description="合并有证据支撑的偏差事实补丁，不计算指标。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("basePayload", "analyses"),
@@ -2528,9 +2514,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://deviation/time-calculate@1",
                 version="1",
                 operation="deviation.time_calculate",
-                description=(
-                    "Calculate milestone, on-time, critical-path and optional SPI diagnostics."
-                ),
+                description="计算里程碑、准时性、关键路径及可选 SPI 诊断。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload",), properties={"payload": {"type": "object"}}
@@ -2544,9 +2528,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://deviation/content-compare@1",
                 version="1",
                 operation="deviation.content_compare",
-                description=(
-                    "Compare baseline deliverables and acceptance using frozen scoring rules."
-                ),
+                description="按冻结评分规则比较基线交付物与验收结果。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload",), properties={"payload": {"type": "object"}}
@@ -2560,9 +2542,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://deviation/cost-calculate@1",
                 version="1",
                 operation="deviation.cost_calculate",
-                description=(
-                    "Calculate current BAC, EAC variance and optional CV/CPI deterministically."
-                ),
+                description="确定性计算当前 BAC、EAC 偏差及可选 CV/CPI。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload",), properties={"payload": {"type": "object"}}
@@ -2576,10 +2556,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://deviation/history-read@1",
                 version="1",
                 operation="deviation.history_read",
-                description=(
-                    "Read same-subject historical results with identical baseline "
-                    "and configuration."
-                ),
+                description="读取同一主体、相同基线与配置的历史结果。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=(
@@ -2617,9 +2594,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://deviation/trend-build@1",
                 version="1",
                 operation="deviation.trend_build",
-                description=(
-                    "Build comparable trends and decline judgment on a first or incompatible run."
-                ),
+                description="构建可比趋势，并在首次或不可比运行上给出下降判断。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("current", "history"),
@@ -2637,9 +2612,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://deviation/responsibility-aggregate@1",
                 version="1",
                 operation="deviation.responsibility_aggregate",
-                description=(
-                    "Normalize AI responsibility output as human-confirmable proposals only."
-                ),
+                description="将 AI 责任输出归一化为仅供人工确认的建议。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("proposals",),
@@ -2654,9 +2627,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://deviation/finalize@1",
                 version="1",
                 operation="deviation.finalize",
-                description=(
-                    "Freeze metrics, root causes, trends, responsibility, review and provenance."
-                ),
+                description="冻结指标、根因、趋势、责任、复核与溯源信息。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=(
@@ -2691,7 +2662,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/render-deviation-analysis@1",
                 version="1",
                 operation="report.render_deviation_analysis",
-                description="Render a deterministic PDF from the structured deviation result.",
+                description="根据结构化偏差结果确定性渲染 PDF。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("result",), properties={"result": _DEVIATION_RESULT_SCHEMA}
@@ -2705,7 +2676,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://workbench/record-deviation-analysis@1",
                 version="1",
                 operation="workbench.record_deviation_analysis",
-                description="Idempotently persist deviation JSON/PDF, audit and outbox events.",
+                description="幂等持久化偏差 JSON/PDF、审计与发件箱事件。",
                 risk=ToolRisk.MEDIUM,
                 inputSchema=_object_schema(
                     required=("evaluationId", "result", "report"),
@@ -2732,10 +2703,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://invoice/parse@1",
                 version="1",
                 operation="invoice.parse",
-                description=(
-                    "Parse invoice originals preferring XML structured data; mark low-confidence "
-                    "fields for human confirmation without inventing values."
-                ),
+                description="优先解析发票 XML 结构化数据；对低置信度字段标记人工确认，不编造数值。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=(),
@@ -2764,10 +2732,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://invoice/official-verify@1",
                 version="1",
                 operation="invoice.official_verify",
-                description=(
-                    "Run authorized tax verification or create a human-assisted verification "
-                    "task. Never fabricate a successful face match."
-                ),
+                description="执行授权税务核验或创建人工辅助核验任务。绝不伪造票面比对成功。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("invoiceFactSet",),
@@ -2790,10 +2755,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://business/snapshot-read@1",
                 version="1",
                 operation="business.snapshot_read",
-                description=(
-                    "Normalize and hash frozen business snapshots for contracts, POs, "
-                    "acceptance, vendor, AP ledger and budget policy."
-                ),
+                description="归一化并哈希冻结业务快照（合同、采购订单、验收、供应商、应付台账与预算策略）。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("payload",),
@@ -2814,9 +2776,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://invoice/deduplicate@1",
                 version="1",
                 operation="invoice.deduplicate",
-                description=(
-                    "Detect duplicate invoices and red/blue credit relationships in the AP ledger."
-                ),
+                description="在应付台账中检测重复发票及红蓝票冲销关系。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("invoiceFactSet",),
@@ -2835,9 +2795,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://invoice/arithmetic-check@1",
                 version="1",
                 operation="invoice.arithmetic_check",
-                description=(
-                    "Deterministically validate invoice amounts, taxes and required face fields."
-                ),
+                description="确定性校验发票金额、税额与必需票面字段。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("invoiceFactSet",),
@@ -2861,9 +2819,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://invoice/party-check@1",
                 version="1",
                 operation="invoice.party_check",
-                description=(
-                    "Compare buyer/seller tax IDs and approved bank accounts against vendor master."
-                ),
+                description="将购销方税号与已批银行账户对照供应商主数据比对。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("invoiceFactSet",),
@@ -2888,9 +2844,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://invoice/commercial-match@1",
                 version="1",
                 operation="invoice.commercial_match",
-                description=(
-                    "Deterministically match invoice amounts to contract, PO and acceptance lines."
-                ),
+                description="确定性将发票金额匹配到合同、采购订单与验收行。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("invoiceFactSet", "businessSnapshot"),
@@ -2910,9 +2864,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://invoice/payment-gate@1",
                 version="1",
                 operation="invoice.payment_gate",
-                description=(
-                    "Evaluate payment readiness gates including hard blocks that cannot auto-pass."
-                ),
+                description="评估付款就绪门槛，含不可自动通过的硬阻断项。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("verification",),
@@ -2934,9 +2886,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://invoice/finalize@1",
                 version="1",
                 operation="invoice.finalize",
-                description=(
-                    "Assemble the immutable InvoiceAssuranceResult and payment outcome."
-                ),
+                description="组装不可变的发票保障结果与付款结论。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=(
@@ -2970,7 +2920,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/render-invoice-assurance@1",
                 version="1",
                 operation="report.render_invoice_assurance",
-                description="Render a deterministic Chinese PDF from the invoice assurance result.",
+                description="根据发票保障结果确定性渲染中文 PDF。",
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("result",),
@@ -2985,9 +2935,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://workbench/record-invoice-assurance@1",
                 version="1",
                 operation="workbench.record_invoice_assurance",
-                description=(
-                    "Idempotently persist invoice assurance JSON/PDF, findings, audit and outbox."
-                ),
+                description="幂等持久化发票保障 JSON/PDF、发现项、审计与发件箱。",
                 risk=ToolRisk.HIGH,
                 inputSchema=_object_schema(
                     required=("evaluationId", "result", "report"),
@@ -3014,7 +2962,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://filesystem/read-text@1",
                 version="1",
                 operation="filesystem.read_text",
-                description="Read a UTF text file from a tenant/project logical filesystem mount.",
+                description="从租户/项目逻辑文件系统挂载读取 UTF 文本文件。",
                 risk=ToolRisk.MEDIUM,
                 inputSchema=_object_schema(
                     required=("mount", "path"),
@@ -3044,9 +2992,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://filesystem/write-text@1",
                 version="1",
                 operation="filesystem.write_text",
-                description=(
-                    "Atomically write a UTF text file under a tenant/project logical mount."
-                ),
+                description="在租户/项目逻辑挂载下原子写入 UTF 文本文件。",
                 risk=ToolRisk.HIGH,
                 inputSchema=_object_schema(
                     required=("mount", "path", "content"),
@@ -3078,7 +3024,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://filesystem/list@1",
                 version="1",
                 operation="filesystem.list",
-                description="List direct children under a tenant/project logical filesystem path.",
+                description="列出租户/项目逻辑文件系统路径下的直接子项。",
                 risk=ToolRisk.MEDIUM,
                 inputSchema=_object_schema(
                     required=("mount", "path"),
@@ -3117,7 +3063,7 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://filesystem/stat@1",
                 version="1",
                 operation="filesystem.stat",
-                description="Stat a path under a tenant/project logical filesystem mount.",
+                description="查询租户/项目逻辑文件系统挂载下路径的状态信息。",
                 risk=ToolRisk.MEDIUM,
                 inputSchema=_object_schema(
                     required=("mount", "path"),

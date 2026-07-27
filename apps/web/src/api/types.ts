@@ -70,10 +70,10 @@ export interface CapabilitySummary {
 }
 export interface CapabilityCenterResponse { registrySnapshot: string; items: CapabilitySummary[]; }
 export interface ModelProviderConfiguration {
-  logicalModel: string; providerUrl: string; modelName: string; apiKeyConfigured: boolean;
+  logicalModel: string; providerUrl: string; modelName: string; apiKeyConfigured: boolean; displayName?: string;
 }
 export interface ModelProviderConfigurationRequest {
-  logicalModel: string; providerUrl: string; modelName: string; apiKey?: string;
+  logicalModel: string; providerUrl: string; modelName: string; apiKey?: string; displayName?: string;
 }
 export interface ModelProviderTestResult { connected: boolean; modelName: string; latencyMs: number; }
 export interface CapabilityPreset {

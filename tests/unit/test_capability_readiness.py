@@ -111,6 +111,7 @@ async def test_model_secret_endpoint_environment_and_policy_all_gate_readiness()
                 version="1",
                 runtime="agno",
                 providerModel="provider/model",
+                description="测试模型路由。",
                 environments=("production",),
             ),
         )
@@ -133,6 +134,7 @@ async def test_unrouted_models_are_omitted_from_capability_catalog() -> None:
                 version="1",
                 runtime="agno",
                 providerModel="provider/routed",
+                description="测试模型路由。",
                 environments=("development",),
             ),
             ModelRegistration(
@@ -140,6 +142,7 @@ async def test_unrouted_models_are_omitted_from_capability_catalog() -> None:
                 version="1",
                 runtime="agno",
                 providerModel="provider/unrouted",
+                description="测试模型路由。",
                 environments=("development",),
             ),
         )
@@ -175,6 +178,7 @@ async def test_unreachable_model_gateway_keeps_models_visible_as_unhealthy() -> 
                 version="1",
                 runtime="agno",
                 providerModel="provider/model",
+                description="测试模型路由。",
                 environments=("development",),
             ),
         )
@@ -196,6 +200,7 @@ async def test_agent_still_depends_on_unrouted_model_summary() -> None:
                 ref="agent://needs-model@1",
                 version="1",
                 role="needs-model",
+                description="测试智能体。",
                 instructions="needs a model",
                 model="model://missing-route@1",
                 tools=(),
@@ -207,6 +212,7 @@ async def test_agent_still_depends_on_unrouted_model_summary() -> None:
                 version="1",
                 runtime="agno",
                 providerModel="provider/model",
+                description="测试模型路由。",
                 environments=("development",),
             ),
         ),
@@ -243,6 +249,54 @@ async def test_agent_aggregates_adapter_model_and_tool_readiness() -> None:
 
 
 @pytest.mark.asyncio
+async def test_capability_summaries_use_registration_description_not_instructions() -> None:
+    ports = RuntimePorts(
+        model=ModelRuntimeStatus(True, True, True),
+        agent=AgentRuntimeStatus(True),
+        tool=ToolRuntimeStatus(True, True),
+    )
+    summaries = await _project(_service(ports), builtin_registry())
+    agent = next(item for item in summaries if item.ref == "agent://builtin/researcher@1")
+    tool = next(item for item in summaries if item.ref == "tool://search@1")
+    model = next(item for item in summaries if item.ref == "model://general@1")
+    assert agent.description == "使用受控检索调研主题，并整理结构化结论。"
+    assert "Research the requested topic" not in agent.description
+    assert tool.description == "在已配置的知识源中检索内容。"
+    assert model.description == "通用对话与结构化输出模型路由。"
+
+
+@pytest.mark.asyncio
+async def test_empty_agent_description_falls_back_to_instructions() -> None:
+    ports = RuntimePorts(agent=AgentRuntimeStatus(True), model=ModelRuntimeStatus(True, True, True))
+    registry = RegistrySnapshot.create(
+        agents=(
+            AgentRegistration(
+                ref="agent://fallback@1",
+                version="1",
+                role="fallback",
+                description="",
+                instructions="Use the long instructions when description is empty.",
+                model="model://ready@1",
+                tools=(),
+            ),
+        ),
+        models=(
+            ModelRegistration(
+                ref="model://ready@1",
+                version="1",
+                runtime="agno",
+                providerModel="provider/model",
+                description="测试模型路由。",
+                environments=("development",),
+            ),
+        ),
+    )
+    summaries = await _project(_service(ports), registry)
+    agent = next(item for item in summaries if item.ref == "agent://fallback@1")
+    assert agent.description == "Use the long instructions when description is empty."
+
+
+@pytest.mark.asyncio
 async def test_invalid_schema_prevents_tool_readiness() -> None:
     registry = RegistrySnapshot.create(
         tools=(
@@ -270,6 +324,7 @@ async def test_agent_dependency_cycle_is_reported() -> None:
         ref="agent://first@1",
         version="1",
         role="first",
+        description="测试智能体甲。",
         instructions="first",
         model="model://ready@1",
         tools=("agent://second@1",),
@@ -278,6 +333,7 @@ async def test_agent_dependency_cycle_is_reported() -> None:
         ref="agent://second@1",
         version="1",
         role="second",
+        description="测试智能体乙。",
         instructions="second",
         model="model://ready@1",
         tools=("agent://first@1",),
@@ -287,6 +343,7 @@ async def test_agent_dependency_cycle_is_reported() -> None:
         version="1",
         runtime="agno",
         providerModel="provider/model",
+        description="测试模型路由。",
         environments=("development",),
     )
     summaries = await _project(
@@ -308,6 +365,7 @@ async def test_cache_is_scoped_and_expires_by_tenant_project_environment_and_sna
                 version="1",
                 runtime="agno",
                 providerModel="provider/model",
+                description="测试模型路由。",
                 environments=("development", "test"),
             ),
         )
@@ -354,6 +412,7 @@ async def test_cache_ttl_starts_after_a_slow_readiness_projection_finishes() -> 
                 version="1",
                 runtime="agno",
                 providerModel="provider/model",
+                description="测试模型路由。",
                 environments=("development",),
             ),
         )

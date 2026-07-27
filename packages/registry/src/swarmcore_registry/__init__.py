@@ -23,6 +23,14 @@ from .models import (
     ToolRisk,
     builtin_registry,
 )
+from .project_models import (
+    is_project_model_ref,
+    is_runtime_provider_name,
+    parse_project_model_id,
+    project_model_logical_id,
+    runtime_provider_name,
+    synthesize_project_model_registration,
+)
 
 __all__ = [
     "FAKE_FILES_CONNECTOR",
@@ -41,7 +49,13 @@ __all__ = [
     "builtin_connector_registry",
     "builtin_registry",
     "hash_manifest",
+    "is_project_model_ref",
+    "is_runtime_provider_name",
     "load_trusted_manifests",
     "normalize_manifest",
+    "parse_project_model_id",
+    "project_model_logical_id",
     "resolve_manifest",
+    "runtime_provider_name",
+    "synthesize_project_model_registration",
 ]

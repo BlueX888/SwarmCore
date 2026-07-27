@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Activity, ArrowLeft, Bot, BrainCircuit, BriefcaseBusiness, ChartNoAxesCombined, ChevronLeft, ChevronRight,
   Clock3, Cpu, ExternalLink, FileCheck2, FileOutput, FileScan, Files, Gauge, Inbox,
-  LayoutDashboard, Menu, Moon, Network, Plus, ReceiptText, Rocket, ScrollText, ShieldCheck, Sun,
+  LayoutDashboard, Menu, Moon, Network, ReceiptText, Rocket, ScrollText, ShieldCheck, Sun,
   Workflow, Wrench, X,
 } from "lucide-react";
 import * as React from "react";
@@ -156,7 +156,7 @@ export function AppShell() {
       <div className={cn("transition-[margin]", collapsed ? "xl:ml-[90px]" : "xl:ml-[290px]")}>
         <header className="z-30 sticky top-0 flex h-[72px] items-center justify-between gap-3 border-b border-gray-200/70 bg-white/75 px-4 backdrop-blur-xl md:px-6 dark:border-gray-800 dark:bg-gray-900/75">
           <div className="flex min-w-0 items-center gap-3"><Button variant="ghost" size="icon" aria-label="打开导航" className="shrink-0 xl:hidden" onClick={() => setMobileOpen(true)}><Menu /></Button><Button variant="ghost" size="icon" aria-label="返回上一页" disabled={!canGoBack} onClick={() => void navigate(-1)} className="shrink-0"><ArrowLeft /></Button><div className="min-w-0"><p className="truncate text-sm font-medium text-gray-800 dark:text-white/90">{currentPage(location.pathname)}</p><p className="hidden text-xs text-gray-500 sm:block">可靠、耐久的多智能体运行管理</p></div></div>
-          <div className="flex items-center gap-2"><Button asChild variant="outline" size="sm" className="hidden md:inline-flex"><Link to={`${workspacePath}/canvas`}><Network />编排画布</Link></Button><Button asChild size="sm" className="hidden sm:inline-flex"><Link to={`${workspacePath}/runs/new`}><Plus />新建运行</Link></Button><Button variant="outline" size="icon" aria-label="切换颜色主题" onClick={toggleTheme}>{theme === "dark" ? <Sun /> : <Moon />}</Button></div>
+          <div className="flex items-center gap-2"><Button variant="outline" size="icon" aria-label="切换颜色主题" onClick={toggleTheme}>{theme === "dark" ? <Sun /> : <Moon />}</Button></div>
         </header>
         <main className="mx-auto w-full max-w-(--breakpoint-2xl) p-4 pb-20 md:p-7 md:pb-24 xl:p-8"><Outlet /></main>
       </div>

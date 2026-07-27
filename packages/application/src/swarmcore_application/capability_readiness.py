@@ -208,7 +208,7 @@ class CapabilityReadinessService:
                 ref=registration.ref,
                 kind=CapabilityKind.AGENT,
                 name=registration.role,
-                description=registration.instructions,
+                description=self._display_description(registration),
                 inputSchema=registration.input_schema,
                 outputSchema=registration.output_schema,
                 readiness=self._readiness(reasons),
@@ -257,7 +257,7 @@ class CapabilityReadinessService:
             ref=registration.ref,
             kind=CapabilityKind.TOOL,
             name=registration.ref.split("/")[-1].split("@")[0],
-            description=registration.description,
+            description=self._display_description(registration),
             risk=registration.risk.value,
             inputSchema=registration.input_schema,
             outputSchema=registration.output_schema,
@@ -294,7 +294,7 @@ class CapabilityReadinessService:
             ref=registration.ref,
             kind=CapabilityKind.MODEL,
             name=registration.ref.split("/")[-1].split("@")[0],
-            description=f"Model route for {registration.provider_model}",
+            description=self._display_description(registration),
             readiness=self._readiness(reasons),
         )
 
@@ -333,11 +333,24 @@ class CapabilityReadinessService:
             ref=registration.ref,
             kind=CapabilityKind.AGENT,
             name=registration.role,
-            description=registration.instructions,
+            description=self._display_description(registration),
             inputSchema=registration.input_schema,
             outputSchema=registration.output_schema,
             readiness=self._readiness(reasons),
         )
+
+    @staticmethod
+    def _display_description(
+        registration: AgentRegistration | ModelRegistration | ToolRegistration,
+    ) -> str:
+        description = getattr(registration, "description", "") or ""
+        if description.strip():
+            return description
+        if isinstance(registration, AgentRegistration):
+            return registration.instructions
+        if isinstance(registration, ModelRegistration):
+            return f"Model route for {registration.provider_model}"
+        return ""
 
     @classmethod
     def _has_agent_cycle(
@@ -369,9 +382,20 @@ class CapabilityReadinessService:
         resolver: Callable[[str], ModelRegistration | ToolRegistration | None],
     ) -> CapabilitySummary | None:
         resolved = resolver(reference)
-        if resolved is None:
-            return None
-        return summaries.get(resolved.ref)
+        if resolved is not None:
+            match = summaries.get(resolved.ref)
+            if match is not None:
+                return match
+        direct = summaries.get(reference)
+        if direct is not None:
+            return direct
+        base = reference.rsplit("@", 1)[0]
+        matches = [
+            summary
+            for ref, summary in summaries.items()
+            if ref.rsplit("@", 1)[0] == base
+        ]
+        return matches[0] if len(matches) == 1 else None
 
     @classmethod
     def _append_dependency(

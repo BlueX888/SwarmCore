@@ -30,7 +30,9 @@ class GatewayModelResolver:
 
     def resolve(self, reference: str, context: Mapping[str, Any]) -> OpenAIChat:
         logical_model = reference.rsplit("@", 1)[0]
-        if logical_model not in self._allowed_models:
+        if logical_model not in self._allowed_models and not logical_model.startswith(
+            "model://project/"
+        ):
             raise ValueError(f"model reference is not configured: {reference}")
         run = context["run"]
         token = self._tokens.issue(

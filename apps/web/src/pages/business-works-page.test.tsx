@@ -175,7 +175,8 @@ describe("business works page", () => {
     );
     expect(screen.getByLabelText("运行就绪摘要")).toBeVisible();
     expect(screen.queryByLabelText("当前运行资格")).not.toBeInTheDocument();
-    expect(screen.getByText("业务说明").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("业务说明").closest("details")).toHaveAttribute("open");
+    expect(screen.getByRole("region", { name: "业务说明" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "配置工作所需能力" })).not.toBeInTheDocument();
   });
 

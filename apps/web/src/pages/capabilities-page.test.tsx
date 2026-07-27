@@ -12,7 +12,7 @@ vi.mock("@/api/client", () => ({ api: {
 } }));
 
 const ready = {
-  ref: "tool://search@1", kind: "tool" as const, name: "受控检索", description: "搜索项目知识。", source: "system",
+  ref: "tool://search@1", kind: "tool" as const, name: "受控检索", description: "在已配置的知识源中检索内容。", source: "system",
   readiness: { status: "READY" as const, reasons: [] }, risk: "LOW",
   inputSchema: { type: "object", properties: { query: { type: "string", title: "检索词" } }, required: ["query"] }, outputSchema: { type: "object" },
 };
@@ -22,7 +22,7 @@ const notReady = {
   inputSchema: { type: "object" }, outputSchema: { type: "object" },
 };
 const agent = {
-  ref: "agent://builtin/researcher@1", kind: "agent" as const, name: "researcher", description: "Research the assigned topic.", source: "system",
+  ref: "agent://builtin/researcher@1", kind: "agent" as const, name: "researcher", description: "使用受控检索调研主题，并整理结构化结论。", source: "system",
   readiness: { status: "READY" as const, reasons: [] },
   inputSchema: { type: "object", required: ["topic"], properties: {
     topic: { type: "string", title: "研究主题" },
@@ -37,7 +37,7 @@ const projectAgent = {
   source: "project",
 };
 const model = {
-  ref: "model://general@1", kind: "model" as const, name: "general", description: "General model.", source: "system",
+  ref: "model://general@1", kind: "model" as const, name: "general", description: "通用对话与结构化输出模型路由。", source: "system",
   readiness: { status: "READY" as const, reasons: [] }, inputSchema: { type: "object" }, outputSchema: { type: "object" },
 };
 const preset = {
@@ -82,8 +82,8 @@ describe("capabilities page", () => {
     vi.mocked(api.updatePreset).mockResolvedValue({ ...preset, name: "更新预设", revision: 2 });
     vi.mocked(api.copyPreset).mockResolvedValue({ ...preset, presetId: "preset-2", name: "日报检索 副本" });
     vi.mocked(api.deletePreset).mockResolvedValue(undefined);
-    vi.mocked(api.getModelProvider).mockResolvedValue({ logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", apiKeyConfigured: true });
-    vi.mocked(api.saveModelProvider).mockResolvedValue({ logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", apiKeyConfigured: true });
+    vi.mocked(api.getModelProvider).mockResolvedValue({ logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", apiKeyConfigured: true, displayName: "test-model" });
+    vi.mocked(api.saveModelProvider).mockResolvedValue({ logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", apiKeyConfigured: true, displayName: "test-model" });
     vi.mocked(api.testModelProvider).mockResolvedValue({ connected: true, modelName: "test-model", latencyMs: 42 });
   });
 
@@ -116,6 +116,35 @@ describe("capabilities page", () => {
     expect(within(lowCard).getByText("LOW 风险")).toHaveClass("bg-success-50", "text-success-600");
     expect(within(mediumCard).getByText("MEDIUM 风险")).toHaveClass("bg-warning-50", "text-warning-600");
     expect(within(highCard).getByText("HIGH 风险")).toHaveClass("bg-error-50", "text-error-600");
+  });
+
+  it("filters tools by risk classification", async () => {
+    const mediumRisk = { ...ready, ref: "tool://medium@1", name: "中风险工具", description: "中风险描述。", risk: "MEDIUM" };
+    const highRisk = { ...ready, ref: "tool://high@1", name: "高风险工具", description: "高风险描述。", risk: "HIGH" };
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [ready, mediumRisk, highRisk] });
+    renderPage();
+
+    expect(await screen.findByText("受控检索")).toBeVisible();
+    expect(screen.getByText("中风险工具")).toBeVisible();
+    expect(screen.getByText("高风险工具")).toBeVisible();
+    const riskGroup = screen.getByRole("group", { name: "按风险分类" });
+    expect(within(riskGroup).getByRole("button", { name: "全部" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(within(riskGroup).getByRole("button", { name: "HIGH" }));
+    expect(screen.queryByText("受控检索")).not.toBeInTheDocument();
+    expect(screen.queryByText("中风险工具")).not.toBeInTheDocument();
+    expect(screen.getByText("高风险工具")).toBeVisible();
+    expect(within(riskGroup).getByRole("button", { name: "HIGH" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(within(riskGroup).getByRole("button", { name: "LOW" }));
+    expect(screen.getByText("受控检索")).toBeVisible();
+    expect(screen.queryByText("中风险工具")).not.toBeInTheDocument();
+    expect(screen.queryByText("高风险工具")).not.toBeInTheDocument();
+
+    fireEvent.click(within(riskGroup).getByRole("button", { name: "全部" }));
+    expect(screen.getByText("受控检索")).toBeVisible();
+    expect(screen.getByText("中风险工具")).toBeVisible();
+    expect(screen.getByText("高风险工具")).toBeVisible();
   });
 
   it("opens capability details in a dialog and closes from the header action", async () => {
@@ -198,41 +227,101 @@ describe("capabilities page", () => {
     expect(await screen.findByText(/智能体配置入口 \?configuration=7741c9d0-340e-4ef1-a0d0-a20961195c04/)).toBeVisible();
   });
 
-  it("guides empty model catalog toward route configuration", async () => {
+  it("guides empty model catalog toward three-field creation", async () => {
     vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [] });
     renderModelPage();
     expect(await screen.findByRole("heading", { name: "模型" })).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "显示已配置但未就绪" })).toBeVisible();
     expect(screen.getByText("没有可用模型。")).toBeVisible();
-    expect(screen.getByText(/点击“新建模型”配置 API URL/)).toBeVisible();
+    expect(screen.getByText(/点击“新建模型”，只需填写 API URL、ModelName 和 API Key/)).toBeVisible();
     fireEvent.click(screen.getByRole("checkbox", { name: "显示已配置但未就绪" }));
-    expect(await screen.findByText("当前环境没有已配置路由的模型。")).toBeVisible();
+    expect(await screen.findByText("当前项目还没有模型配置。")).toBeVisible();
   });
 
-  it("configures and performs a real model connectivity test", async () => {
+  it("configures and performs a real model connectivity test without run controls", async () => {
     vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [model] });
     renderModelPage();
     fireEvent.click(await screen.findByRole("button", { name: /general/ }));
     const dialog = screen.getByRole("dialog", { name: "general" });
     await waitFor(() => expect(within(dialog).getByLabelText("模型 API URL")).toHaveValue("https://api.example.com/v1"));
+    expect(within(dialog).queryByRole("heading", { name: "我的预设" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("运行输入 JSON")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "加入画布" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "立即运行" })).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/提示词在配置智能体或策略节点时填写/)).toBeVisible();
     fireEvent.click(within(dialog).getByRole("button", { name: "检测连接" }));
     await waitFor(() => expect(api.testModelProvider).toHaveBeenCalledWith(expect.any(String), expect.any(String), {
-      logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model",
+      logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", displayName: "test-model",
     }));
     expect(await within(dialog).findByText(/连接成功.*42 ms/)).toBeVisible();
   });
 
-  it("opens a new model configuration form from the page header", async () => {
+  it("shows a visual API key mask when configured and toggles only local typed values", async () => {
     vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [model] });
+    renderModelPage();
+    fireEvent.click(await screen.findByRole("button", { name: /general/ }));
+    const dialog = screen.getByRole("dialog", { name: "general" });
+    const apiKeyInput = await within(dialog).findByLabelText("模型 API Key");
+    await waitFor(() => expect(apiKeyInput).toHaveValue("••••••••"));
+    expect(apiKeyInput).toHaveAttribute("type", "password");
+    expect(within(dialog).getByText(/已有密钥保存在 Vault/)).toBeVisible();
+    const vaultMaskToggle = within(dialog).getByRole("button", { name: "已保存密钥不可回显" });
+    expect(vaultMaskToggle).toBeDisabled();
+    expect(vaultMaskToggle.querySelector("svg.lucide-eye-off")).toBeTruthy();
+
+    fireEvent.focus(apiKeyInput);
+    expect(apiKeyInput).toHaveValue("");
+    fireEvent.change(apiKeyInput, { target: { value: "sk-local-secret" } });
+    expect(apiKeyInput).toHaveValue("sk-local-secret");
+    expect(apiKeyInput).toHaveAttribute("type", "password");
+    const revealToggle = within(dialog).getByRole("button", { name: "显示 API Key" });
+    expect(revealToggle.querySelector("svg.lucide-eye-off")).toBeTruthy();
+
+    fireEvent.click(revealToggle);
+    expect(apiKeyInput).toHaveAttribute("type", "text");
+    const hideToggle = within(dialog).getByRole("button", { name: "隐藏 API Key" });
+    expect(hideToggle.querySelector("svg.lucide-eye")).toBeTruthy();
+    fireEvent.click(hideToggle);
+    expect(apiKeyInput).toHaveAttribute("type", "password");
+    expect(within(dialog).getByRole("button", { name: "显示 API Key" }).querySelector("svg.lucide-eye-off")).toBeTruthy();
+
+    fireEvent.change(apiKeyInput, { target: { value: "" } });
+    fireEvent.blur(apiKeyInput);
+    await waitFor(() => expect(apiKeyInput).toHaveValue("••••••••"));
+    expect(within(dialog).getByRole("button", { name: "已保存密钥不可回显" })).toBeDisabled();
+  });
+
+  it("creates a project model from three fields without picking a logical route", async () => {
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [] });
+    vi.mocked(api.saveModelProvider).mockResolvedValue({
+      logicalModel: "model://project/11111111-1111-1111-1111-111111111111",
+      providerUrl: "https://api.example.com/v1",
+      modelName: "gpt-4.1-mini",
+      apiKeyConfigured: true,
+      displayName: "业务模型",
+    });
     renderModelPage();
     fireEvent.click(await screen.findByRole("button", { name: "新建模型" }));
     const dialog = screen.getByRole("dialog", { name: "新建模型配置" });
-    expect(within(dialog).getByLabelText("逻辑模型路由")).toHaveValue("model://general@1");
-    expect(await within(dialog).findByLabelText("模型 API URL")).toBeVisible();
-    expect(within(dialog).getByLabelText("模型 API Key")).toHaveAttribute("type", "password");
-    expect(within(dialog).getByLabelText("模型名称")).toBeVisible();
-    expect(within(dialog).getByRole("button", { name: "检测连接" })).toBeVisible();
-    expect(within(dialog).getByRole("button", { name: "保存配置" })).toBeVisible();
+    expect(within(dialog).queryByLabelText("逻辑模型路由")).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/填写三要素即可创建项目级可用模型/)).toBeVisible();
+    fireEvent.change(within(dialog).getByLabelText("模型显示名称"), { target: { value: "业务模型" } });
+    fireEvent.change(within(dialog).getByLabelText("模型 API URL"), { target: { value: "https://api.example.com/v1" } });
+    fireEvent.change(within(dialog).getByLabelText("模型名称"), { target: { value: "gpt-4.1-mini" } });
+    fireEvent.change(within(dialog).getByLabelText("模型 API Key"), { target: { value: "sk-test" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "创建并保存" }));
+    await waitFor(() => expect(api.saveModelProvider).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({
+        providerUrl: "https://api.example.com/v1",
+        modelName: "gpt-4.1-mini",
+        displayName: "业务模型",
+        apiKey: "sk-test",
+        logicalModel: expect.stringMatching(/^model:\/\/project\/[0-9a-f-]{36}$/),
+      }),
+    ));
+    expect(await within(dialog).findByText(/已创建项目模型/)).toBeVisible();
   });
 
   it("opens the policy creation flow from the page header", async () => {

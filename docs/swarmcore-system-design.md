@@ -130,9 +130,11 @@ flowchart TB
 
 就绪门槛：Tool 必须有合法 Schema、executor、风险/幂等/恢复策略和健康状态；Model 必须有 Route、可租用 Secret 和健康 Endpoint；Agent 的 Adapter、模型和 Tool 依赖必须全部就绪；Strategy 必须已发布并编译；Capability Pack 启用前全部必需依赖必须就绪。
 
-能力中心目录对 Model 额外收窄：Registry 可声明系统内置逻辑模型，但只有当前部署在 `SWARMCORE_MODEL_ROUTES`（Model Gateway）中登记了路由的模型才会出现在能力中心列表。无路由模型不作为“未就绪卡片”展示，仍参与 Agent 依赖就绪计算（`DEPENDENCY_NOT_READY`）。Gateway 不可达时不按“无路由”隐藏，而是保留条目并标记健康检查失败。
+能力中心目录对 Model 额外收窄：Registry 可声明系统内置逻辑模型，但只有当前部署在 `SWARMCORE_MODEL_ROUTES`（Model Gateway）中登记了路由的模型才会作为系统模型出现在能力中心列表。无路由的系统模型不作为“未就绪卡片”展示，仍参与 Agent 依赖就绪计算（`DEPENDENCY_NOT_READY`）。Gateway 不可达时不按“无路由”隐藏，而是保留条目并标记健康检查失败。
 
-`ProjectConfiguration` 继续使用 `project_configurations` 表和旧 API。Tool/Model 的用户层配置称为 Capability Preset，只保存能力引用和可复用参数，不保存 Secret。Agent 配置则投影为项目级、版本化的 `agent://project/{configurationId}@{revision}` 能力，参与 Readiness、能力中心直接运行和画布编排；执行时仍由 Agent Worker 通过 Agno Adapter 按任务创建运行实例，不把 SDK 对象作为持久状态。能力中心的直接运行和 REST/MCP 均复用同一应用服务，不建立旁路。
+项目也可在能力中心通过三要素（API URL、ModelName、API Key）直接创建项目级模型能力，引用形如 `model://project/{uuid}@{revision}`。这类模型不进入全局 Registry / `SWARMCORE_MODEL_ROUTES`，凭证仍写入 Vault；Model Gateway 在存在项目运行时 Provider 配置时允许调用。能力目录与智能体/策略模型选择器会合并展示项目模型。模型详情页只负责连通与保存配置，不提供运行输入、预设、加入画布或立即运行。
+
+`ProjectConfiguration` 继续使用 `project_configurations` 表和旧 API。Tool 的用户层配置称为 Capability Preset，只保存能力引用和可复用参数，不保存 Secret。Agent 配置则投影为项目级、版本化的 `agent://project/{configurationId}@{revision}` 能力，参与 Readiness、能力中心直接运行和画布编排；执行时仍由 Agent Worker 通过 Agno Adapter 按任务创建运行实例，不把 SDK 对象作为持久状态。能力中心的直接运行和 REST/MCP 均复用同一应用服务，不建立旁路。
 
 ## 5. 执行与一致性契约
 

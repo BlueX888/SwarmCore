@@ -294,6 +294,7 @@ class RunSnapshot(ApiModel):
     output_ref: str | None = Field(alias="outputRef")
     snapshot_seq: int = Field(alias="snapshotSeq")
     earliest_available_seq: int = Field(alias="earliestAvailableSeq")
+    strategy_version_id: UUID = Field(alias="strategyVersionId")
     plan_hash: str = Field(alias="planHash")
     usage: dict[str, Any] = Field(default_factory=dict)
     task_counts: dict[str, int] = Field(default_factory=dict, alias="taskCounts")

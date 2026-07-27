@@ -92,6 +92,7 @@ from .invoice_assurance import (
     arithmetic_check,
     commercial_match,
     deduplicate,
+    enterprise_public_status_check,
     finalize_invoice_assurance,
     invoice_assurance_report_lines,
     official_verify,
@@ -100,6 +101,13 @@ from .invoice_assurance import (
     payment_gate,
     read_business_snapshot,
     validate_invoice_assurance_result,
+)
+from .invoice_assurance_operations import (
+    InvoiceAssuranceOperationsService,
+    InvoiceBatchInput,
+    InvoiceBatchItemSnapshot,
+    InvoiceBatchSnapshot,
+    build_rule_trends,
 )
 from .document_intelligence import (
     AccuracyBaseline,
@@ -323,6 +331,10 @@ __all__ = [
     "ToolRuntimeStatus",
     "UploadBatchService",
     "WorkbenchService",
+    "InvoiceAssuranceOperationsService",
+    "InvoiceBatchInput",
+    "InvoiceBatchItemSnapshot",
+    "InvoiceBatchSnapshot",
     "aggregate_deviations",
     "aggregate_responsibility",
     "aggregate_risks",
@@ -330,6 +342,7 @@ __all__ = [
     "assure_invoices",
     "assess_document_readability",
     "build_deviation_trends",
+    "build_rule_trends",
     "calculate_accuracy_baseline",
     "calculate_cost_deviation",
     "calculate_time_deviation",
@@ -343,6 +356,7 @@ __all__ = [
     "compose_formal_post_evaluation_report",
     "cross_file_consistency",
     "deduplicate",
+    "enterprise_public_status_check",
     "deviation_report_lines",
     "document_binding_keys",
     "document_read",

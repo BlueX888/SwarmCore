@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import inspect
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -89,6 +90,25 @@ DEVIATION_ANALYSIS_OPERATIONS = {
     "workbench.record_deviation_analysis",
 }
 
+INVOICE_ASSURANCE_OPERATIONS = {
+    "invoice.parse",
+    "invoice.official_verify",
+    "business.snapshot_read",
+    "invoice.deduplicate",
+    "invoice.arithmetic_check",
+    "invoice.enterprise_status_check",
+    "invoice.party_check",
+    "invoice.commercial_match",
+    "invoice.payment_gate",
+    "invoice.finalize",
+    "report.render_invoice_assurance",
+    "workbench.record_invoice_assurance",
+}
+
+INVOICE_ASSURANCE_PURE_OPERATIONS = INVOICE_ASSURANCE_OPERATIONS - {
+    "workbench.record_invoice_assurance"
+}
+
 
 def test_phase_six_tools_have_executors_and_closed_contracts() -> None:
     registrations = {
@@ -108,6 +128,20 @@ def test_phase_six_tools_have_executors_and_closed_contracts() -> None:
         assert registration.input_schema["additionalProperties"] is False
         assert registration.output_schema["additionalProperties"] is False
         assert registration.recovery_policy == "idempotent"
+
+
+def test_invoice_assurance_tools_match_gateway_executor_contracts() -> None:
+    executors = capability_executors(None)  # type: ignore[arg-type]
+    assert set(executors) >= INVOICE_ASSURANCE_OPERATIONS
+    for operation in INVOICE_ASSURANCE_PURE_OPERATIONS:
+        assert len(inspect.signature(executors[operation]).parameters) == 2
+
+    evidence_search = builtin_registry().resolve_tool("tool://evidence/search@1")
+    assert evidence_search is not None
+    Draft202012Validator(evidence_search.input_schema).validate(
+        {"documents": [], "domain": "commercial"}
+    )
+    assert search_evidence([], domain="commercial")["domain"] == "commercial"
 
 
 def _expanded_payload() -> dict[str, object]:

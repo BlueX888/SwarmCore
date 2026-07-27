@@ -310,17 +310,15 @@ describe("capabilities page", () => {
     fireEvent.change(within(dialog).getByLabelText("模型名称"), { target: { value: "gpt-4.1-mini" } });
     fireEvent.change(within(dialog).getByLabelText("模型 API Key"), { target: { value: "sk-test" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "创建并保存" }));
-    await waitFor(() => expect(api.saveModelProvider).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(String),
-      expect.objectContaining({
-        providerUrl: "https://api.example.com/v1",
-        modelName: "gpt-4.1-mini",
-        displayName: "业务模型",
-        apiKey: "sk-test",
-        logicalModel: expect.stringMatching(/^model:\/\/project\/[0-9a-f-]{36}$/),
-      }),
-    ));
+    await waitFor(() => expect(api.saveModelProvider).toHaveBeenCalledOnce());
+    const request = vi.mocked(api.saveModelProvider).mock.calls[0]?.[2];
+    expect(request).toMatchObject({
+      providerUrl: "https://api.example.com/v1",
+      modelName: "gpt-4.1-mini",
+      displayName: "业务模型",
+      apiKey: "sk-test",
+    });
+    expect(request?.logicalModel).toMatch(/^model:\/\/project\/[0-9a-f-]{36}$/);
     expect(await within(dialog).findByText(/已创建项目模型/)).toBeVisible();
   });
 

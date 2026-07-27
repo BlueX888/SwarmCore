@@ -227,4 +227,47 @@ describe("strategy delete ui", () => {
     await waitFor(() => expect(api.deleteStrategy).toHaveBeenCalled());
     expect(await screen.findByText("strategies-list")).toBeVisible();
   });
+
+  it("loads trusted strategies without draft instead of staying on skeleton", async () => {
+    const trusted = {
+      strategyId: "trusted-1",
+      name: "trusted-deviation-analysis-execute",
+      lifecycle: "TRUSTED",
+      createdAt: "2026-07-23T00:00:00Z",
+      updatedAt: "2026-07-26T00:00:00Z",
+      draftId: null,
+      draftRevision: null,
+      latestVersion: 1,
+    };
+    vi.mocked(api.listStrategies).mockResolvedValue({ items: [trusted], total: 1 });
+    vi.mocked(api.listVersions).mockResolvedValue({
+      items: [{
+        strategyVersionId: "version-1",
+        strategyId: trusted.strategyId,
+        version: 1,
+        lifecycle: "PUBLISHED",
+        planHash: "a".repeat(64),
+        schemaVersion: "swarmcore.io/v1",
+        runtimeVersion: "1.1.0",
+        createdAt: "2026-07-23T00:00:00Z",
+      }],
+      total: 1,
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/strategies/trusted-1"]}>
+          <Routes>
+            <Route path="/strategies/:strategyId" element={<StrategyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("该策略没有可编辑草稿")).toBeVisible();
+    expect(screen.getByRole("heading", { name: trusted.name })).toBeVisible();
+    expect(screen.getByText("版本 1")).toBeVisible();
+    expect(api.getDraft).not.toHaveBeenCalled();
+    expect(document.querySelector(".animate-pulse")).toBeNull();
+  });
 });

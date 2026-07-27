@@ -94,7 +94,10 @@ describe("assessment page", () => {
     vi.mocked(api.getAssessment).mockResolvedValue(detail({ status: "RUNNING", result: null }));
     vi.mocked(api.getRun).mockResolvedValue({ runId: "run-1", status: "RUNNING", completedAt: null } as never);
     renderPage();
-    expect(await screen.findByText(/评估仍在进行中/)).toBeVisible();
+    expect(await screen.findByText("评估仍在进行中")).toBeVisible();
+    expect(screen.getByText("正在同步关联 Run 状态，完成后结果会自动更新。")).toBeVisible();
+    expect(screen.getByRole("status")).toBeVisible();
+    expect(screen.getAllByText("RUNNING").length).toBeGreaterThan(0);
   });
 
   it("shows formal report readability and quality gate status", async () => {

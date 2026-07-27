@@ -22,6 +22,7 @@ function runSnapshot(overrides: Partial<RunSnapshot> = {}): RunSnapshot {
     outputRef: null,
     snapshotSeq: 3,
     earliestAvailableSeq: 0,
+    strategyVersionId: "strategy-version-1",
     planHash: "a".repeat(64),
     usage: {},
     taskCounts: { SUCCEEDED: 2 },

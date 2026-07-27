@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
-  Boxes, Braces, ChevronDown, ChevronUp, Files, Play, Settings2, ShieldCheck, Workflow,
+  BarChart3, Boxes, Braces, ChevronDown, ChevronUp, Files, Play, Settings2, ShieldCheck, Workflow,
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api } from "@/api/client";
-import type { CapabilityPackSnapshot, CaseSubjectInput } from "@/api/types";
+import type { CapabilityPackSnapshot, CaseSubjectInput, InvoiceRuleTrendSnapshot } from "@/api/types";
 import {
   DocumentRequirementChecklist,
   DocumentUploadPanel,
@@ -71,6 +71,11 @@ export function BusinessWorkWorkbenchPage() {
     queryKey: ["capability-packs", tenantId, projectId],
     queryFn: () => api.listCapabilityPacks(tenantId, projectId),
     enabled: Boolean(work.data?.packName),
+  });
+  const invoiceTrends = useQuery({
+    queryKey: ["invoice-assurance-rule-trends", tenantId, projectId],
+    queryFn: () => api.getInvoiceAssuranceRuleTrends(tenantId, projectId, "day"),
+    enabled: workKey === "invoice-assurance",
   });
   const pack = useMemo(
     () => selectPack(packs.data?.items ?? [], work.data?.packName ?? ""),
@@ -233,6 +238,9 @@ export function BusinessWorkWorkbenchPage() {
     </section>
 
     <DocumentWorkbenchPanel workKey={workKey} tenantId={tenantId} projectId={projectId} />
+    {workKey === "invoice-assurance" ? (
+      <InvoiceRuleTrendPanel trend={invoiceTrends.data} loading={invoiceTrends.isPending} />
+    ) : null}
 
     {!ready ? (
       <Card>
@@ -375,6 +383,60 @@ function Field({
       {label}
       {children}
     </label>
+  );
+}
+
+function InvoiceRuleTrendPanel({
+  trend,
+  loading,
+}: {
+  trend: InvoiceRuleTrendSnapshot | undefined;
+  loading: boolean;
+}) {
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-5">
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10">
+            <BarChart3 className="size-5" />
+          </span>
+          <div>
+            <h2 className="font-semibold text-gray-900 dark:text-white">规则命中趋势</h2>
+            <p className="mt-1 text-xs text-gray-500">按历史发票 Assessment 聚合，只统计 FAIL、WARN 和 UNKNOWN。</p>
+          </div>
+        </div>
+        {loading ? <Skeleton className="h-24" /> : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl bg-gray-50 p-3 dark:bg-gray-800/60">
+                <p className="text-xs text-gray-500">历史评估</p>
+                <p className="mt-1 text-xl font-semibold text-gray-900 dark:text-white">{trend?.totalAssessments ?? 0}</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 p-3 dark:bg-gray-800/60">
+                <p className="text-xs text-gray-500">付款阻断</p>
+                <p className="mt-1 text-xl font-semibold text-error-600">{trend?.outcomes.PAYMENT_BLOCKED ?? 0}</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 p-3 dark:bg-gray-800/60">
+                <p className="text-xs text-gray-500">需人工复核</p>
+                <p className="mt-1 text-xl font-semibold text-warning-600">{trend?.outcomes.REVIEW_REQUIRED ?? 0}</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {(trend?.topRules ?? []).slice(0, 5).map((item) => (
+                <div key={`${item.ruleId}-${item.status}`} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-800">
+                  <span className="min-w-0 truncate text-gray-700 dark:text-gray-200">{item.ruleId}</span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <Badge color={item.status === "FAIL" ? "error" : item.status === "WARN" ? "warning" : "neutral"}>{item.status}</Badge>
+                    <span className="text-gray-500">{item.count} 次</span>
+                  </span>
+                </div>
+              ))}
+              {!trend?.topRules.length ? <p className="text-sm text-gray-500">暂无规则命中历史。</p> : null}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -576,6 +638,14 @@ function canonicalKey(data: Record<string, unknown>, payload: Record<string, unk
 }
 
 function defaultPayload(type: string): Record<string, unknown> {
+  if (type === "invoice-assurance-case") return {
+    title: "发票一致性校验",
+    asOf: "2026-07-27",
+    currency: "CNY",
+    timezone: "Asia/Shanghai",
+    verificationMode: "HUMAN_ASSISTED",
+    businessSnapshot: {},
+  };
   if (type === "deviation-analysis-case") return {
     title: "项目偏差分析",
     subject: { subjectId: "PROJECT-2026-001", subjectType: "project", name: "示例项目" },

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Header, Request, Response
@@ -12,6 +12,7 @@ from swarmcore_application import (
     CapabilityCenterService,
     CaseSubjectInput,
     CompilationService,
+    InvoiceBatchInput,
     RunCommandConflictError,
     RunCommandService,
     RunNotTerminalError,
@@ -36,12 +37,17 @@ from swarmcore_persistence.errors import PersistenceConflictError
 from swarmcore_persistence.models import Project
 
 from .authentication import AuthenticationError, Identity, JwtAuthenticator
-from .business_routes import _assessment_detail, _business_work_snapshot
+from .business_routes import (
+    _assessment_detail,
+    _business_work_snapshot,
+    _invoice_batch_snapshot,
+)
 from .business_routes import business_objects as _business_objects
 from .business_routes import business_works as _business_works
 from .business_routes import capability_packs as _capability_packs
 from .business_routes import cases as _cases
 from .business_routes import documents as _documents
+from .business_routes import invoice_assurance_operations as _invoice_assurance_operations
 from .business_routes import workbench as _workbench
 from .schemas import JsonRpcRequest
 
@@ -227,6 +233,72 @@ _TOOLS = [
         "inputSchema": _business_schema(
             required=("assessmentId",),
             properties={"assessmentId": {"type": "string", "format": "uuid"}},
+        ),
+    },
+    {
+        "name": "create_invoice_assurance_batch",
+        "description": "Queue multiple invoice-assurance cases; every invoice remains an independent Case and Assessment.",
+        "inputSchema": _business_schema(
+            required=("items", "idempotencyKey"),
+            properties={
+                "items": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "items": {
+                        "type": "object",
+                        "required": ["payload", "subjects"],
+                        "properties": {
+                            "payload": {"type": "object"},
+                            "subjects": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                    "type": "object",
+                                    "required": [
+                                        "businessObjectId",
+                                        "businessObjectVersionId",
+                                        "role",
+                                        "subjectKey",
+                                    ],
+                                    "properties": {
+                                        "businessObjectId": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                        },
+                                        "businessObjectVersionId": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                        },
+                                        "role": {"type": "string"},
+                                        "subjectKey": {"type": "string"},
+                                    },
+                                    "additionalProperties": False,
+                                },
+                            },
+                            "owner": {"type": "string"},
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+                "maxParallelism": {"type": "integer", "minimum": 1, "maximum": 10},
+                "idempotencyKey": {"type": "string", "minLength": 1, "maxLength": 256},
+            },
+        ),
+    },
+    {
+        "name": "get_invoice_assurance_batch",
+        "description": "Get aggregate and per-invoice status for an invoice-assurance batch.",
+        "inputSchema": _business_schema(
+            required=("batchId",),
+            properties={"batchId": {"type": "string", "format": "uuid"}},
+        ),
+    },
+    {
+        "name": "get_invoice_assurance_rule_trends",
+        "description": "Aggregate historical invoice-assurance outcomes and non-pass rule hits.",
+        "inputSchema": _business_schema(
+            properties={"bucket": {"enum": ["day", "week", "month"]}},
         ),
     },
     {
@@ -528,6 +600,9 @@ async def _call_tool(
         "get_business_work": "capability.read",
         "bind_business_work_strategy": "capability.manage",
         "get_assessment": "work-item.read",
+        "create_invoice_assurance_batch": "case.assess",
+        "get_invoice_assurance_batch": "case.read",
+        "get_invoice_assurance_rule_trends": "case.read",
         "create_work_item": "work-item.write",
         "upsert_business_object": "business-object.write",
         "create_case": "case.write",
@@ -708,6 +783,69 @@ async def _call_tool(
             )
             return _assessment_detail(evaluation, item, revision).model_dump(
                 by_alias=True, mode="json"
+            )
+        if name == "create_invoice_assurance_batch":
+            raw_items = arguments["items"]
+            if not isinstance(raw_items, list):
+                raise ValueError("items must be an array")
+            batch_inputs: list[InvoiceBatchInput] = []
+            for raw_item in raw_items:
+                if not isinstance(raw_item, dict):
+                    raise ValueError("batch item must be an object")
+                raw_subjects = raw_item.get("subjects")
+                if not isinstance(raw_subjects, list):
+                    raise ValueError("batch item subjects must be an array")
+                batch_inputs.append(
+                    InvoiceBatchInput(
+                        payload=dict(raw_item.get("payload") or {}),
+                        subjects=tuple(
+                            CaseSubjectInput(
+                                business_object_id=UUID(str(value["businessObjectId"])),
+                                business_object_version_id=UUID(
+                                    str(value["businessObjectVersionId"])
+                                ),
+                                role=str(value["role"]),
+                                subject_key=str(value["subjectKey"]),
+                            )
+                            for value in raw_subjects
+                            if isinstance(value, dict)
+                        ),
+                        owner=(
+                            str(raw_item["owner"])
+                            if raw_item.get("owner") is not None
+                            else None
+                        ),
+                    )
+                )
+            batch = await _invoice_assurance_operations.create_batch(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                inputs=tuple(batch_inputs),
+                max_parallelism=int(arguments.get("maxParallelism", 3)),
+                idempotency_key=str(arguments["idempotencyKey"]),
+                actor=identity.subject_id,
+                submitted_scopes=effective_scopes,
+                auth_context_hash=identity.context_hash,
+            )
+            return _invoice_batch_snapshot(batch).model_dump(by_alias=True, mode="json")
+        if name == "get_invoice_assurance_batch":
+            batch = await _invoice_assurance_operations.get_batch(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                batch_id=UUID(str(arguments["batchId"])),
+            )
+            return _invoice_batch_snapshot(batch).model_dump(by_alias=True, mode="json")
+        if name == "get_invoice_assurance_rule_trends":
+            bucket = str(arguments.get("bucket", "day"))
+            if bucket not in {"day", "week", "month"}:
+                raise ValueError("invalid trend bucket")
+            return await _invoice_assurance_operations.rule_trends(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                bucket=cast(Literal["day", "week", "month"], bucket),
             )
         if name == "list_documents":
             document_rows = await _documents.list_documents(

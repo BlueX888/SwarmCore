@@ -16,6 +16,7 @@ vi.mock("@/api/client", async (importOriginal) => {
       listBusinessWorks: vi.fn(),
       getBusinessWork: vi.fn(),
       listDocuments: vi.fn(),
+      listRuns: vi.fn(),
     },
   };
 });
@@ -92,6 +93,7 @@ describe("business works page", () => {
       return Promise.resolve(snapshot({ workKey, status: "planned", statusLabel: "规划中" }));
     });
     vi.mocked(api.listDocuments).mockResolvedValue({ items: [] });
+    vi.mocked(api.listRuns).mockResolvedValue({ total: 0, items: [] });
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -146,7 +148,57 @@ describe("business works page", () => {
     expect(await screen.findByRole("heading", { name: "发票一致性校验智能体" })).toBeVisible();
     const functions = screen.getByRole("region", { name: "业务说明" });
     expect(within(functions).getByRole("heading", { name: /发票信息识别/ })).toBeVisible();
+    expect(functions.compareDocumentPosition(screen.getByLabelText("项目配置摘要"))
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const summary = within(screen.getByRole("region", { name: "项目配置摘要" }));
+    expect(summary.getByRole("heading", { name: "策略绑定" })).toBeVisible();
+    expect(summary.getByRole("heading", { name: "外部文件" })).toBeVisible();
+    expect(summary.getByRole("link", { name: "提供外部文件" })).toHaveAttribute("href", "/documents");
+    expect(screen.queryByRole("heading", { name: "决策或规则配置" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "使用的 Agent、Tool、Model" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "配置工作所需能力" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "准备业务资料" })[0]).toHaveAttribute("href", "/documents");
+    expect(screen.getByRole("heading", { name: "运行记录" })).toBeVisible();
+    expect(screen.getByRole("link", { name: /查看全部/ })).toHaveAttribute("href", "/runs");
+  });
+
+  it("uses the same readiness-focused detail layout for every business work", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(snapshot({
+      workKey: "document-integrity",
+      status: "runnable",
+      statusLabel: "可运行",
+      packName: "contract-integrity",
+      documentRequirements: [{ category: "CONTRACT", required: true }],
+      boundStrategyVersionId: "strategy-version-1",
+      boundStrategyName: "文档完整性策略",
+      boundStrategyVersion: 3,
+    }));
+    vi.mocked(api.listDocuments).mockResolvedValue({
+      items: [{
+        documentId: "document-1",
+        name: "采购合同.pdf",
+        category: "CONTRACT",
+        tags: [],
+        status: "AVAILABLE",
+        currentVersion: 1,
+        updatedAt: "2026-07-23T00:00:00Z",
+        current: null,
+        businessObjectIds: [],
+        businessWorkKeys: ["document-integrity"],
+        versions: [],
+      }],
+    });
+
+    renderPage("/business-works/document-integrity");
+    expect(await screen.findByRole("heading", { name: "文件完整性校验智能体" })).toBeVisible();
+    expect(screen.getByLabelText("运行就绪摘要")).toBeVisible();
+    const summary = within(screen.getByRole("region", { name: "项目配置摘要" }));
+    expect(summary.getByRole("heading", { name: "策略绑定" })).toBeVisible();
+    expect(summary.getByText("文档完整性策略")).toBeVisible();
+    expect(summary.getByRole("heading", { name: "外部文件" })).toBeVisible();
+    expect(summary.getByText("合同文件")).toBeVisible();
+    expect(summary.getByText(/已准备/)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "配置工作所需能力" })).not.toBeInTheDocument();
   });
 
   it("keeps contract post-evaluation detail focused on start readiness", async () => {
@@ -175,9 +227,14 @@ describe("business works page", () => {
     );
     expect(screen.getByLabelText("运行就绪摘要")).toBeVisible();
     expect(screen.queryByLabelText("当前运行资格")).not.toBeInTheDocument();
-    expect(screen.getByText("业务说明").closest("details")).toHaveAttribute("open");
-    expect(screen.getByRole("region", { name: "业务说明" })).toBeVisible();
+    const functions = screen.getByRole("region", { name: "业务说明" });
+    expect(screen.getByRole("heading", { name: "业务说明" })).toBeVisible();
+    expect(functions).toBeVisible();
+    expect(functions.compareDocumentPosition(screen.getByLabelText("项目配置摘要"))
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("业务说明")?.closest("details")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "配置工作所需能力" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "运行记录" })).toBeVisible();
   });
 
   it("shows bound external files and readiness on contract post-evaluation detail", async () => {
@@ -227,9 +284,20 @@ describe("business works page", () => {
     expect(summary.getByRole("heading", { name: "外部文件" })).toBeVisible();
     expect(summary.getByText("合同文件")).toBeVisible();
     expect(summary.getByText(/已准备/)).toBeVisible();
-    expect(summary.getByText("采购合同.pdf")).toBeVisible();
+    expect(summary.getByText(/1 个文件/)).toBeVisible();
+    expect(summary.queryByText("采购合同.pdf")).not.toBeInTheDocument();
     expect(screen.queryByText("当前无强制资料分类要求。")).not.toBeInTheDocument();
     expect(summary.getByRole("link", { name: "提供外部文件" })).toHaveAttribute("href", "/documents");
+    // 外部文件与策略绑定等高：行高由策略绑定决定，右侧拉高对齐并可内部滚动
+    const summaryRegion = screen.getByRole("region", { name: "项目配置摘要" });
+    expect(summaryRegion).toHaveClass("items-stretch");
+    expect(summaryRegion).not.toHaveClass("items-start");
+    const externalFilesHeading = summary.getByRole("heading", { name: "外部文件" });
+    const heightMatchWrap = externalFilesHeading.closest("[class*='xl:h-0']");
+    expect(heightMatchWrap).toHaveClass("xl:h-0", "xl:min-h-full");
+    const externalFilesCard = externalFilesHeading.closest("[class*='min-h-0'][class*='flex-col']");
+    expect(externalFilesCard).toHaveClass("h-full");
+    expect(externalFilesCard?.className ?? "").not.toMatch(/max-h-\[13\.25rem\]/);
     expect(screen.queryByRole("heading", { name: "业务配置入口" })).not.toBeInTheDocument();
   });
 
@@ -247,8 +315,12 @@ describe("business works page", () => {
 
     renderPage("/business-works/contract-post-evaluation");
     expect(await screen.findByRole("heading", { name: "策略绑定" })).toBeVisible();
-    expect(screen.getByText("尚未绑定执行策略")).toBeVisible();
+    expect(screen.getAllByText("尚未绑定执行策略").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("link", { name: "绑定策略" })).toHaveAttribute(
+      "href",
+      "/business-works/contract-post-evaluation/settings",
+    );
+    expect(screen.getByRole("link", { name: /前往项目配置绑定/ })).toHaveAttribute(
       "href",
       "/business-works/contract-post-evaluation/settings",
     );
@@ -284,7 +356,156 @@ describe("business works page", () => {
     });
 
     renderPage("/business-works/contract-post-evaluation");
-    expect(await screen.findByText("验收资料.pdf")).toBeVisible();
-    expect(screen.getByText(/以下文件已绑定到本业务工作/)).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "外部文件" })).toBeVisible();
+    expect(screen.getByText((_, node) => {
+      const text = node?.textContent?.replace(/\s+/g, "") ?? "";
+      return node?.tagName === "P" && text === "已关联1个外部文件";
+    })).toBeVisible();
+    expect(screen.queryByText("验收资料.pdf")).not.toBeInTheDocument();
+    expect(screen.queryByText(/以下文件已绑定到本业务工作/)).not.toBeInTheDocument();
+  });
+
+  it("lists matching run history on the business work detail", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(snapshot({
+      workKey: "document-integrity",
+      status: "runnable",
+      statusLabel: "可运行",
+      packName: "contract-integrity",
+      boundStrategyVersionId: "strategy-version-1",
+      boundStrategyName: "文档完整性策略",
+      boundStrategyVersion: 3,
+    }));
+    vi.mocked(api.listRuns).mockResolvedValue({
+      total: 2,
+      items: [
+        {
+          runId: "run-matched",
+          status: "SUCCEEDED",
+          input: { provenance: { workKey: "invoice-assurance" } },
+          output: {},
+          outputRef: null,
+          snapshotSeq: 3,
+          earliestAvailableSeq: 1,
+          strategyVersionId: "strategy-version-1",
+          planHash: "a".repeat(64),
+          usage: {},
+          taskCounts: { SUCCEEDED: 2 },
+          allowedActions: [],
+          tasks: [],
+        },
+        {
+          runId: "run-other",
+          status: "RUNNING",
+          input: { provenance: { workKey: "document-integrity" } },
+          output: null,
+          outputRef: null,
+          snapshotSeq: 1,
+          earliestAvailableSeq: 1,
+          strategyVersionId: "strategy-version-other",
+          planHash: "b".repeat(64),
+          usage: {},
+          taskCounts: { RUNNING: 1 },
+          allowedActions: [],
+          tasks: [],
+        },
+      ],
+    });
+
+    renderPage("/business-works/document-integrity");
+    expect(await screen.findByRole("heading", { name: "运行记录" })).toBeVisible();
+    expect(screen.getByText("仅展示当前绑定策略「文档完整性策略 · v3」的最近运行。")).toBeVisible();
+    expect(screen.getByRole("link", { name: /run-matched/ })).toHaveAttribute("href", "/runs/run-matched");
+    expect(screen.queryByRole("link", { name: /run-other/ })).not.toBeInTheDocument();
+  });
+
+  it("hides runs when strategyVersionId is missing from the API payload", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(snapshot({
+      workKey: "document-integrity",
+      status: "runnable",
+      statusLabel: "可运行",
+      packName: "contract-integrity",
+      boundStrategyVersionId: "strategy-version-1",
+      boundStrategyName: "文档完整性策略",
+      boundStrategyVersion: 3,
+    }));
+    vi.mocked(api.listRuns).mockResolvedValue({
+      total: 1,
+      items: [{
+        runId: "run-without-strategy",
+        status: "SUCCEEDED",
+        input: {},
+        output: {},
+        outputRef: null,
+        snapshotSeq: 2,
+        earliestAvailableSeq: 1,
+        // Simulate legacy API payload that omitted strategyVersionId.
+        planHash: "a".repeat(64),
+        usage: {},
+        taskCounts: { SUCCEEDED: 1 },
+        allowedActions: [],
+        tasks: [],
+      } as never],
+    });
+
+    renderPage("/business-works/document-integrity");
+    expect(await screen.findByText("暂无运行记录")).toBeVisible();
+    expect(screen.getByText(/当前绑定「文档完整性策略 · v3」尚无运行/)).toBeVisible();
+    expect(screen.queryByRole("link", { name: /run-without-strategy/ })).not.toBeInTheDocument();
+  });
+
+  it("shows empty run history when bound strategy has no matching runs", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(snapshot({
+      workKey: "document-integrity",
+      status: "runnable",
+      statusLabel: "可运行",
+      packName: "contract-integrity",
+      boundStrategyVersionId: "strategy-version-1",
+      boundStrategyName: "文档完整性策略",
+      boundStrategyVersion: 3,
+    }));
+    vi.mocked(api.listRuns).mockResolvedValue({
+      total: 1,
+      items: [{
+        runId: "run-other",
+        status: "SUCCEEDED",
+        input: {},
+        output: {},
+        outputRef: null,
+        snapshotSeq: 1,
+        earliestAvailableSeq: 1,
+        strategyVersionId: "strategy-version-other",
+        planHash: "b".repeat(64),
+        usage: {},
+        taskCounts: { SUCCEEDED: 1 },
+        allowedActions: [],
+        tasks: [],
+      }],
+    });
+
+    renderPage("/business-works/document-integrity");
+    expect(await screen.findByText("暂无运行记录")).toBeVisible();
+    expect(screen.getByText(/当前绑定「文档完整性策略 · v3」尚无运行/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "打开运行记录" })).toHaveAttribute("href", "/runs");
+  });
+
+  it("shows bind-strategy empty state when work has no bound strategy", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(snapshot({
+      workKey: "document-integrity",
+      status: "incomplete",
+      statusLabel: "未完成配置",
+      packName: "contract-integrity",
+      boundStrategyVersionId: null,
+      boundStrategyName: null,
+      boundStrategyVersion: null,
+    }));
+
+    renderPage("/business-works/document-integrity");
+    expect(await screen.findByRole("heading", { name: "运行记录" })).toBeVisible();
+    expect(screen.getAllByText("尚未绑定执行策略").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("link", { name: /前往项目配置绑定/ })).toHaveAttribute(
+      "href",
+      "/business-works/document-integrity/settings",
+    );
+    expect(api.listRuns).not.toHaveBeenCalled();
   });
 });

@@ -747,7 +747,7 @@ class WorkbenchService:
             "attachmentManifestHash": attachment_hash,
             "configuration": dict(binding.configuration),
         }
-        if manifest.metadata.name == "deviation-analysis":
+        if self._requires_selection_provenance(manifest.metadata.name):
             input_data.update(
                 {
                     "selectionManifestHash": selection_hash,
@@ -914,6 +914,10 @@ class WorkbenchService:
             run_id=run.id,
         )
         return evaluation
+
+    @staticmethod
+    def _requires_selection_provenance(manifest_name: str) -> bool:
+        return manifest_name in {"deviation-analysis", "invoice-assurance"}
 
     async def _complete_inline_run(
         self,

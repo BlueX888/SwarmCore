@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowRight, Bot, BrainCircuit, BriefcaseBusiness, ChartNoAxesCombined, CheckCircle2, Files,
+  Activity, ArrowRight, BrainCircuit, BriefcaseBusiness, ChartNoAxesCombined, CheckCircle2, Files,
   FileCheck2, FileOutput, FileScan, Gauge, Network, Play, ReceiptText, Search, Settings2, ShieldCheck, Sparkles,
   Workflow,
 } from "lucide-react";
@@ -14,12 +14,15 @@ import { BackLink } from "@/components/ui/back-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   BUSINESS_WORK_CATEGORIES, BUSINESS_WORKS, DOCUMENT_CATEGORY_LABELS, documentBindingKeys, getBusinessWork,
   type BusinessWorkCategory, type BusinessWorkDefinition,
 } from "@/lib/business-works";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 import { cn } from "@/lib/utils";
+
+const WORK_RUN_HISTORY_LIMIT = 5;
 
 const WORK_ICONS: Record<string, LucideIcon> = {
   "ai-foundation-quality": BrainCircuit,
@@ -151,7 +154,6 @@ function BusinessWorkDetail({ workKey }: { workKey: string }) {
   const Icon = WORK_ICONS[work.workKey] ?? BriefcaseBusiness;
   const canStart = work.status === "runnable";
   const hasImplementation = work.status !== "planned";
-  const isContractPostEvaluation = work.workKey === "contract-post-evaluation";
   const requiredDocCount = work.documentRequirements.filter((item) => item.required).length;
   const strategySummary = work.boundStrategyName && work.boundStrategyVersion != null
     ? `${work.boundStrategyName} · v${work.boundStrategyVersion}`
@@ -190,10 +192,10 @@ function BusinessWorkDetail({ workKey }: { workKey: string }) {
             {canStart
               ? <Button asChild className="w-full justify-center sm:w-auto lg:w-full"><Link to={`${workspacePath}/business-works/${work.workKey}/workbench`}><Play />开始办理</Link></Button>
               : <Button className="w-full justify-center sm:w-auto lg:w-full" disabled title={startDisabledReason}><Play />开始办理</Button>}
-            <div className="flex flex-wrap gap-1.5 lg:flex-col">
-              {work.workKey === "report-generation" ? <Button asChild variant="outline" size="sm" className="justify-start"><Link to={`${workspacePath}/business-works/report-generation/demo`}><Sparkles />体验公开数据 Demo</Link></Button> : null}
-              {hasImplementation ? <Button asChild variant="ghost" size="sm" className="justify-start text-gray-600"><Link to={`${workspacePath}/business-works/${work.workKey}/settings`}><Settings2 />项目配置</Link></Button> : null}
-              <Button asChild variant="ghost" size="sm" className="justify-start text-gray-600"><Link to={`${workspacePath}/documents`}><Files />准备业务资料</Link></Button>
+            <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch">
+              {work.workKey === "report-generation" ? <Button asChild variant="outline" size="sm" className="w-full justify-center sm:w-auto lg:w-full"><Link to={`${workspacePath}/business-works/report-generation/demo`}><Sparkles />体验公开数据 Demo</Link></Button> : null}
+              {hasImplementation ? <Button asChild variant="outline" size="sm" className="w-full justify-center sm:w-auto lg:w-full"><Link to={`${workspacePath}/business-works/${work.workKey}/settings`}><Settings2 />项目配置</Link></Button> : null}
+              <Button asChild variant="outline" size="sm" className="w-full justify-center sm:w-auto lg:w-full"><Link to={`${workspacePath}/documents`}><Files />准备业务资料</Link></Button>
             </div>
           </div>
         </div>
@@ -215,105 +217,184 @@ function BusinessWorkDetail({ workKey }: { workKey: string }) {
       </div>
     ) : null}
 
-    {isContractPostEvaluation ? (
-      <section className="grid items-stretch gap-4 xl:grid-cols-2" aria-label="项目配置摘要">
-        <StrategyBindingCard work={work} workspacePath={workspacePath} hasImplementation={hasImplementation} compact />
+    <WorkFunctionsSection functions={work.functions} />
+
+    <section className="grid items-stretch gap-4 xl:grid-cols-2" aria-label="项目配置摘要">
+      <StrategyBindingCard work={work} workspacePath={workspacePath} hasImplementation={hasImplementation} compact />
+      <div className="min-w-0 xl:h-0 xl:min-h-full">
         <ExternalFilesCard work={work} workspacePath={workspacePath} tenantId={tenantId} projectId={projectId} title="外部文件" compact />
-      </section>
-    ) : (
-      <>
-        <section className="grid items-stretch gap-4 xl:grid-cols-2">
-          <ExternalFilesCard work={work} workspacePath={workspacePath} tenantId={tenantId} projectId={projectId} title="所需资料及准备状态" compact />
-          <Card className="h-full"><CardContent className="flex h-full flex-col space-y-3 p-4">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-white">决策或规则配置</h2>
-            {work.decisionSlots.length ? <ul className="space-y-1.5 text-sm text-gray-600 dark:text-gray-300">{work.decisionSlots.map((item) => <li key={item.slot} className="flex justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-800/60"><span>{item.slot}</span><span className="text-xs text-gray-400">{item.required ? "必需" : "可选"}</span></li>)}</ul> : <p className="text-sm text-gray-500">当前无强制决策槽位。</p>}
-          </CardContent></Card>
-        </section>
+      </div>
+    </section>
 
-        <Card><CardContent className="space-y-3 p-4">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">使用的 Agent、Tool、Model</h2>
-          <div className="grid gap-3 md:grid-cols-3">
-            <DependencyList title="智能体" values={work.agents} />
-            <DependencyList title="工具" values={work.tools} />
-            <DependencyList title="模型" values={work.models} empty="由智能体配置解析" />
-          </div>
-        </CardContent></Card>
-      </>
-    )}
-
-    <WorkFunctionsSection functions={work.functions} collapsible={isContractPostEvaluation} />
-
-    {!isContractPostEvaluation ? (
-      <section aria-labelledby="work-foundation-title" className="rounded-[16px] border border-brand-100 bg-brand-50/50 px-4 py-3 dark:border-brand-500/20 dark:bg-brand-500/5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 id="work-foundation-title" className="text-sm font-semibold text-gray-900 dark:text-white">配置工作所需能力</h2>
-            <p className="mt-0.5 text-xs text-gray-500">从统一能力中心选择依赖，不在业务工作中复制底层实现。</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild size="sm"><Link to={`${workspacePath}/agents/configure`}><Bot />配置 Agent</Link></Button>
-            <Button asChild size="sm" variant="outline"><Link to={`${workspacePath}/tools/new`}><BrainCircuit />添加工具</Link></Button>
-            <Button asChild size="sm" variant="outline"><Link to={`${workspacePath}/documents`}><Files />准备业务资料</Link></Button>
-          </div>
-        </div>
-      </section>
-    ) : null}
+    <WorkRunHistorySection
+      workKey={work.workKey}
+      boundStrategyVersionId={work.boundStrategyVersionId}
+      boundStrategyName={work.boundStrategyName}
+      boundStrategyVersion={work.boundStrategyVersion}
+      hasImplementation={hasImplementation}
+      workspacePath={workspacePath}
+      tenantId={tenantId}
+      projectId={projectId}
+    />
   </div>;
 }
 
 function WorkFunctionsSection({
   functions,
-  collapsible,
 }: {
   functions: BusinessWorkSnapshot["functions"];
-  collapsible: boolean;
 }) {
-  const body = (
-    <div className="grid gap-2 md:grid-cols-2">
-      {functions.map((item, index) => (
-        <div key={item.name} className="flex gap-2.5 rounded-xl border border-gray-100 bg-gray-50/70 px-3 py-2.5 dark:border-gray-800 dark:bg-gray-900/40">
-          <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-lg bg-success-50 text-success-600 dark:bg-success-500/10 dark:text-success-500">
-            <CheckCircle2 className="size-3.5" />
-          </span>
-          <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-              <span className="mr-1 text-gray-400">{String(index + 1).padStart(2, "0")}.</span>
-              {item.name}
-            </h3>
-            <p className="mt-0.5 text-xs leading-5 text-gray-500">{item.description}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-
-  if (collapsible) {
-    return (
-      <details open className="group mx-auto w-full max-w-3xl rounded-xl border border-gray-200/80 bg-white/80 open:pb-3 dark:border-gray-800 dark:bg-white/[0.02]">
-        <summary className="flex cursor-pointer list-none items-center justify-center gap-3 px-4 py-3 text-sm font-semibold text-gray-900 marker:content-none dark:text-white [&::-webkit-details-marker]:hidden">
-          <span id="work-functions-title">业务说明</span>
-          <span className="flex items-center gap-2 text-xs font-medium text-gray-400">
-            {functions.length} 项
-            <ArrowRight className="size-3.5 transition group-open:rotate-90" aria-hidden />
-          </span>
-        </summary>
-        <div className="border-t border-gray-100 px-4 pt-3 dark:border-gray-800" role="region" aria-labelledby="work-functions-title">
-          {body}
-        </div>
-      </details>
-    );
-  }
-
   return (
     <section aria-labelledby="work-functions-title">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h2 id="work-functions-title" className="text-base font-semibold text-gray-900 dark:text-white">业务说明</h2>
-          <p className="mt-0.5 text-sm text-gray-500">功能通过统一底座组合，后续可以继续添加和替换。</p>
-        </div>
-        <Badge color="primary">{functions.length} 项</Badge>
-      </div>
-      {body}
+      <Card className="min-w-0">
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 id="work-functions-title" className="text-sm font-semibold text-gray-900 dark:text-white">业务说明</h2>
+              <p className="mt-0.5 text-xs text-gray-500">功能通过统一底座组合，后续可以继续添加和替换。</p>
+            </div>
+            <Badge color="primary">{functions.length} 项</Badge>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {functions.map((item, index) => (
+              <div key={item.name} className="flex gap-2.5 rounded-xl border border-gray-100 bg-gray-50/70 px-3 py-2.5 dark:border-gray-800 dark:bg-gray-900/40">
+                <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-lg bg-success-50 text-success-600 dark:bg-success-500/10 dark:text-success-500">
+                  <CheckCircle2 className="size-3.5" />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                    <span className="mr-1 text-gray-400">{String(index + 1).padStart(2, "0")}.</span>
+                    {item.name}
+                  </h3>
+                  <p className="mt-0.5 text-xs leading-5 text-gray-500">{item.description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function WorkRunHistorySection({
+  workKey,
+  boundStrategyVersionId,
+  boundStrategyName,
+  boundStrategyVersion,
+  hasImplementation,
+  workspacePath,
+  tenantId,
+  projectId,
+}: {
+  workKey: string;
+  boundStrategyVersionId: string | null;
+  boundStrategyName: string | null;
+  boundStrategyVersion: number | null;
+  hasImplementation: boolean;
+  workspacePath: string;
+  tenantId: string;
+  projectId: string;
+}) {
+  const settingsHref = `${workspacePath}/business-works/${workKey}/settings`;
+  const strategyBound = Boolean(boundStrategyVersionId);
+  const boundStrategyLabel = boundStrategyName && boundStrategyVersion != null
+    ? `${boundStrategyName} · v${boundStrategyVersion}`
+    : null;
+  const runsQuery = useQuery({
+    queryKey: ["runs", tenantId, projectId],
+    queryFn: () => api.listRuns(tenantId, projectId),
+    refetchInterval: 5000,
+    enabled: strategyBound,
+  });
+  const runs = useMemo(() => {
+    if (!boundStrategyVersionId) return [];
+    const matched = (runsQuery.data?.items ?? []).filter(
+      (run) => run.strategyVersionId === boundStrategyVersionId,
+    );
+    return matched.slice(0, WORK_RUN_HISTORY_LIMIT);
+  }, [boundStrategyVersionId, runsQuery.data?.items]);
+
+  return (
+    <section aria-labelledby="work-run-history-title">
+      <Card className="min-w-0">
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10">
+                  <Activity className="size-4" />
+                </span>
+                <div>
+                  <h2 id="work-run-history-title" className="text-sm font-semibold text-gray-900 dark:text-white">运行记录</h2>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {boundStrategyLabel
+                      ? `仅展示当前绑定策略「${boundStrategyLabel}」的最近运行。`
+                      : "按当前绑定执行策略展示最近运行。"}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <Button asChild variant="ghost" size="sm">
+              <Link to={`${workspacePath}/runs`}>查看全部 <ArrowRight /></Link>
+            </Button>
+          </div>
+
+          {!strategyBound ? (
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center dark:border-gray-700">
+              <Workflow className="size-6 text-gray-300" />
+              <p className="mt-2 text-sm font-medium text-gray-800 dark:text-gray-100">尚未绑定执行策略</p>
+              <p className="mt-1 text-xs text-gray-500">绑定策略后，该策略版本产生的运行会出现在这里。</p>
+              {hasImplementation ? (
+                <Button asChild size="sm" variant="outline" className="mt-3">
+                  <Link to={settingsHref}><Settings2 />前往项目配置绑定</Link>
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {strategyBound && runsQuery.isPending ? (
+            <div className="space-y-2">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-12" />)}</div>
+          ) : null}
+          {strategyBound && runsQuery.isError ? (
+            <p role="alert" className="rounded-xl bg-error-50 p-3 text-sm text-error-600 dark:bg-error-500/10">
+              无法加载运行记录：{runsQuery.error.message}
+            </p>
+          ) : null}
+          {strategyBound && !runsQuery.isPending && !runsQuery.isError && !runs.length ? (
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center dark:border-gray-700">
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">暂无运行记录</p>
+              <p className="mt-1 text-xs text-gray-500">
+                {boundStrategyLabel
+                  ? `当前绑定「${boundStrategyLabel}」尚无运行。点击「开始办理」发起后，该策略版本的运行会出现在这里。`
+                  : "使用当前绑定策略办理后，相关运行会出现在这里。"}
+              </p>
+              <Button asChild size="sm" variant="outline" className="mt-3">
+                <Link to={`${workspacePath}/runs`}>打开运行记录</Link>
+              </Button>
+            </div>
+          ) : null}
+          {runs.length ? (
+            <div className="divide-y divide-gray-100 dark:divide-gray-800">
+              {runs.map((run) => (
+                <Link
+                  key={run.runId}
+                  to={`${workspacePath}/runs/${run.runId}`}
+                  className="flex min-w-0 items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-mono text-xs text-gray-700 dark:text-gray-300">{run.runId}</span>
+                    <span className="mt-1 block text-xs text-gray-500">
+                      {Object.values(run.taskCounts).reduce((total, count) => total + count, 0)} 个任务 · {run.snapshotSeq} 个事件
+                    </span>
+                  </span>
+                  <StatusBadge status={run.status} />
+                </Link>
+              ))}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
     </section>
   );
 }
@@ -333,8 +414,8 @@ function StrategyBindingCard({
   const settingsHref = `${workspacePath}/business-works/${work.workKey}/settings`;
 
   return (
-    <Card className="flex h-full min-w-0 flex-col">
-      <CardContent className={cn("flex h-full min-h-0 flex-1 flex-col", compact ? "gap-3 p-4" : "gap-4 p-5")}>
+    <Card className={cn("flex min-w-0 flex-col", !compact && "h-full")}>
+      <CardContent className={cn("flex flex-col", compact ? "gap-3 p-4" : "h-full min-h-0 flex-1 gap-4 p-5")}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2.5">
             <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10">
@@ -353,7 +434,7 @@ function StrategyBindingCard({
         </div>
 
         {bound ? (
-          <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-3 dark:border-gray-800 dark:bg-gray-900/50">
+          <div className={cn("rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-3 dark:border-gray-800 dark:bg-gray-900/50", !compact && "flex min-h-0 flex-1 flex-col")}>
             <p className="text-xs font-medium text-gray-500">当前执行策略</p>
             <p className="mt-1 truncate text-sm font-semibold text-gray-900 dark:text-white" title={work.boundStrategyName ?? undefined}>
               {work.boundStrategyName}
@@ -365,7 +446,7 @@ function StrategyBindingCard({
             </div>
           </div>
         ) : (
-          <div className={cn("flex min-h-0 flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 text-center dark:border-gray-700", compact ? "px-3 py-5" : "px-4 py-8")}>
+          <div className={cn("flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 text-center dark:border-gray-700", compact ? "px-3 py-5" : "min-h-0 flex-1 px-4 py-8")}>
             <Workflow className="size-6 text-gray-300" />
             <p className="mt-2 text-sm font-medium text-gray-700 dark:text-gray-200">尚未绑定执行策略</p>
             <p className="mt-0.5 text-xs text-gray-500">绑定后即可按策略办理本业务工作。</p>
@@ -373,7 +454,7 @@ function StrategyBindingCard({
         )}
 
         {hasImplementation ? (
-          <div className="mt-auto flex justify-end">
+          <div className={cn("flex justify-end", !compact && "mt-auto")}>
             <Button asChild size="sm" variant={bound ? "outline" : "primary"}>
               <Link to={settingsHref}>
                 <Settings2 />
@@ -426,15 +507,14 @@ function ExternalFilesCard({
   }, [boundDocuments]);
   const requirements = work.documentRequirements;
   const requiredReady = requirements.filter((item) => item.required).every((item) => readyCategories.has(item.category));
-  const showProvideLink = work.workKey === "contract-post-evaluation" || work.status !== "planned";
   const readinessLabel = requirements.some((item) => item.required)
     ? (requiredReady ? "已齐备" : "待补充")
     : (boundDocuments.length ? "已关联" : "无要求");
 
   return (
-    <Card className="flex h-full min-w-0 flex-col">
-      <CardContent className={cn("flex h-full min-h-0 flex-1 flex-col", compact ? "gap-3 p-4" : "gap-4 p-5")}>
-        <div className="flex items-start justify-between gap-3">
+    <Card className="flex h-full min-h-0 min-w-0 flex-col">
+      <CardContent className={cn("flex h-full min-h-0 flex-1 flex-col", compact ? "gap-2 p-4" : "gap-4 p-5")}>
+        <div className="flex shrink-0 items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2.5">
             <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10">
               <Files className="size-4" />
@@ -457,7 +537,7 @@ function ExternalFilesCard({
         ) : null}
         {documentsQuery.isPending && work.status !== "planned" ? <Skeleton className="h-20" /> : null}
         {!documentsQuery.isPending || work.status === "planned" ? (
-          <div className={cn("min-h-0 flex-1", compact && "overflow-y-auto pr-1")}>
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             <ExternalFilesBody
               requirements={requirements}
               readyCategories={readyCategories}
@@ -466,13 +546,11 @@ function ExternalFilesCard({
             />
           </div>
         ) : null}
-        {showProvideLink ? (
-          <div className="mt-auto flex justify-end">
-            <Button asChild size="sm" variant="outline">
-              <Link to={`${workspacePath}/documents`}><Files />提供外部文件</Link>
-            </Button>
-          </div>
-        ) : null}
+        <div className="mt-auto flex shrink-0 justify-end">
+          <Button asChild size="sm" variant="outline">
+            <Link to={`${workspacePath}/documents`}><Files />提供外部文件</Link>
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
@@ -506,9 +584,10 @@ function ExternalFilesBody({
                   <span className={ready ? "text-success-700 dark:text-success-400" : "text-warning-700 dark:text-warning-400"}>
                     {ready ? "已准备" : "待提供"}
                   </span>
+                  {compact && matching.length ? ` · ${matching.length} 个文件` : null}
                 </span>
               </div>
-              {matching.length ? (
+              {!compact && matching.length ? (
                 <ul className="mt-1 space-y-0.5 text-xs text-gray-500">
                   {matching.map((doc) => (
                     <li key={doc.documentId} className="truncate" title={doc.name}>{doc.name}</li>
@@ -523,12 +602,19 @@ function ExternalFilesBody({
   }
 
   if (boundDocuments.length) {
+    if (compact) {
+      return (
+        <p className="text-sm text-gray-600 dark:text-gray-300">
+          已关联 <span className="font-medium text-gray-900 dark:text-white">{boundDocuments.length}</span> 个外部文件
+        </p>
+      );
+    }
     return (
       <div className="space-y-2">
         <p className="text-xs text-gray-500">当前策略未声明强制资料分类；以下文件已绑定到本业务工作。</p>
-        <ul className={cn("text-sm text-gray-600 dark:text-gray-300", compact ? "space-y-1.5" : "space-y-2")}>
+        <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
           {boundDocuments.map((doc) => (
-            <li key={doc.documentId} className={cn("flex justify-between gap-3 bg-gray-50 dark:bg-gray-800/60", compact ? "rounded-lg px-2.5 py-1.5" : "rounded-xl px-3 py-2")}>
+            <li key={doc.documentId} className="flex justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2 dark:bg-gray-800/60">
               <span className="min-w-0 truncate font-medium text-gray-800 dark:text-gray-100" title={doc.name}>{doc.name}</span>
               <span className="shrink-0 text-xs text-gray-500">{DOCUMENT_CATEGORY_LABELS[doc.category] ?? doc.category}</span>
             </li>
@@ -539,15 +625,6 @@ function ExternalFilesBody({
   }
 
   return <p className="text-sm text-gray-500">当前无强制资料分类要求，也尚未绑定外部文件。</p>;
-}
-
-function DependencyList({ title, values, empty = "未声明" }: { title: string; values: string[]; empty?: string }) {
-  return <div><h3 className="text-xs font-semibold text-gray-500">{title}</h3>{values.length ? <ul className="mt-2 space-y-1 text-xs text-gray-700 dark:text-gray-300">{values.map((value) => <li key={value} className="truncate rounded-lg bg-gray-50 px-2 py-1 dark:bg-gray-800" title={value}>{referenceLabel(value)}</li>)}</ul> : <p className="mt-2 text-xs text-gray-400">{empty}</p>}</div>;
-}
-
-function referenceLabel(value: string) {
-  const tail = value.includes("://") ? value.slice(value.indexOf("://") + 3) : value;
-  return tail.replace(/@[^@/]+$/, "");
 }
 
 function SummaryCard({ label, value, detail, textValue }: { label: string; value: number; detail: string; textValue?: string }) {

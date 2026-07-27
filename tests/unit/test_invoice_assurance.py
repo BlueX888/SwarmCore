@@ -8,6 +8,7 @@ from swarmcore_application.invoice_assurance import (
     arithmetic_check,
     commercial_match,
     deduplicate,
+    enterprise_public_status_check,
     finalize_invoice_assurance,
     invoice_assurance_report_lines,
     official_verify,
@@ -143,6 +144,95 @@ def test_unapproved_bank_account_is_critical_fail() -> None:
     assert bank_rule["status"] == "FAIL"
     assert bank_rule["severity"] == "CRITICAL"
     assert bank_rule["blocking"] is True
+
+
+def test_enterprise_public_status_requires_traceable_evidence() -> None:
+    fact_set = {
+        "seller": {
+            "name": "示例供应商有限公司",
+            "taxId": "91310000MA0DEMOSELL",
+        }
+    }
+
+    pending = enterprise_public_status_check(fact_set)
+    assert pending["status"] == "PENDING_HUMAN"
+    assert pending["ruleResult"]["status"] == "UNKNOWN"
+    assert pending["requiresHumanReview"] is True
+
+    active = enterprise_public_status_check(
+        fact_set,
+        {
+            "status": "ACTIVE",
+            "queriedName": "示例供应商有限公司",
+            "queriedTaxId": "91310000MA0DEMOSELL",
+            "sourceUrl": "https://www.gsxt.gov.cn/index.html",
+            "verifiedAt": "2026-07-27T10:00:00+08:00",
+            "operator": "tax-reviewer",
+            "artifactHash": "a" * 64,
+        },
+    )
+    assert active["ruleResult"]["status"] == "PASS"
+    assert active["evidence"]["identityMatched"] is True
+
+
+def test_revoked_enterprise_status_is_a_hard_block() -> None:
+    result = enterprise_public_status_check(
+        {"seller": {"taxId": "91310000MA0DEMOSELL"}},
+        {
+            "status": "REVOKED",
+            "queriedTaxId": "91310000MA0DEMOSELL",
+            "provider": "authorized-enterprise-registry",
+            "verifiedAt": "2026-07-27T10:00:00+08:00",
+            "operator": "connector",
+            "contentHash": "b" * 64,
+        },
+    )
+    assert result["ruleResult"]["status"] == "FAIL"
+    assert result["ruleResult"]["blocking"] is True
+
+
+def test_enterprise_public_status_non_pass_enters_payment_review() -> None:
+    enterprise = enterprise_public_status_check(
+        {"seller": {"taxId": "91310000MA0DEMOSELL"}}
+    )
+
+    gate = payment_gate(
+        {
+            "verification": {"status": "FACE_MATCHED"},
+            "duplication": {"status": "PASS"},
+            "ruleResults": [enterprise["ruleResult"]],
+            "commercialMatch": {"status": "PASS"},
+        }
+    )
+
+    assert gate["status"] == "REVIEW_REQUIRED"
+    assert gate["blocking"] is False
+
+
+def test_revoked_enterprise_public_status_blocks_payment() -> None:
+    enterprise = enterprise_public_status_check(
+        {"seller": {"taxId": "91310000MA0DEMOSELL"}},
+        {
+            "status": "REVOKED",
+            "queriedTaxId": "91310000MA0DEMOSELL",
+            "provider": "authorized-enterprise-registry",
+            "verifiedAt": "2026-07-27T10:00:00+08:00",
+            "operator": "connector",
+            "contentHash": "b" * 64,
+        },
+    )
+
+    gate = payment_gate(
+        {
+            "verification": {"status": "FACE_MATCHED"},
+            "duplication": {"status": "PASS"},
+            "ruleResults": [enterprise["ruleResult"]],
+            "commercialMatch": {"status": "PASS"},
+        }
+    )
+
+    assert gate["status"] == "PAYMENT_BLOCKED"
+    assert gate["hardBlocks"] == ["ENTERPRISE_REVOKED"]
 
 
 def test_official_verify_pending_human_and_unavailable_connector() -> None:

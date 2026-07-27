@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from datetime import date
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
@@ -23,6 +24,8 @@ from swarmcore_application import (
     DocumentProcessingService,
     DocumentRequirementService,
     DocumentReviewService,
+    InvoiceAssuranceOperationsService,
+    InvoiceBatchInput,
     ResourceCatalogService,
     RuleSetService,
     UploadBatchService,
@@ -113,6 +116,7 @@ from .business_schemas import (
     CompleteDocumentUploadRequest,
     ConfirmClassificationRequest,
     ConfirmFieldsRequest,
+    CreateInvoiceAssuranceBatchRequest,
     CreateBusinessObjectRelationRequest,
     CreateBusinessObjectRequest,
     CreateBusinessObjectVersionRequest,
@@ -138,6 +142,9 @@ from .business_schemas import (
     FindingActionRequest,
     FindingListResponse,
     FindingSnapshot,
+    InvoiceAssuranceBatchItemSnapshot,
+    InvoiceAssuranceBatchSnapshot,
+    InvoiceRuleTrendSnapshot,
     InitiateAttachmentRequest,
     InitiateDocumentRequest,
     ReportListResponse,
@@ -214,6 +221,7 @@ document_review = DocumentReviewService(document_processing)
 upload_batches = UploadBatchService()
 document_requirements = DocumentRequirementService()
 business_works = BusinessWorkService(capability_packs, workbench, cases, documents=documents)
+invoice_assurance_operations = InvoiceAssuranceOperationsService(business_works)
 
 Scope = Annotated[RequestScope, Depends(request_scope)]
 Session = Annotated[AsyncSession, Depends(db_session)]
@@ -253,6 +261,28 @@ def _business_work_snapshot(summary: BusinessWorkSummary) -> BusinessWorkSnapsho
         boundStrategyVersionId=summary.bound_strategy_version_id,
         boundStrategyName=summary.bound_strategy_name,
         boundStrategyVersion=summary.bound_strategy_version,
+    )
+
+
+def _invoice_batch_snapshot(value: Any) -> InvoiceAssuranceBatchSnapshot:
+    return InvoiceAssuranceBatchSnapshot(
+        batchId=value.batch_id,
+        status=value.status,
+        totalItems=value.total_items,
+        maxParallelism=value.max_parallelism,
+        requestedBy=value.requested_by,
+        createdAt=value.created_at,
+        updatedAt=value.updated_at,
+        items=[
+            InvoiceAssuranceBatchItemSnapshot(
+                ordinal=item.ordinal,
+                caseId=item.case_id,
+                evaluationId=item.evaluation_id,
+                status=item.status,
+                outcome=item.outcome,
+            )
+            for item in value.items
+        ],
     )
 
 
@@ -367,6 +397,86 @@ async def list_business_works(scope: Scope, session: Session) -> BusinessWorkLis
         session, tenant_id=scope.tenant_id, project_id=scope.project_id
     )
     return BusinessWorkListResponse(items=[_business_work_snapshot(item) for item in items])
+
+
+@router.post(
+    "/projects/{project_id}/business-works/invoice-assurance/batches",
+    response_model=InvoiceAssuranceBatchSnapshot,
+    status_code=202,
+)
+async def create_invoice_assurance_batch(
+    body: CreateInvoiceAssuranceBatchRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+) -> InvoiceAssuranceBatchSnapshot:
+    batch = await invoice_assurance_operations.create_batch(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        inputs=tuple(
+            InvoiceBatchInput(
+                payload=item.payload,
+                subjects=tuple(
+                    CaseSubjectInput(
+                        business_object_id=subject.business_object_id,
+                        business_object_version_id=subject.business_object_version_id,
+                        role=subject.role,
+                        subject_key=subject.subject_key,
+                    )
+                    for subject in item.subjects
+                ),
+                owner=item.owner,
+            )
+            for item in body.items
+        ),
+        max_parallelism=body.max_parallelism,
+        idempotency_key=idempotency_key,
+        actor=scope.actor_id,
+        submitted_scopes=scope.scopes,
+        auth_context_hash=scope.auth_context_hash,
+    )
+    return _invoice_batch_snapshot(batch)
+
+
+@router.get(
+    "/projects/{project_id}/business-works/invoice-assurance/batches/{batch_id}",
+    response_model=InvoiceAssuranceBatchSnapshot,
+)
+async def get_invoice_assurance_batch(
+    batch_id: UUID,
+    scope: Scope,
+    session: Session,
+) -> InvoiceAssuranceBatchSnapshot:
+    batch = await invoice_assurance_operations.get_batch(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        batch_id=batch_id,
+    )
+    return _invoice_batch_snapshot(batch)
+
+
+@router.get(
+    "/projects/{project_id}/business-works/invoice-assurance/rule-trends",
+    response_model=InvoiceRuleTrendSnapshot,
+)
+async def get_invoice_assurance_rule_trends(
+    scope: Scope,
+    session: Session,
+    date_from: Annotated[date | None, Query(alias="from")] = None,
+    date_to: Annotated[date | None, Query(alias="to")] = None,
+    bucket: Annotated[Literal["day", "week", "month"], Query()] = "day",
+) -> InvoiceRuleTrendSnapshot:
+    trend = await invoice_assurance_operations.rule_trends(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        date_from=date_from,
+        date_to=date_to,
+        bucket=bucket,
+    )
+    return InvoiceRuleTrendSnapshot.model_validate(trend)
 
 
 # Register before GET {work_key}: path params swallow `:suffix` if ordered later.

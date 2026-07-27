@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Activity, AlertTriangle, FileText, Link2 } from "lucide-react";
+import { Activity, AlertTriangle, FileText, Link2, LoaderCircle } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { api } from "@/api/client";
 import type { PostEvaluationResult } from "@/api/types";
@@ -75,6 +75,7 @@ export function AssessmentPage() {
   const deviationResult = invoiceResult ? null : asDeviationAnalysis(detail.result);
   const result = invoiceResult || deviationResult ? null : asPostEvaluation(detail.result);
   const inProgress = !TERMINAL.has(detail.status) && !TERMINAL.has(run.data?.status ?? "");
+  const syncStatus = run.data?.status ?? detail.status;
   const snapshotItems = (snapshots.data?.items ?? []).map((item, index) => ({
     id: stringField(item, "documentUsageSnapshotId")
       ?? stringField(item, "businessDocumentVersionId")
@@ -101,7 +102,18 @@ export function AssessmentPage() {
       </div>
     </header>
 
-    {inProgress ? <Card><CardContent className="border border-brand-200 bg-brand-50/60 p-5 text-sm text-brand-800 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-300">评估仍在进行中，正在同步关联 Run 状态（{run.data?.status ?? detail.status}）…</CardContent></Card> : null}
+    {inProgress ? <div role="status" aria-live="polite" className="flex items-start gap-3 rounded-2xl border border-brand-200 bg-brand-50/60 p-4 text-brand-800 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-300">
+      <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl bg-brand-100 text-brand-600 dark:bg-brand-500/20 dark:text-brand-300" aria-hidden>
+        <LoaderCircle className="size-4.5 animate-spin" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-semibold">评估仍在进行中</p>
+          <Badge color={statusColor(syncStatus)}>{syncStatus}</Badge>
+        </div>
+        <p className="mt-1 text-xs leading-5 text-brand-700/80 dark:text-brand-200/80">正在同步关联 Run 状态，完成后结果会自动更新。</p>
+      </div>
+    </div> : null}
 
     <section className="grid gap-3 md:grid-cols-4" aria-label="评估摘要">
       <Metric label="评估状态" value={detail.status} />
@@ -131,8 +143,8 @@ export function AssessmentPage() {
           <Metric label="可读资料" value={`${result.readabilityGate.readableDocumentCount} / ${result.readabilityGate.documentCount}`} />
           <Metric label="报告编号" value={result.reportDocument?.reportNumber ?? "—"} />
         </div> : null}
-        {result.reportQuality?.blockingIssues.length ? <p className="rounded-xl bg-error-50 p-3 text-sm text-error-700 dark:bg-error-500/10 dark:text-error-300">{result.reportQuality.blockingIssues.join("；")}</p> : null}
-        {result.reportQuality?.warnings.length ? <p className="rounded-xl bg-warning-50 p-3 text-sm text-warning-700 dark:bg-warning-500/10 dark:text-warning-300">{result.reportQuality.warnings.join("；")}</p> : null}
+        {result.reportQuality?.blockingIssues.length ? <div role="alert" className="rounded-2xl border border-error-200 bg-error-50 px-4 py-3 text-sm text-error-700 dark:border-error-500/20 dark:bg-error-500/10 dark:text-error-300">{result.reportQuality.blockingIssues.join("；")}</div> : null}
+        {result.reportQuality?.warnings.length ? <div role="status" className="rounded-2xl border border-warning-200 bg-warning-50 px-4 py-3 text-sm text-warning-700 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-300">{result.reportQuality.warnings.join("；")}</div> : null}
       </CardContent></Card> : null}
       <Card><CardContent className="space-y-4 p-5">
       <h2 className="font-semibold text-gray-900 dark:text-white">综合结论</h2>
@@ -153,7 +165,7 @@ export function AssessmentPage() {
     <div className="grid gap-4 xl:grid-cols-2">
       <Card><CardContent className="space-y-4 p-5">
         <h2 className="font-semibold text-gray-900 dark:text-white">Findings</h2>
-        {findings.isPending ? <Skeleton className="h-32" /> : findings.data?.items.length ? <ul className="space-y-3">{findings.data.items.map((finding) => <li key={finding.findingId} className="rounded-xl border border-gray-200 p-3 dark:border-gray-800">
+        {findings.isLoading ? <Skeleton className="h-32" /> : findings.data?.items.length ? <ul className="space-y-3">{findings.data.items.map((finding) => <li key={finding.findingId} className="rounded-xl border border-gray-200 p-3 dark:border-gray-800">
           <div className="flex flex-wrap items-center gap-2"><Badge color="warning">{finding.severity}</Badge><Badge color="neutral">{finding.status}</Badge><span className="text-sm font-medium text-gray-900 dark:text-white">{finding.title}</span></div>
           <p className="mt-2 text-xs text-gray-500">{finding.detail}</p>
         </li>)}</ul> : <p className="text-sm text-gray-500">暂无 Finding。</p>}

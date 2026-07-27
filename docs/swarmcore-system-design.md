@@ -350,7 +350,7 @@ Business Document Library、Temporal、Evaluation、Report、Approval、Finding�
 不建立发票专用微服务。发票作为 `PRIMARY` Subject；资料槽位覆盖发票原件、合同/订单、收货/验收、
 供应商主数据、应付台账与预算付款政策。
 
-策略 `strategy://invoice-assurance/assess@1` 使用 3 个窄职责 Agent、14 个 Tool、
+策略 `strategy://invoice-assurance/assess@2` 使用 3 个窄职责 Agent、15 个 Tool、
 `maxParallelism=3`、`maxTokens=80000`、`maxCostUsd=1.5` 和 `node_only` Agent 上下文。
 XML/结构化原件优先解析；金额税额、主体、重复、商业匹配和付款门禁由确定性 Tool 计算。
 官方查验支持授权连接器与人工协助两种模式，缺失回执时进入 `PENDING_HUMAN`/`UNAVAILABLE`，
@@ -360,6 +360,13 @@ XML/结构化原件优先解析；金额税额、主体、重复、商业匹配�
 
 `schema://invoice-assurance/result@1` 是页面、JSON 与 PDF 的唯一事实源；总体结论为
 `PAYMENT_READY`、`REVIEW_REQUIRED` 或 `PAYMENT_BLOCKED`，与 Run 成功状态分离。
+
+P1 的企业公示状态增强检查只消费授权连接器或人工提交的可追溯证据，不抓取 GSXT、
+不绕过验证码；证据缺失或身份/来源不完整时返回 `UNKNOWN` 并进入复核。批量提交通过
+`InvoiceAssuranceOperationsService` 复用同一 Case/Assessment 服务，每票保持独立状态，
+单批最多 100 项且并行度配置限制为 1–10；批次及条目按 tenant/project 持久化并启用 RLS。
+P2 趋势读取同一项目的历史发票 Evaluation，按日、周或月聚合总体结论及
+`FAIL/WARN/UNKNOWN` 规则命中。REST 与 MCP 均复用该应用服务。
 
 ## 7. 公共契约
 

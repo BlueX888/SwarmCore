@@ -157,6 +157,99 @@ export function listEdges(spec: SwarmSpecDocument): StrategyEdge[] {
   return [...pairs.values()];
 }
 
+export function layoutStrategyGraph(spec: SwarmSpecDocument): Record<string, Position> {
+  const nodeKeys = Object.keys(spec.spec.graph.nodes);
+  const nodeOrder = new Map(nodeKeys.map((key, index) => [key, index]));
+  const predecessors = new Map(nodeKeys.map((key) => [key, [] as string[]]));
+  const successors = new Map(nodeKeys.map((key) => [key, [] as string[]]));
+  for (const edge of listEdges(spec)) {
+    predecessors.get(edge.target)?.push(edge.source);
+    successors.get(edge.source)?.push(edge.target);
+  }
+
+  const depths = new Map<string, number>();
+  const visiting = new Set<string>();
+  const depthOf = (key: string): number => {
+    const known = depths.get(key);
+    if (known !== undefined) return known;
+    if (visiting.has(key)) return 0;
+    visiting.add(key);
+    const dependencies = predecessors.get(key) ?? [];
+    const depth = dependencies.length
+      ? Math.max(...dependencies.map(depthOf)) + 1
+      : 0;
+    visiting.delete(key);
+    depths.set(key, depth);
+    return depth;
+  };
+  nodeKeys.forEach(depthOf);
+
+  const layers = new Map<number, string[]>();
+  for (const key of nodeKeys) {
+    const depth = depths.get(key) ?? 0;
+    layers.set(depth, [...(layers.get(depth) ?? []), key]);
+  }
+
+  const layerDepths = [...layers.keys()].sort((left, right) => left - right);
+  const neighborPosition = (key: string): number => {
+    const depth = depths.get(key) ?? 0;
+    const layer = layers.get(depth) ?? [];
+    return layer.indexOf(key) - (layer.length - 1) / 2;
+  };
+  const reorderLayer = (keys: string[], neighbors: Map<string, string[]>): void => {
+    const previousOrder = new Map(keys.map((key, index) => [key, index]));
+    const score = (key: string): number | null => {
+      const connected = neighbors.get(key) ?? [];
+      if (!connected.length) return null;
+      return connected.reduce((total, neighbor) => total + neighborPosition(neighbor), 0) / connected.length;
+    };
+    keys.sort((left, right) => {
+      const leftScore = score(left);
+      const rightScore = score(right);
+      if (leftScore !== null && rightScore !== null && leftScore !== rightScore) {
+        return leftScore - rightScore;
+      }
+      if (leftScore !== null && rightScore === null) return -1;
+      if (leftScore === null && rightScore !== null) return 1;
+      return (previousOrder.get(left) ?? nodeOrder.get(left) ?? 0)
+        - (previousOrder.get(right) ?? nodeOrder.get(right) ?? 0);
+    });
+  };
+  for (let sweep = 0; sweep < 4; sweep += 1) {
+    for (const depth of layerDepths.slice(1)) {
+      reorderLayer(layers.get(depth) ?? [], predecessors);
+    }
+    for (const depth of layerDepths.slice(0, -1).reverse()) {
+      reorderLayer(layers.get(depth) ?? [], successors);
+    }
+  }
+
+  const horizontalGap = 240;
+  const verticalGap = 140;
+  const tallestLayer = Math.max(0, ...[...layers.values()].map((keys) => (keys.length - 1) * verticalGap));
+  return Object.fromEntries(
+    [...layers.entries()].flatMap(([depth, keys]) =>
+      keys.map((key, index) => {
+        const layerHeight = (keys.length - 1) * verticalGap;
+        return [key, {
+          x: 80 + depth * horizontalGap,
+          y: 80 + (tallestLayer - layerHeight) / 2 + index * verticalGap,
+        }];
+      }),
+    ),
+  );
+}
+
+export function layoutStrategyEditorState(
+  spec: SwarmSpecDocument,
+  editorState: EditorState = EMPTY_EDITOR_STATE,
+): EditorState {
+  return {
+    ...editorState,
+    positions: layoutStrategyGraph(spec),
+  };
+}
+
 export function wouldCreateCycle(spec: SwarmSpecDocument, source: string, target: string): boolean {
   if (source === target) return true;
   const successors = new Map<string, Set<string>>();

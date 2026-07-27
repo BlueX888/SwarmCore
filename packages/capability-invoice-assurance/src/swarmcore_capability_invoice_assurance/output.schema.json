@@ -53,6 +53,7 @@
     },
     "invoiceFactSet": {"type": "object"},
     "verification": {"type": "object"},
+    "enterprisePublicStatus": {"type": "object"},
     "businessSnapshotHash": {"type": ["string", "null"]},
     "ruleResults": {"type": "array", "items": {"type": "object"}},
     "matchResults": {"type": "array", "items": {"type": "object"}},

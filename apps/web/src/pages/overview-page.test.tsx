@@ -16,8 +16,8 @@ vi.mock("@/api/client", () => ({ api: {
 describe("overview page", () => {
   beforeEach(() => {
     vi.mocked(api.listRuns).mockResolvedValue({ total: 2, items: [
-      { runId: "run-active", status: "RUNNING", input: {}, output: null, outputRef: null, snapshotSeq: 4, earliestAvailableSeq: 1, planHash: "a".repeat(64), usage: {}, taskCounts: { RUNNING: 2 }, allowedActions: [], tasks: [] },
-      { runId: "run-complete", status: "SUCCEEDED", input: {}, output: {}, outputRef: null, snapshotSeq: 8, earliestAvailableSeq: 1, planHash: "b".repeat(64), usage: {}, taskCounts: { SUCCEEDED: 3 }, allowedActions: [], tasks: [] },
+      { runId: "run-active", status: "RUNNING", input: {}, output: null, outputRef: null, snapshotSeq: 4, earliestAvailableSeq: 1, strategyVersionId: "strategy-version-1", planHash: "a".repeat(64), usage: {}, taskCounts: { RUNNING: 2 }, allowedActions: [], tasks: [] },
+      { runId: "run-complete", status: "SUCCEEDED", input: {}, output: {}, outputRef: null, snapshotSeq: 8, earliestAvailableSeq: 1, strategyVersionId: "strategy-version-2", planHash: "b".repeat(64), usage: {}, taskCounts: { SUCCEEDED: 3 }, allowedActions: [], tasks: [] },
     ] });
     vi.mocked(api.listStrategies).mockResolvedValue({ total: 2, items: [
       { strategyId: "strategy-1", name: "one", lifecycle: "ACTIVE", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), draftId: "draft-1", draftRevision: 1, latestVersion: 1 },

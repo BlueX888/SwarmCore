@@ -2,7 +2,7 @@ import type {
   ApprovalListResponse, AuditListResponse, CapabilityCatalog, CapabilityCenterResponse, CapabilityPreset, CapabilityPresetListResponse, CapabilityPresetRequest, CommandHandle, CompileResponse, ConfigurationKind, CreateSavedConfiguration,
   DraftSnapshot, EditorState, EventHistory, ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, SavedConfiguration,
   CapabilityPackListResponse, CapabilityPackSnapshot, CreateCapabilityPackRequest,
-  AssessmentDetailSnapshot, AssessmentListResponse, BusinessObjectSnapshot, BusinessWorkListResponse, BusinessWorkSnapshot, CaseSnapshot, CaseSubjectInput, DocumentDownloadHandle, DocumentListResponse, DocumentProcessingResultSnapshot, DocumentProcessingRunSnapshot, DocumentRequirementListResponse, DocumentSnapshot, DocumentUploadHandle, EvaluationSnapshot, FindingListResponse, InitiateDocumentRequest, PackBindings, ReportListResponse,
+  AssessmentDetailSnapshot, AssessmentListResponse, BusinessObjectSnapshot, BusinessWorkListResponse, BusinessWorkSnapshot, CaseSnapshot, CaseSubjectInput, DocumentDownloadHandle, DocumentListResponse, DocumentProcessingResultSnapshot, DocumentProcessingRunSnapshot, DocumentRequirementListResponse, DocumentSnapshot, DocumentUploadHandle, EvaluationSnapshot, FindingListResponse, InitiateDocumentRequest, InvoiceAssuranceBatchRequest, InvoiceAssuranceBatchSnapshot, InvoiceRuleTrendSnapshot, PackBindings, ReportListResponse,
   SavedConfigurationListResponse, StrategyDeleteImpact, StrategyHandle,
   ModelProviderConfiguration, ModelProviderConfigurationRequest, ModelProviderTestResult,
   StrategyListResponse, StrategyVersionDetail,
@@ -30,14 +30,32 @@ export class ApiError extends Error {
   ) { super(message); }
 }
 
+const REQUEST_TIMEOUT_MS = 45_000;
+
+function withTimeoutSignal(init?: RequestInit): AbortSignal | undefined {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  if (!init?.signal) return timeout;
+  return AbortSignal.any([init.signal, timeout]);
+}
+
 async function request<T>(path: string, tenantId: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
   headers.set("X-Tenant-ID", tenantId);
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers,
+      signal: withTimeoutSignal(init),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new ApiError(408, "请求超时，请检查 API 是否可用后重试。", "REQUEST_TIMEOUT");
+    }
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new ApiError(0, error instanceof Error ? error.message : "网络请求失败", "NETWORK_ERROR");
+  }
   if (!response.ok) {
     const body = await response.text();
     try {
@@ -65,7 +83,15 @@ async function request<T>(path: string, tenantId: string, init?: RequestInit): P
 async function requestFile(path: string, tenantId: string, init?: RequestInit): Promise<Blob> {
   const headers = new Headers(init?.headers);
   headers.set("X-Tenant-ID", tenantId);
-  const response = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, { ...init, headers, signal: withTimeoutSignal(init) });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new ApiError(408, "请求超时，请检查 API 是否可用后重试。", "REQUEST_TIMEOUT");
+    }
+    throw new ApiError(0, error instanceof Error ? error.message : "网络请求失败", "NETWORK_ERROR");
+  }
   if (!response.ok) throw new ApiError(response.status, await response.text());
   return response.blob();
 }
@@ -145,6 +171,9 @@ export const api = {
   getBusinessWork: (tenantId: string, projectId: string, workKey: string) => request<BusinessWorkSnapshot>(`/v1/projects/${projectId}/business-works/${encodeURIComponent(workKey)}`, tenantId),
   bindBusinessWorkStrategy: (tenantId: string, projectId: string, workKey: string, strategyVersionId: string) => request<BusinessWorkSnapshot>(`/v1/projects/${projectId}/business-works/${encodeURIComponent(workKey)}:bind-strategy`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ strategyVersionId }) }),
   getAssessment: (tenantId: string, projectId: string, assessmentId: string) => request<AssessmentDetailSnapshot>(`/v1/projects/${projectId}/assessments/${assessmentId}`, tenantId),
+  createInvoiceAssuranceBatch: (tenantId: string, projectId: string, body: InvoiceAssuranceBatchRequest) => request<InvoiceAssuranceBatchSnapshot>(`/v1/projects/${projectId}/business-works/invoice-assurance/batches`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
+  getInvoiceAssuranceBatch: (tenantId: string, projectId: string, batchId: string) => request<InvoiceAssuranceBatchSnapshot>(`/v1/projects/${projectId}/business-works/invoice-assurance/batches/${batchId}`, tenantId),
+  getInvoiceAssuranceRuleTrends: (tenantId: string, projectId: string, bucket: "day" | "week" | "month" = "day") => request<InvoiceRuleTrendSnapshot>(`/v1/projects/${projectId}/business-works/invoice-assurance/rule-trends?bucket=${bucket}`, tenantId),
   listAssessmentDocumentSnapshots: (tenantId: string, projectId: string, assessmentId: string) => request<{ items: Array<Record<string, unknown>> }>(`/v1/projects/${projectId}/assessments/${assessmentId}/document-snapshots`, tenantId),
   createCapabilityPack: (tenantId: string, projectId: string, body: CreateCapabilityPackRequest) => request<CapabilityPackSnapshot>(`/v1/projects/${projectId}/capability-packs`, tenantId, { method: "POST", body: JSON.stringify(body) }),
   createRuleSet: (tenantId: string, projectId: string, body: { name: string; purpose: string; rules: Record<string, unknown> }) => request<RuleSetDraftSnapshot>(`/v1/projects/${projectId}/rule-sets`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),

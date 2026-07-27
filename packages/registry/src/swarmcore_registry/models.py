@@ -710,7 +710,9 @@ _EVIDENCE_SEARCH_RESULT_SCHEMA = _object_schema(
         "contentHash",
     ),
     properties={
-        "domain": {"enum": ["contract", "performance", "finance", "governance"]},
+        "domain": {
+            "enum": ["contract", "performance", "finance", "governance", "commercial"]
+        },
         "searchedDocuments": {"type": "integer", "minimum": 0},
         "contentAvailableDocuments": {"type": "integer", "minimum": 0},
         "hits": {"type": "array", "items": {"type": "object"}},
@@ -960,7 +962,7 @@ _INVOICE_REVIEW_SCHEMA = _object_schema(
         "reviewRequired": {"type": "boolean"},
         "narrative": {
             "type": "object",
-            "required": ("executiveSummary",),
+            "required": ["executiveSummary"],
             "properties": {
                 "executiveSummary": {"type": "string", "minLength": 1},
                 "riskSummary": {"type": "string"},
@@ -2012,7 +2014,13 @@ def builtin_registry() -> RegistrySnapshot:
                     properties={
                         "documents": {"type": "array", "items": {"type": "object"}},
                         "domain": {
-                            "enum": ["contract", "performance", "finance", "governance"]
+                            "enum": [
+                                "contract",
+                                "performance",
+                                "finance",
+                                "governance",
+                                "commercial",
+                            ]
                         },
                         "keywords": {"type": "array", "items": {"type": "string"}},
                         "maxHits": {"type": "integer", "minimum": 1, "maximum": 50},
@@ -2816,6 +2824,25 @@ def builtin_registry() -> RegistrySnapshot:
                 recoveryPolicy="idempotent",
             ),
             ToolRegistration(
+                ref="tool://invoice/enterprise-status-check@1",
+                version="1",
+                operation="invoice.enterprise_status_check",
+                description="核验企业公示状态的授权接口或人工回执；不抓取、不绕过验证码，证据不足时返回待人工核验。",
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("invoiceFactSet",),
+                    properties={
+                        "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
+                        "payload": {"type": "object"},
+                        "enterprisePublicStatusEvidence": {"type": "object"},
+                    },
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
                 ref="tool://invoice/party-check@1",
                 version="1",
                 operation="invoice.party_check",
@@ -2900,6 +2927,7 @@ def builtin_registry() -> RegistrySnapshot:
                         "payload": {"type": "object"},
                         "invoiceFactSet": _INVOICE_FACT_SET_SCHEMA,
                         "verification": {"type": "object"},
+                        "enterprisePublicStatus": {"type": "object"},
                         "businessSnapshotHash": {"type": "string"},
                         "businessSnapshot": {"type": "object"},
                         "ruleResults": {"type": "object"},

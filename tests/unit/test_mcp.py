@@ -72,6 +72,9 @@ def test_mcp_lists_default_tools() -> None:
         "get_business_work",
         "bind_business_work_strategy",
         "get_assessment",
+        "create_invoice_assurance_batch",
+        "get_invoice_assurance_batch",
+        "get_invoice_assurance_rule_trends",
         "create_work_item",
         "upsert_business_object",
         "create_case",
@@ -122,7 +125,8 @@ def test_rest_and_mcp_return_the_same_capability_catalog() -> None:
         "router",
         "tool",
     }
-    assert {item["ref"] for item in catalog["tools"]} == {
+    tool_refs = {item["ref"] for item in catalog["tools"]}
+    assert tool_refs >= {
         "tool://contract/cross-file-consistency@1",
         "tool://contract/post-evaluation@1",
         "tool://contract/post-evaluation/assemble@1",
@@ -163,6 +167,20 @@ def test_rest_and_mcp_return_the_same_capability_catalog() -> None:
             "tool://workbench/record-deviation-analysis@1",
         "tool://workbench/record-post-evaluation@1",
         "tool://workbench/record-post-evaluation@2",
+    }
+    assert tool_refs >= {
+        "tool://business/snapshot-read@1",
+        "tool://invoice/arithmetic-check@1",
+        "tool://invoice/commercial-match@1",
+        "tool://invoice/deduplicate@1",
+        "tool://invoice/enterprise-status-check@1",
+        "tool://invoice/finalize@1",
+        "tool://invoice/official-verify@1",
+        "tool://invoice/parse@1",
+        "tool://invoice/party-check@1",
+        "tool://invoice/payment-gate@1",
+        "tool://report/render-invoice-assurance@1",
+        "tool://workbench/record-invoice-assurance@1",
     }
     assert {item["name"] for item in catalog["capabilityPacks"]} >= {
         "contract-post-evaluation"

@@ -131,6 +131,16 @@
             "configuration": "{{ input.configuration }}"
           }
         },
+        "enterprise-status-check": {
+          "type": "tool",
+          "tool": "tool://invoice/enterprise-status-check@1",
+          "dependsOn": ["normalize-facts"],
+          "input": {
+            "invoiceFactSet": "{{ tasks.normalize-facts.output.content.invoiceFactSet }}",
+            "payload": "{{ input.payload }}",
+            "enterprisePublicStatusEvidence": "{{ input.payload.enterprisePublicStatusEvidence }}"
+          }
+        },
         "party-check": {
           "type": "tool",
           "tool": "tool://invoice/party-check@1",
@@ -167,6 +177,7 @@
           "tool": "tool://invoice/payment-gate@1",
           "dependsOn": [
             "arithmetic-check",
+            "enterprise-status-check",
             "party-check",
             "deduplicate",
             "commercial-match",
@@ -177,6 +188,7 @@
             "verification": "{{ tasks.official-verify.output.content }}",
             "ruleResults": {
               "arithmetic": "{{ tasks.arithmetic-check.output.content }}",
+              "enterpriseStatus": "{{ tasks.enterprise-status-check.output.content.ruleResult }}",
               "parties": "{{ tasks.party-check.output.content }}",
               "duplication": "{{ tasks.deduplicate.output.content }}"
             },
@@ -192,6 +204,7 @@
             "coverage-check",
             "official-verify",
             "arithmetic-check",
+            "enterprise-status-check",
             "party-check",
             "deduplicate",
             "commercial-match",
@@ -203,6 +216,7 @@
             "verification": "{{ tasks.official-verify.output.content }}",
             "ruleResults": {
               "arithmetic": "{{ tasks.arithmetic-check.output.content }}",
+              "enterpriseStatus": "{{ tasks.enterprise-status-check.output.content.ruleResult }}",
               "parties": "{{ tasks.party-check.output.content }}",
               "duplication": "{{ tasks.deduplicate.output.content }}"
             },
@@ -221,8 +235,8 @@
             {"when": "tasks.official-verify.output.content.status == \"FACE_MISMATCH\"", "target": "manual-review"},
             {"when": "tasks.official-verify.output.content.status == \"NOT_FOUND\"", "target": "manual-review"},
             {"when": "tasks.payment-gate.output.content.blocking == true", "target": "manual-review"},
-            {"when": "tasks.payment-gate.output.content.outcome == \"PAYMENT_BLOCKED\"", "target": "manual-review"},
-            {"when": "tasks.payment-gate.output.content.outcome == \"REVIEW_REQUIRED\"", "target": "manual-review"}
+            {"when": "tasks.payment-gate.output.content.status == \"PAYMENT_BLOCKED\"", "target": "manual-review"},
+            {"when": "tasks.payment-gate.output.content.status == \"REVIEW_REQUIRED\"", "target": "manual-review"}
           ],
           "default": "auto-continue"
         },
@@ -260,9 +274,11 @@
             "payload": "{{ input.payload }}",
             "invoiceFactSet": "{{ tasks.normalize-facts.output.content.invoiceFactSet }}",
             "verification": "{{ tasks.official-verify.output.content }}",
+            "enterprisePublicStatus": "{{ tasks.enterprise-status-check.output.content }}",
             "businessSnapshotHash": "{{ tasks.snapshot-read.output.content.hash }}",
             "ruleResults": {
               "arithmetic": "{{ tasks.arithmetic-check.output.content }}",
+              "enterpriseStatus": "{{ tasks.enterprise-status-check.output.content.ruleResult }}",
               "parties": "{{ tasks.party-check.output.content }}",
               "duplication": "{{ tasks.deduplicate.output.content }}"
             },
@@ -270,9 +286,7 @@
             "gateResults": "{{ tasks.payment-gate.output.content }}",
             "coverage": "{{ tasks.coverage-check.output.content }}",
             "evidenceReview": "{{ tasks.evidence-risk-review.output.content }}",
-            "approvals": {
-              "manualReview": "{{ tasks.manual-review.output.content }}"
-            },
+            "approvals": {},
             "provenance": {
               "documentContentHash": "{{ tasks.read-documents.output.content.contentHash }}",
               "attachmentManifestHash": "{{ input.attachmentManifestHash }}",
@@ -290,6 +304,7 @@
                 "tool://invoice/official-verify@1",
                 "tool://business/snapshot-read@1",
                 "tool://invoice/arithmetic-check@1",
+                "tool://invoice/enterprise-status-check@1",
                 "tool://invoice/party-check@1",
                 "tool://invoice/deduplicate@1",
                 "tool://invoice/commercial-match@1",

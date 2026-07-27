@@ -19,6 +19,7 @@ vi.mock("@/api/client", async (importOriginal) => {
       createBusinessObject: vi.fn(),
       createCase: vi.fn(),
       assessCase: vi.fn(),
+      getInvoiceAssuranceRuleTrends: vi.fn(),
     },
   };
 });
@@ -83,6 +84,13 @@ describe("business work workbench", () => {
     vi.mocked(api.createBusinessObject).mockResolvedValue({ businessObjectId: "object-1", versionId: "object-version-1", objectType: "contract", canonicalKey: "HT-2026-001", currentVersion: 1, schemaRef: "schema://contract/facts@1", data: {} });
     vi.mocked(api.createCase).mockResolvedValue({ caseId: "case-1", scenarioType: "contract-post-evaluation-case", caseRevisionId: "case-revision-1", revision: 1, payload: {}, status: "DRAFT", owner: null, subjects: [], createdAt: "2026-07-22T00:00:00Z", updatedAt: "2026-07-22T00:00:00Z" });
     vi.mocked(api.assessCase).mockResolvedValue(evaluation);
+    vi.mocked(api.getInvoiceAssuranceRuleTrends).mockResolvedValue({
+      bucket: "day",
+      totalAssessments: 2,
+      outcomes: { PAYMENT_BLOCKED: 1, REVIEW_REQUIRED: 1 },
+      buckets: [],
+      topRules: [{ ruleId: "PARTY_ENTERPRISE_PUBLIC_STATUS", status: "WARN", count: 2 }],
+    });
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -133,6 +141,29 @@ describe("business work workbench", () => {
     renderPage("invoice-assurance");
     expect(await screen.findByRole("heading", { name: "该业务工作仍在规划中" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "开始办理" })).not.toBeInTheDocument();
+  });
+
+  it("shows historical invoice rule trends", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(runnableWork({
+      workKey: "invoice-assurance",
+      name: "发票一致性校验智能体",
+      packName: "invoice-assurance",
+      workItemType: "invoice-assurance-case",
+      caseBased: true,
+    }));
+    vi.mocked(api.listCapabilityPacks).mockResolvedValue({
+      items: [{
+        ...v1Pack(),
+        name: "invoice-assurance",
+        manifest: { spec: { case: { type: "invoice-assurance-case", subjectRoles: [] } } },
+      }],
+    });
+
+    renderPage("invoice-assurance");
+
+    expect(await screen.findByRole("heading", { name: "规则命中趋势" })).toBeVisible();
+    expect(await screen.findByText("PARTY_ENTERPRISE_PUBLIC_STATUS")).toBeVisible();
+    expect(screen.getByText("2 次")).toBeVisible();
   });
 
   it("disables start when readiness blockers exist", async () => {

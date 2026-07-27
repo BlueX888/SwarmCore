@@ -16,7 +16,7 @@ export type InvoiceAssuranceDimensionStatus =
   | "CONFLICTED";
 
 export type InvoiceAssuranceDimension = {
-  status?: InvoiceAssuranceDimensionStatus | string;
+  status?: string;
   summary?: string;
   reasons?: string[];
   severity?: string;
@@ -36,7 +36,7 @@ export type InvoiceAssuranceResult = {
   schemaVersion: typeof INVOICE_ASSURANCE_SCHEMA;
   title?: string;
   asOf?: string | null;
-  outcome: InvoiceAssuranceOutcome | string;
+  outcome: string;
   score?: number | null;
   reviewRequired?: boolean;
   dimensions: Partial<Record<InvoiceAssuranceDimensionKey, InvoiceAssuranceDimension>>;
@@ -45,6 +45,11 @@ export type InvoiceAssuranceResult = {
   resultHash?: string;
   provenance?: Record<string, unknown>;
   invoiceFactSet?: Record<string, unknown>;
+  enterprisePublicStatus?: {
+    status?: string;
+    requiresHumanReview?: boolean;
+    evidence?: { verifiedAt?: string; operator?: string; sourceUrl?: string };
+  };
 };
 
 export type InvoiceAssuranceDimensionKey =
@@ -105,6 +110,11 @@ export function InvoiceAssuranceResultView({ result }: { result: InvoiceAssuranc
               <Badge color={outcomeColor(result.outcome)}>{result.outcome}</Badge>
               {typeof result.score === "number" ? <Badge color="neutral">得分 {result.score}</Badge> : null}
               {result.reviewRequired ? <Badge color="warning">需要人工复核</Badge> : null}
+              {result.enterprisePublicStatus?.status ? (
+                <Badge color={result.enterprisePublicStatus.status === "ACTIVE" ? "success" : "warning"}>
+                  企业状态 {result.enterprisePublicStatus.status}
+                </Badge>
+              ) : null}
             </div>
           </div>
           <p className="text-sm leading-6 text-gray-600 dark:text-gray-300">

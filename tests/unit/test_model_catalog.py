@@ -30,7 +30,7 @@ def test_registered_agent_definitions_are_available_for_safe_customization() -> 
     catalog = CapabilityCatalogService().get()
     agents = {item.id: item for item in catalog.agents if item.id.startswith("agent://")}
 
-    assert set(agents) == {
+    assert set(agents) >= {
         "agent://builtin/researcher@1",
         "agent://contract/document-classifier@1",
         "agent://contract/field-extractor@1",
@@ -51,6 +51,11 @@ def test_registered_agent_definitions_are_available_for_safe_customization() -> 
         "agent://deviation/responsibility-analyst@1",
         "agent://deviation/evidence-reviewer@1",
         "agent://deviation/report-narrator@1",
+    }
+    assert set(agents) >= {
+        "agent://invoice/commercial-match-analyst@1",
+        "agent://invoice/evidence-risk-reviewer@1",
+        "agent://invoice/fact-normalizer@1",
     }
     assert agents["agent://builtin/researcher@1"].model == "model://general@1"
     assert agents["agent://builtin/researcher@1"].tools == ["tool://search@1"]

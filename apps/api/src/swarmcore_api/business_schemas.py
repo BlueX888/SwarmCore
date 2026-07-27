@@ -527,3 +527,54 @@ class AssessmentDetailSnapshot(BusinessModel):
     case_status: str | None = Field(default=None, alias="caseStatus")
     scenario_type: str | None = Field(default=None, alias="scenarioType")
     owner: str | None = None
+
+
+class InvoiceAssuranceBatchItemRequest(BusinessModel):
+    payload: dict[str, Any]
+    subjects: list[CaseSubjectRequest] = Field(min_length=1)
+    owner: str | None = Field(default=None, max_length=256)
+
+
+class CreateInvoiceAssuranceBatchRequest(BusinessModel):
+    items: list[InvoiceAssuranceBatchItemRequest] = Field(min_length=1, max_length=100)
+    max_parallelism: int = Field(default=3, ge=1, le=10, alias="maxParallelism")
+
+
+class InvoiceAssuranceBatchItemSnapshot(BusinessModel):
+    ordinal: int
+    case_id: UUID = Field(alias="caseId")
+    evaluation_id: UUID = Field(alias="evaluationId")
+    status: str
+    outcome: str | None = None
+
+
+class InvoiceAssuranceBatchSnapshot(BusinessModel):
+    batch_id: UUID = Field(alias="batchId")
+    status: str
+    total_items: int = Field(alias="totalItems")
+    max_parallelism: int = Field(alias="maxParallelism")
+    requested_by: str = Field(alias="requestedBy")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+    items: list[InvoiceAssuranceBatchItemSnapshot]
+
+
+class InvoiceRuleTrendBucket(BusinessModel):
+    period: str
+    assessments: int
+    rule_hits: int = Field(alias="ruleHits")
+    outcomes: dict[str, int]
+
+
+class InvoiceRuleTrendItem(BusinessModel):
+    rule_id: str = Field(alias="ruleId")
+    status: str
+    count: int
+
+
+class InvoiceRuleTrendSnapshot(BusinessModel):
+    bucket: Literal["day", "week", "month"]
+    total_assessments: int = Field(alias="totalAssessments")
+    outcomes: dict[str, int]
+    buckets: list[InvoiceRuleTrendBucket]
+    top_rules: list[InvoiceRuleTrendItem] = Field(alias="topRules")

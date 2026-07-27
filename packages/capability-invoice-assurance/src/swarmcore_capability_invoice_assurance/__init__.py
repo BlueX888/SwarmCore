@@ -33,7 +33,7 @@ SCHEMAS = {
     "schema://invoice-assurance/input@1": _load("input.schema.json"),
     "schema://invoice-assurance/result@1": _load("output.schema.json"),
 }
-STRATEGIES = {"strategy://invoice-assurance/assess@1": _load("strategy.json")}
+STRATEGIES = {"strategy://invoice-assurance/assess@2": _load("strategy.json")}
 VIEW_DEFINITION = _load("view-definition.json")
 REFERENCES = frozenset(
     {

@@ -118,7 +118,8 @@ export function NewRunPage() {
       setErrors([error instanceof Error ? error.message : "JSON 输入无效"]);
     }
   };
-  const loading = strategies.isPending || versions.isPending;
+  // Disabled queries remain isPending in TanStack Query v5; isLoading requires an in-flight fetch.
+  const loading = strategies.isPending || versions.isLoading;
 
   return <div className="space-y-6">
     <div>

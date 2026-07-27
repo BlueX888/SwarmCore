@@ -9,6 +9,8 @@ import {
   deleteNode,
   diagnosticNodeKey,
   disconnectNodes,
+  layoutStrategyEditorState,
+  layoutStrategyGraph,
   listEdges,
   wouldCreateCycle,
 } from "./strategy-editor-model";
@@ -66,6 +68,53 @@ describe("Strategy Editor model", () => {
     expect(connectNodes(spec, first.nodeKey, second.nodeKey).error).toContain("已存在");
     expect(wouldCreateCycle(spec, second.nodeKey, first.nodeKey)).toBe(true);
     expect(connectNodes(spec, second.nodeKey, first.nodeKey).error).toContain("循环");
+  });
+
+  it("lays out dependency stages from left to right and centers parallel branches", () => {
+    const spec = createBlankSpec();
+    spec.spec.graph.entrypoint = "read-contract";
+    spec.spec.graph.nodes = {
+      "read-contract": { type: "tool", tool: "tool://contract", dependsOn: [] },
+      "read-performance": { type: "tool", tool: "tool://performance", dependsOn: ["read-contract"] },
+      "read-risk": { type: "tool", tool: "tool://risk", dependsOn: ["read-performance"] },
+      "read-invoice": { type: "tool", tool: "tool://invoice", dependsOn: ["read-performance"] },
+      "read-deviation": { type: "tool", tool: "tool://deviation", dependsOn: ["read-performance"] },
+      analyze: { type: "agent", agent: "analyst", dependsOn: ["read-risk", "read-invoice", "read-deviation"] },
+    };
+
+    const positions = layoutStrategyGraph(spec);
+
+    expect(positions["read-contract"].x).toBeLessThan(positions["read-performance"].x);
+    expect(positions["read-performance"].x).toBeLessThan(positions["read-risk"].x);
+    expect(positions["read-risk"].x).toBe(positions["read-invoice"].x);
+    expect(positions["read-invoice"].x).toBe(positions["read-deviation"].x);
+    expect(positions["read-deviation"].x).toBeLessThan(positions.analyze.x);
+    expect(positions["read-risk"].y).toBeLessThan(positions["read-invoice"].y);
+    expect(positions["read-invoice"].y).toBeLessThan(positions["read-deviation"].y);
+    expect(positions["read-contract"].y).toBe(positions["read-invoice"].y);
+    expect(positions["read-performance"].y).toBe(positions["read-invoice"].y);
+    expect(positions.analyze.y).toBe(positions["read-invoice"].y);
+  });
+
+  it("replaces saved positions when a strategy editor is opened", () => {
+    const spec = createBlankSpec();
+    spec.spec.graph.nodes = {
+      first: { type: "tool", tool: "tool://first", dependsOn: [] },
+      second: { type: "tool", tool: "tool://second", dependsOn: ["first"] },
+    };
+    const saved = {
+      positions: {
+        first: { x: 900, y: 900 },
+        second: { x: 10, y: 10 },
+      },
+      viewport: { x: 12, y: 34, zoom: 0.7 },
+    };
+
+    const state = layoutStrategyEditorState(spec, saved);
+
+    expect(state.positions.first.x).toBeLessThan(state.positions.second.x);
+    expect(state.positions).not.toEqual(saved.positions);
+    expect(state.viewport).toEqual(saved.viewport);
   });
 
   it("removes dependencies and layout while preserving declarations by default", () => {

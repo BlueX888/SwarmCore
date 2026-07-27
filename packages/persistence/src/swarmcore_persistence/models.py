@@ -1290,6 +1290,83 @@ class Evaluation(Base, IdMixin, TenantMixin, TimestampMixin):
     policy_revision: Mapped[str] = mapped_column(String(128), nullable=False)
 
 
+class InvoiceAssuranceBatch(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "invoice_assurance_batches"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_invoice_assurance_batches_tenant_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "id",
+            name="uq_invoice_assurance_batches_scope_id",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "idempotency_key",
+            name="uq_invoice_assurance_batches_idempotency",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id"],
+            ["projects.tenant_id", "projects.id"],
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_invoice_assurance_batches_scope_time",
+            "tenant_id",
+            "project_id",
+            "created_at",
+        ),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    total_items: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_parallelism: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+
+
+class InvoiceAssuranceBatchItem(Base, IdMixin, TenantMixin):
+    __tablename__ = "invoice_assurance_batch_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_invoice_assurance_batch_items_tenant_id"
+        ),
+        UniqueConstraint(
+            "batch_id", "ordinal", name="uq_invoice_assurance_batch_items_ordinal"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "batch_id"],
+            [
+                "invoice_assurance_batches.tenant_id",
+                "invoice_assurance_batches.project_id",
+                "invoice_assurance_batches.id",
+            ],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "case_id"],
+            ["work_items.tenant_id", "work_items.project_id", "work_items.id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "evaluation_id"],
+            ["evaluations.tenant_id", "evaluations.id"],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_invoice_assurance_batch_items_batch", "batch_id", "ordinal"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    batch_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    case_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    evaluation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
 class Finding(Base, IdMixin, TenantMixin, TimestampMixin):
     __tablename__ = "findings"
     __table_args__ = (

@@ -2,6 +2,7 @@ import {
   Background,
   Controls,
   Handle,
+  MarkerType,
   MiniMap,
   Position,
   ReactFlow,
@@ -26,6 +27,7 @@ import {
   diagnosticNodeKey,
   disconnectNodes,
   isSupportedNode,
+  layoutStrategyGraph,
   listEdges,
   setEntrypoint,
   updateAgentDeclaration,
@@ -85,22 +87,23 @@ function StrategyCanvasInner({
   React.useEffect(() => {
     const missing = Object.keys(graphNodes).filter((key) => !editorState.positions[key]);
     if (!missing.length) return;
+    const automaticPositions = layoutStrategyGraph(spec);
     const positions = { ...editorState.positions };
-    missing.forEach((key, index) => {
-      const ordinal = Object.keys(graphNodes).indexOf(key);
-      positions[key] = { x: 80 + (ordinal % 3) * 240, y: 80 + Math.floor(ordinal / 3) * 160 + index * 4 };
+    missing.forEach((key) => {
+      positions[key] = automaticPositions[key] ?? { x: 80, y: 80 };
     });
     onEditorStateChange({ ...editorState, positions });
-  }, [editorState, graphNodes, onEditorStateChange]);
+  }, [editorState, graphNodes, onEditorStateChange, spec]);
 
   React.useEffect(() => {
     if (selected && !graphNodes[selected]) setSelected(null);
   }, [graphNodes, selected]);
 
-  const nodes: CanvasNode[] = Object.entries(graphNodes).map(([key, node], index) => ({
+  const automaticPositions = layoutStrategyGraph(spec);
+  const nodes: CanvasNode[] = Object.entries(graphNodes).map(([key, node]) => ({
     id: key,
     type: "strategy",
-    position: editorState.positions[key] ?? { x: 80 + (index % 3) * 240, y: 80 + Math.floor(index / 3) * 160 },
+    position: editorState.positions[key] ?? automaticPositions[key] ?? { x: 80, y: 80 },
     selected: selected === key,
     data: {
       label: key,
@@ -110,13 +113,17 @@ function StrategyCanvasInner({
       diagnosticCount: diagnosticsByNode.get(key) ?? 0,
     },
   }));
-  const edges: Edge[] = listEdges(spec).map((edge) => ({
-    ...edge,
-    type: "smoothstep",
-    label: edge.branch ? "分支" : undefined,
-    animated: edge.branch,
-    style: edge.branch ? { stroke: "var(--color-brand-500)", strokeWidth: 2 } : undefined,
-  }));
+  const edges: Edge[] = listEdges(spec).map((edge) => {
+    const color = edge.branch ? "var(--color-brand-500)" : "var(--color-gray-500)";
+    return {
+      ...edge,
+      type: "smoothstep",
+      label: edge.branch ? "分支" : undefined,
+      animated: edge.branch,
+      markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
+      style: { stroke: color, strokeWidth: edge.branch ? 2 : 1.5 },
+    };
+  });
 
   const addAt = React.useCallback((type: SupportedNodeType, position?: { x: number; y: number }) => {
     const result = addNode(spec, type, position, editorState);
@@ -193,7 +200,8 @@ function StrategyCanvasInner({
         edges={edges}
         nodeTypes={{ strategy: StrategyFlowNode }}
         defaultViewport={editorState.viewport}
-        fitView={Object.keys(editorState.positions).length === 0}
+        fitView
+        fitViewOptions={{ padding: 0.15 }}
         minZoom={0.2}
         maxZoom={2}
         deleteKeyCode={["Backspace", "Delete"]}

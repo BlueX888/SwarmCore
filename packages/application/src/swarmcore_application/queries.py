@@ -101,6 +101,7 @@ def render_run_snapshot(
         "outputRef": run.output_ref,
         "snapshotSeq": run.next_event_seq - 1,
         "earliestAvailableSeq": run.earliest_available_seq,
+        "strategyVersionId": str(run.strategy_version_id),
         "planHash": run.plan_hash,
         "usage": run.usage,
         "taskCounts": task_counts,

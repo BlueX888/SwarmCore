@@ -25,6 +25,8 @@ _HARD_BLOCK_REASON_CODES = frozenset(
         "RED_CREDIT_STILL_PAYING",
         "SELLER_TAX_MISMATCH",
         "UNAPPROVED_BANK_ACCOUNT",
+        "ENTERPRISE_REVOKED",
+        "ENTERPRISE_CANCELLED",
     }
 )
 
@@ -773,6 +775,138 @@ def arithmetic_check(fact_set: Mapping[str, Any]) -> list[dict[str, Any]]:
     return results
 
 
+def enterprise_public_status_check(
+    fact_set: Mapping[str, Any],
+    evidence: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate GSXT/authorized evidence without performing automated scraping."""
+    seller = fact_set.get("seller") if isinstance(fact_set.get("seller"), Mapping) else {}
+    seller_name = str(seller.get("name") or "").strip()
+    seller_tax_id = str(seller.get("taxId") or "").strip()
+    payload = dict(evidence or {})
+    evidence_refs = [
+        str(value)
+        for key in ("evidenceRef", "artifactHash", "contentHash")
+        if (value := payload.get(key))
+    ]
+    status = str(payload.get("status") or "PENDING_HUMAN").upper()
+    allowed = {
+        "ACTIVE",
+        "ABNORMAL",
+        "SERIOUSLY_ILLEGAL",
+        "REVOKED",
+        "CANCELLED",
+        "UNKNOWN",
+        "UNAVAILABLE",
+        "PENDING_HUMAN",
+    }
+    if status not in allowed:
+        raise ValueError("invalid enterprise public status")
+
+    queried_name = str(payload.get("queriedName") or "").strip()
+    queried_tax_id = str(payload.get("queriedTaxId") or "").strip()
+    identity_matches = (
+        (not queried_name or not seller_name or queried_name == seller_name)
+        and (not queried_tax_id or not seller_tax_id or queried_tax_id == seller_tax_id)
+    )
+    has_provenance = bool(
+        payload.get("verifiedAt")
+        and payload.get("operator")
+        and evidence_refs
+        and (
+            payload.get("sourceUrl")
+            or payload.get("provider")
+        )
+    )
+
+    if not evidence:
+        rule_status, severity, blocking, reason = (
+            "UNKNOWN",
+            "MEDIUM",
+            False,
+            "enterprise public status requires authorized or human evidence",
+        )
+    elif not identity_matches:
+        rule_status, severity, blocking, reason = (
+            "UNKNOWN",
+            "HIGH",
+            False,
+            "enterprise status evidence does not match invoice seller identity",
+        )
+    elif not has_provenance:
+        rule_status, severity, blocking, reason = (
+            "UNKNOWN",
+            "HIGH",
+            False,
+            "enterprise status evidence provenance is incomplete",
+        )
+    elif status == "ACTIVE":
+        rule_status, severity, blocking, reason = (
+            "PASS",
+            "LOW",
+            False,
+            "enterprise is active in public-status evidence",
+        )
+    elif status == "ABNORMAL":
+        rule_status, severity, blocking, reason = (
+            "WARN",
+            "HIGH",
+            False,
+            "enterprise is listed as abnormal",
+        )
+    elif status == "SERIOUSLY_ILLEGAL":
+        rule_status, severity, blocking, reason = (
+            "FAIL",
+            "HIGH",
+            False,
+            "enterprise is listed as seriously illegal or untrustworthy",
+        )
+    elif status in {"REVOKED", "CANCELLED"}:
+        rule_status, severity, blocking, reason = (
+            "FAIL",
+            "CRITICAL",
+            True,
+            f"enterprise registration status is {status}",
+        )
+    else:
+        rule_status, severity, blocking, reason = (
+            "UNKNOWN",
+            "MEDIUM",
+            False,
+            f"enterprise public status is {status}",
+        )
+
+    normalized = {
+        "mode": str(payload.get("mode") or "HUMAN_ASSISTED"),
+        "status": status,
+        "queriedName": queried_name or seller_name or None,
+        "queriedTaxId": queried_tax_id or seller_tax_id or None,
+        "sourceUrl": payload.get("sourceUrl"),
+        "provider": payload.get("provider"),
+        "verifiedAt": payload.get("verifiedAt"),
+        "operator": payload.get("operator"),
+        "evidenceRefs": evidence_refs,
+        "identityMatched": identity_matches,
+        "provenanceComplete": has_provenance,
+    }
+    return {
+        "status": status,
+        "evidence": normalized,
+        "ruleResult": _rule_result(
+            rule_id="PARTY_ENTERPRISE_PUBLIC_STATUS",
+            dimension="parties",
+            status=rule_status,
+            severity=severity,
+            expected="ACTIVE",
+            actual=status,
+            reason=reason,
+            evidence_refs=evidence_refs,
+            blocking=blocking,
+        ),
+        "requiresHumanReview": rule_status != "PASS",
+    }
+
+
 def party_check(
     fact_set: Mapping[str, Any],
     vendor: Mapping[str, Any] | None,
@@ -1253,6 +1387,26 @@ def payment_gate(context: Mapping[str, Any]) -> dict[str, Any]:
 
     for rule in rule_results:
         rule_id = str(rule.get("ruleId") or "")
+        if (
+            rule_id == "PARTY_ENTERPRISE_PUBLIC_STATUS"
+            and rule.get("status") != "PASS"
+        ):
+            enterprise_status = str(rule.get("actual") or "UNKNOWN").upper()
+            reason = f"ENTERPRISE_{enterprise_status}"
+            blocking = reason in _HARD_BLOCK_REASON_CODES
+            if blocking:
+                hard_blocks.append(reason)
+            gates.append(
+                {
+                    "gateId": rule_id,
+                    "status": "FAIL" if rule.get("status") == "FAIL" else "REVIEW",
+                    "blocking": blocking,
+                    "reasonCode": reason,
+                    "remediation": rule.get("reason"),
+                    "evidenceRefs": list(rule.get("evidenceRefs") or []),
+                }
+            )
+            continue
         if rule.get("blocking") or (
             rule.get("status") == "FAIL" and rule.get("severity") == "CRITICAL"
         ):
@@ -1415,6 +1569,7 @@ def finalize_invoice_assurance(
     match_result: Mapping[str, Any],
     duplication: Mapping[str, Any],
     gate_result: Mapping[str, Any],
+    enterprise_public_status: Mapping[str, Any] | None = None,
     narrative: Mapping[str, Any] | None = None,
     provenance: Mapping[str, Any] | None = None,
     approvals: Iterable[Mapping[str, Any]] = (),
@@ -1564,6 +1719,7 @@ def finalize_invoice_assurance(
         "dimensions": dimensions,
         "invoiceFactSet": dict(fact_set),
         "verification": dict(verification),
+        "enterprisePublicStatus": dict(enterprise_public_status or {}),
         "businessSnapshotHash": snapshot_hash,
         "ruleResults": rules,
         "matchResults": list(match_result.get("matches") or []),
@@ -1588,6 +1744,7 @@ def finalize_invoice_assurance(
                 "dimensions",
                 "invoiceFactSet",
                 "verification",
+                "enterprisePublicStatus",
                 "businessSnapshotHash",
                 "ruleResults",
                 "matchResults",
@@ -1667,6 +1824,11 @@ def invoice_assurance_report_lines(result: Mapping[str, Any]) -> list[str]:
     fact_set = result.get("invoiceFactSet") if isinstance(result.get("invoiceFactSet"), Mapping) else {}
     totals = fact_set.get("totals") if isinstance(fact_set.get("totals"), Mapping) else {}
     verification = result.get("verification") if isinstance(result.get("verification"), Mapping) else {}
+    enterprise_status = (
+        result.get("enterprisePublicStatus")
+        if isinstance(result.get("enterprisePublicStatus"), Mapping)
+        else {}
+    )
     seller = fact_set.get("seller") if isinstance(fact_set.get("seller"), Mapping) else {}
     lines = [
         str(result.get("title") or "发票一致性校验报告"),
@@ -1682,6 +1844,11 @@ def invoice_assurance_report_lines(result: Mapping[str, Any]) -> list[str]:
         "官方查验",
         f"- 模式: {verification.get('mode') or '-'}",
         f"- 状态: {verification.get('status') or '-'}",
+        "企业公示状态",
+        f"- 状态: {enterprise_status.get('status') or 'PENDING_HUMAN'}",
+        f"- 核验时间: {(enterprise_status.get('evidence') or {}).get('verifiedAt') or '-'}"
+        if isinstance(enterprise_status.get("evidence"), Mapping)
+        else "- 核验时间: -",
         "维度结论",
     ]
     dimensions = result.get("dimensions") if isinstance(result.get("dimensions"), Mapping) else {}

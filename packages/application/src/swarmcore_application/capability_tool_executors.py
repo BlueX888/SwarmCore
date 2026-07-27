@@ -40,19 +40,6 @@ from .deviation_analysis import (
     merge_deviation_facts,
     validate_deviation_result,
 )
-from .invoice_assurance import (
-    arithmetic_check,
-    commercial_match,
-    deduplicate,
-    finalize_invoice_assurance,
-    invoice_assurance_report_lines,
-    official_verify,
-    parse_invoice,
-    party_check,
-    payment_gate,
-    read_business_snapshot,
-    validate_invoice_assurance_result,
-)
 from .document_intelligence import (
     CrossFileRule,
     DocumentIntelligenceResult,
@@ -70,6 +57,20 @@ from .formal_post_evaluation_report import (
     verify_report_citations,
 )
 from .integrity import AttachmentInput, IntegrityRuleDocument, evaluate_integrity
+from .invoice_assurance import (
+    arithmetic_check,
+    commercial_match,
+    deduplicate,
+    enterprise_public_status_check,
+    finalize_invoice_assurance,
+    invoice_assurance_report_lines,
+    official_verify,
+    parse_invoice,
+    party_check,
+    payment_gate,
+    read_business_snapshot,
+    validate_invoice_assurance_result,
+)
 from .post_evaluation import (
     PostEvaluationConfiguration,
     PostEvaluationResult,
@@ -1342,8 +1343,8 @@ def _flatten_invoice_rules(rule_results: Any) -> list[dict[str, Any]]:
     return flat
 
 
-async def invoice_parse(input_value: dict[str, Any], effect_id: str, context: Any) -> dict[str, Any]:
-    del effect_id, context
+async def invoice_parse(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
+    del effect_id
     content, media_type, document_version_id = _invoice_original_content(input_value)
     fact_set = parse_invoice(
         content,
@@ -1358,9 +1359,9 @@ async def invoice_parse(input_value: dict[str, Any], effect_id: str, context: An
 
 
 async def invoice_official_verify(
-    input_value: dict[str, Any], effect_id: str, context: Any
+    input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
-    del effect_id, context
+    del effect_id
     payload = input_value.get("payload") if isinstance(input_value.get("payload"), dict) else {}
     configuration = (
         input_value.get("configuration")
@@ -1384,9 +1385,9 @@ async def invoice_official_verify(
 
 
 async def business_snapshot_read(
-    input_value: dict[str, Any], effect_id: str, context: Any
+    input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
-    del effect_id, context
+    del effect_id
     payload = dict(input_value.get("payload") or {})
     if input_value.get("documents") and "documents" not in payload:
         payload["documents"] = input_value["documents"]
@@ -1398,17 +1399,20 @@ async def business_snapshot_read(
 
 
 async def invoice_arithmetic_check(
-    input_value: dict[str, Any], effect_id: str, context: Any
+    input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
-    del effect_id, context
+    del effect_id
     rules = arithmetic_check(dict(input_value["invoiceFactSet"]))
-    return {"ruleResults": rules, "status": "FAIL" if any(r["status"] == "FAIL" for r in rules) else "PASS"}
+    return {
+        "ruleResults": rules,
+        "status": "FAIL" if any(r["status"] == "FAIL" for r in rules) else "PASS",
+    }
 
 
 async def invoice_party_check(
-    input_value: dict[str, Any], effect_id: str, context: Any
+    input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
-    del effect_id, context
+    del effect_id
     snapshot = input_value.get("businessSnapshot")
     vendor = None
     buyer_tax_id = None
@@ -1429,10 +1433,25 @@ async def invoice_party_check(
     }
 
 
-async def invoice_deduplicate(
-    input_value: dict[str, Any], effect_id: str, context: Any
+async def invoice_enterprise_status_check(
+    input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
-    del effect_id, context
+    del effect_id
+    payload = input_value.get("payload")
+    evidence = input_value.get("enterprisePublicStatusEvidence")
+    if not isinstance(evidence, dict) and isinstance(payload, dict):
+        candidate = payload.get("enterprisePublicStatusEvidence")
+        evidence = candidate if isinstance(candidate, dict) else None
+    return enterprise_public_status_check(
+        dict(input_value["invoiceFactSet"]),
+        evidence,
+    )
+
+
+async def invoice_deduplicate(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
     snapshot = input_value.get("businessSnapshot")
     ledger = None
     if isinstance(snapshot, dict):
@@ -1441,9 +1460,9 @@ async def invoice_deduplicate(
 
 
 async def invoice_commercial_match(
-    input_value: dict[str, Any], effect_id: str, context: Any
+    input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
-    del effect_id, context
+    del effect_id
     candidates = input_value.get("matchCandidates")
     return commercial_match(
         dict(input_value["invoiceFactSet"]),
@@ -1453,9 +1472,9 @@ async def invoice_commercial_match(
 
 
 async def invoice_payment_gate(
-    input_value: dict[str, Any], effect_id: str, context: Any
+    input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
-    del effect_id, context
+    del effect_id
     nested = input_value.get("ruleResults")
     arithmetic = []
     parties = []
@@ -1474,7 +1493,11 @@ async def invoice_payment_gate(
             parties = parties_block
         if isinstance(duplication_block, dict):
             duplication = duplication_block
-    snapshot = input_value.get("businessSnapshot") if isinstance(input_value.get("businessSnapshot"), dict) else {}
+    snapshot = (
+        input_value.get("businessSnapshot")
+        if isinstance(input_value.get("businessSnapshot"), dict)
+        else {}
+    )
     return payment_gate(
         {
             "verification": input_value.get("verification") or {},
@@ -1487,9 +1510,9 @@ async def invoice_payment_gate(
 
 
 async def invoice_finalize(
-    input_value: dict[str, Any], effect_id: str, context: Any
+    input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
-    del effect_id, context
+    del effect_id
     nested = input_value.get("ruleResults")
     duplication: dict[str, Any] = {}
     rules = _flatten_invoice_rules(nested)
@@ -1525,6 +1548,9 @@ async def invoice_finalize(
         match_result=dict(input_value.get("matchResults") or {}),
         duplication=duplication,
         gate_result=dict(input_value.get("gateResults") or {}),
+        enterprise_public_status=dict(
+            input_value.get("enterprisePublicStatus") or {}
+        ),
         narrative=narrative if isinstance(narrative, dict) else None,
         provenance=dict(input_value.get("provenance") or {}),
         approvals=approvals,
@@ -1534,9 +1560,9 @@ async def invoice_finalize(
 
 
 async def invoice_assurance_report_render(
-    input_value: dict[str, Any], effect_id: str, context: Any
+    input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
-    del effect_id, context
+    del effect_id
     result = validate_invoice_assurance_result(dict(input_value["result"]))
     return pdf_report_payload(render_embedded_text_pdf(invoice_assurance_report_lines(result)))
 
@@ -1760,6 +1786,7 @@ def capability_executors(sessions: async_sessionmaker[Any]) -> dict[str, Any]:
         "business.snapshot_read": business_snapshot_read,
         "invoice.deduplicate": invoice_deduplicate,
         "invoice.arithmetic_check": invoice_arithmetic_check,
+        "invoice.enterprise_status_check": invoice_enterprise_status_check,
         "invoice.party_check": invoice_party_check,
         "invoice.commercial_match": invoice_commercial_match,
         "invoice.payment_gate": invoice_payment_gate,

@@ -6,7 +6,7 @@ import { api, ApiError } from "@/api/client";
 import type { Diagnostic, DraftSnapshot, StrategyDeleteImpact } from "@/api/types";
 import { StrategyDeleteDialog } from "@/components/strategy/strategy-delete-dialog";
 import { StrategyEditor } from "@/components/strategy/strategy-editor";
-import { EMPTY_EDITOR_STATE, isSwarmSpecDocument, type EditorState, type SwarmSpecDocument } from "@/components/strategy/strategy-editor-model";
+import { EMPTY_EDITOR_STATE, isSwarmSpecDocument, layoutStrategyEditorState, type EditorState, type SwarmSpecDocument } from "@/components/strategy/strategy-editor-model";
 import { Button } from "@/components/ui/button";
 import { BackLink } from "@/components/ui/back-link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,7 +57,10 @@ export function StrategyDetailPage() {
       return;
     }
     setSpec(snapshot.spec);
-    setEditorState(snapshot.editorState ?? structuredClone(EMPTY_EDITOR_STATE));
+    setEditorState(layoutStrategyEditorState(
+      snapshot.spec,
+      snapshot.editorState ?? structuredClone(EMPTY_EDITOR_STATE),
+    ));
     setRevision(snapshot.revision);
     setDiagnostics(snapshot.diagnostics);
     setDirty(false);
@@ -176,8 +179,36 @@ export function StrategyDetailPage() {
     }
   }
 
-  if (strategies.isPending || draft.isPending) return <div className="space-y-5"><Skeleton className="h-20" /><Skeleton className="h-96" /></div>;
-  if (strategies.isError || !strategy || draft.isError || !draft.data) return <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5"><p className="font-medium text-error-600">无法加载策略</p><Button onClick={() => void strategies.refetch()}>重试</Button></CardContent></Card>;
+  // TanStack Query v5: disabled queries stay isPending=true; use isLoading (pending+fetching).
+  if (strategies.isPending || draft.isLoading) return <div className="space-y-5"><Skeleton className="h-20" /><Skeleton className="h-96" /></div>;
+  if (strategies.isError || !strategy) return <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5"><p className="font-medium text-error-600">无法加载策略</p><Button onClick={() => void strategies.refetch()}>重试</Button></CardContent></Card>;
+  if (!strategy.draftId) {
+    return <div className="min-w-0 space-y-6">
+      <div><BackLink to="..">策略管理</BackLink><div className="mt-4 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-2xl font-semibold text-gray-900 dark:text-white">{strategy.name}</h1><p className="mt-1 text-sm text-gray-500">生命周期 {strategy.lifecycle} · 无可编辑草稿</p></div><div className="flex flex-wrap gap-2"><Button variant="destructive" onClick={() => void openDelete()} disabled={remove.isPending}><Trash2 />删除策略</Button></div></div></div>
+      <Card><CardContent className="flex min-h-48 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-gray-900 dark:text-white">该策略没有可编辑草稿</p><p className="max-w-md text-sm text-gray-500">可信策略、临时内联策略或已清理草稿的策略只能查看已发布版本，不能在此编辑。</p></CardContent></Card>
+      <Card><CardHeader><CardTitle>已发布版本</CardTitle><span className="text-sm text-gray-500">{versions.data?.total ?? 0}</span></CardHeader><CardContent>{versions.isError ? <div className="flex items-center justify-between gap-3"><p className="text-sm text-error-600">无法加载版本。</p><Button size="sm" onClick={() => void versions.refetch()}>重试</Button></div> : versions.data?.items.length ? <ul className="space-y-3">{versions.data.items.map((version) => <li key={version.strategyVersionId} className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"><p className="font-medium">版本 {version.version}</p><p className="mt-1 break-all font-mono text-xs text-gray-500">{version.planHash}</p></li>)}</ul> : <p className="py-8 text-center text-sm text-gray-500">暂无已发布版本。</p>}</CardContent></Card>
+      <StrategyDeleteDialog
+        open={deleteOpen}
+        strategyName={strategy.name}
+        impact={deleteImpact}
+        loadingImpact={loadingImpact}
+        deleting={remove.isPending}
+        error={deleteError}
+        onOpenChange={(open) => {
+          if (!open && !remove.isPending) {
+            setDeleteOpen(false);
+            setDeleteImpact(null);
+            setDeleteError("");
+          }
+        }}
+        onConfirm={() => {
+          if (remove.isPending) return;
+          remove.mutate();
+        }}
+      />
+    </div>;
+  }
+  if (draft.isError || !draft.data) return <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5"><p className="font-medium text-error-600">无法加载策略草稿</p><Button onClick={() => void draft.refetch()}>重试</Button></CardContent></Card>;
   if (!spec) return <Card><CardContent className="flex min-h-60 items-center justify-center pt-5"><p className="font-medium text-error-600">草稿不是有效的 SwarmSpec 文档。</p></CardContent></Card>;
   return <div className="min-w-0 space-y-6">
     <div><BackLink to="..">策略管理</BackLink><div className="mt-4 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-2xl font-semibold text-gray-900 dark:text-white">{strategy.name}</h1><p className="mt-1 text-sm text-gray-500">草稿修订 {revision}{dirty ? " · 未保存" : ""}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void reload()}><RefreshCw />重新加载</Button><Button variant="destructive" onClick={() => void openDelete()} disabled={remove.isPending}><Trash2 />删除策略</Button></div></div></div>

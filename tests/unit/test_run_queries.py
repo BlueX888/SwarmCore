@@ -17,6 +17,7 @@ def _run(*, status: str = "FAILED") -> SimpleNamespace:
         output_ref=None,
         next_event_seq=3,
         earliest_available_seq=1,
+        strategy_version_id=uuid7(),
         plan_hash="plan",
         usage={},
         started_at=datetime(2026, 7, 24, tzinfo=UTC),
@@ -71,8 +72,9 @@ def test_render_run_snapshot_preserves_task_error_payload() -> None:
     task = _task()
     task.id = task_id
     error = {"type": "ActivityError", "message": "GatewayError: token references an unknown tool"}
+    run = _run()
     snapshot = render_run_snapshot(
-        _run(),
+        run,
         [task],
         errors={task_id: error},
         retryable=False,
@@ -80,6 +82,8 @@ def test_render_run_snapshot_preserves_task_error_payload() -> None:
     assert snapshot["tasks"][0]["error"] == error
     assert isinstance(snapshot["runId"], str)
     assert UUID(snapshot["runId"])
+    assert snapshot["strategyVersionId"] == str(run.strategy_version_id)
+    assert UUID(snapshot["strategyVersionId"])
 
     task.status = "SUCCEEDED"
     cleared = render_run_snapshot(

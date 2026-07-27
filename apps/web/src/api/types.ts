@@ -142,6 +142,7 @@ export interface RunSnapshot {
   outputRef: string | null;
   snapshotSeq: number;
   earliestAvailableSeq: number;
+  strategyVersionId: string;
   planHash: string;
   usage: Record<string, unknown>;
   taskCounts: Record<string, number>;
@@ -493,6 +494,45 @@ export interface BusinessWorkSnapshot {
 }
 
 export interface BusinessWorkListResponse { items: BusinessWorkSnapshot[]; }
+
+export interface InvoiceAssuranceBatchRequest {
+  items: Array<{
+    payload: Record<string, unknown>;
+    subjects: CaseSubjectInput[];
+    owner?: string;
+  }>;
+  maxParallelism?: number;
+}
+
+export interface InvoiceAssuranceBatchSnapshot {
+  batchId: string;
+  status: string;
+  totalItems: number;
+  maxParallelism: number;
+  requestedBy: string;
+  createdAt: string;
+  updatedAt: string;
+  items: Array<{
+    ordinal: number;
+    caseId: string;
+    evaluationId: string;
+    status: string;
+    outcome: string | null;
+  }>;
+}
+
+export interface InvoiceRuleTrendSnapshot {
+  bucket: "day" | "week" | "month";
+  totalAssessments: number;
+  outcomes: Record<string, number>;
+  buckets: Array<{
+    period: string;
+    assessments: number;
+    ruleHits: number;
+    outcomes: Record<string, number>;
+  }>;
+  topRules: Array<{ ruleId: string; status: string; count: number }>;
+}
 
 export interface AssessmentDetailSnapshot {
   assessmentId: string;

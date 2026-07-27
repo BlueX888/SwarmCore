@@ -41,6 +41,7 @@
         "notes": {"type": "string"},
         "businessSnapshot": {"type": "object"},
         "humanVerification": {"type": "object"},
+        "enterprisePublicStatusEvidence": {"type": "object"},
         "fieldConfirmations": {
           "type": "array",
           "items": {"type": "object"}

@@ -51,6 +51,17 @@ _DOMAIN_KEYWORDS = {
         "严重",
         "供应商",
     ),
+    "commercial": (
+        "发票",
+        "合同",
+        "订单",
+        "采购",
+        "收货",
+        "验收",
+        "供应商",
+        "付款",
+        "预算",
+    ),
 }
 
 _DOMAIN_CATEGORIES = {
@@ -58,6 +69,14 @@ _DOMAIN_CATEGORIES = {
     "performance": {"PERFORMANCE", "ACCEPTANCE", "SUPPLEMENTAL_FACTS"},
     "finance": {"INVOICE", "PAYMENT", "CONTRACT", "SUPPLEMENTAL_FACTS"},
     "governance": {"DEVIATION", "RISK", "SUPPLIER", "SUPPLEMENTAL_FACTS"},
+    "commercial": {
+        "INVOICE_ORIGINAL",
+        "CONTRACT_ORDER",
+        "RECEIPT_ACCEPTANCE",
+        "SUPPLIER_MASTER",
+        "AP_LEDGER",
+        "BUDGET_PAYMENT_POLICY",
+    },
 }
 
 _PAYLOAD_ITEM_FIELDS = {

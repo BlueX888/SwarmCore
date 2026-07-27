@@ -3,9 +3,10 @@
 状态：IMPLEMENTED / LOCAL  
 目标业务：`invoice-assurance`  
 能力包：`capability://invoice-assurance@1.0.0`  
-策略：`strategy://invoice-assurance/assess@1`
+策略：`strategy://invoice-assurance/assess@2`
 
 > 本地已落地 Capability Pack、确定性规则 Tool、3 个窄职责 Agent、JSON/PDF 报告与 Assessment 结果视图；
+> P1 企业公示状态证据核验与有界批量队列、P2 历史规则命中趋势也已实现；
 > 真实授权发票 + Temporal/官方查验/模型资格验收前不得标记为 `VERIFIED`。
 
 ## 1. 需求概述
@@ -80,6 +81,7 @@ Approval、Finding、Outbox 和审计，不建立发票专用微服务。REST �
    - `HUMAN_ASSISTED`：用户在官方页面完成验证码和查验，上传/确认查验回执。
 5. 票面与税额、主体、重复、合同/订单、收货/验收、累计开票付款、收款账户、预算和审批条件校验。
 6. 低置信或高风险人工审批、Finding 跟踪、JSON/PDF 报告和全程审计。
+7. P1 支持最多 100 张发票的有界批量提交，每张发票保持独立 Case/Assessment；P2 按日、周、月聚合历史结论和非通过规则命中。
 
 ### 3.2 边界
 
@@ -234,7 +236,7 @@ CSV/XLSX 不是模拟数据：只有能追溯到真实系统、导出人和时�
 
 ## 11. 运行与协作策略
 
-建议策略：`strategy://invoice-assurance/assess@1`。
+建议策略：`strategy://invoice-assurance/assess@2`。
 
 ```mermaid
 flowchart TD
@@ -363,6 +365,8 @@ Tool 结果保持不变。
 | `PaymentGateResult` | `gateId, status, blocking, reasonCode, remediation, evidenceRefs` |
 | `InvoiceAssuranceResult` | `outcome, score, dimensions, findings, approvals, provenance, generatedAt` |
 | `HumanDecision` | `approvalId, actor, role, action, reason, scopedException, evidenceRefs, occurredAt` |
+| `InvoiceAssuranceBatch` | `batchId, tenantId, projectId, idempotencyKey, totalItems, maxParallelism, requestedBy` |
+| `InvoiceAssuranceBatchItem` | `batchId, ordinal, caseId, evaluationId, submittedAt` |
 
 状态枚举：
 
@@ -393,6 +397,12 @@ Tool 结果保持不变。
 - `POST /api/v1/projects/{projectId}/approvals/{approvalId}:approve|reject`：人工决定。
 - `GET /api/v1/projects/{projectId}/runs/{runId}/event-history`：过程与 Tool/Agent 节点。
 - `GET /api/v1/projects/{projectId}/audit-logs`：审计。
+- `POST /api/v1/projects/{projectId}/business-works/invoice-assurance/batches`：有界批量提交，
+  最多 100 项、并行度配置为 1–10，每项复用独立 Case/Assessment。
+- `GET /api/v1/projects/{projectId}/business-works/invoice-assurance/batches/{batchId}`：
+  获取批次汇总与逐票状态。
+- `GET /api/v1/projects/{projectId}/business-works/invoice-assurance/rule-trends`：
+  以 `from`、`to` 和 `bucket=day|week|month` 查询历史规则命中趋势。
 
 写接口均要求 `Idempotency-Key`；Case 更新要求 `If-Match`，已创建 Assessment 不接受原地改输入。
 
@@ -400,8 +410,10 @@ Tool 结果保持不变。
 
 MCP 复用同一服务：
 
-`upsert_business_object → create_case → assess_case → get_case_result →
-list_case_findings → get_report`。
+单票流程为 `upsert_business_object → create_case → assess_case → get_case_result →
+list_case_findings → get_report`。批量与趋势复用同一应用服务，分别暴露
+`create_invoice_assurance_batch`、`get_invoice_assurance_batch` 和
+`get_invoice_assurance_rule_trends`。
 
 主要 Outbox 事件：
 
@@ -501,7 +513,8 @@ list_case_findings → get_report`。
 - 不做境外发票、外汇税务和跨法域合规。
 - 不由 AI 给出逃税、虚开发票或法律责任的最终认定。
 - 不训练企业专属模型；先用解析器、规则和托管模型完成 Demo。
-- 不做生产级批量吞吐、HA、灾备和银行支付集成；这些属于后续生产资格。
+- 当前只实现最多 100 项、并行度 1–10 的有界批量提交与状态汇总；不做生产级批量吞吐、
+  HA、灾备和银行支付集成，这些属于后续生产资格。
 
 ## 19. 风险说明
 

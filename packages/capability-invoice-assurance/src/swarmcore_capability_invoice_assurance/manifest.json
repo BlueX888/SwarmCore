@@ -1,7 +1,7 @@
 {
   "apiVersion": "swarmcore.io/v2",
   "kind": "CapabilityPack",
-  "metadata": {"name": "invoice-assurance", "version": "1.0.0"},
+  "metadata": {"name": "invoice-assurance", "version": "1.1.0"},
   "spec": {
     "case": {
       "type": "invoice-assurance-case",
@@ -13,7 +13,7 @@
     },
     "inputSchema": "schema://invoice-assurance/input@1",
     "outputSchema": "schema://invoice-assurance/result@1",
-    "strategies": {"execute": "strategy://invoice-assurance/assess@1"},
+    "strategies": {"execute": "strategy://invoice-assurance/assess@2"},
     "agents": [
       "agent://invoice/fact-normalizer@1",
       "agent://invoice/commercial-match-analyst@1",
@@ -27,8 +27,9 @@
       "tool://invoice/official-verify@1",
       "tool://business/snapshot-read@1",
       "tool://invoice/deduplicate@1",
-      "tool://invoice/arithmetic-check@1",
-      "tool://invoice/party-check@1",
+    "tool://invoice/arithmetic-check@1",
+    "tool://invoice/enterprise-status-check@1",
+    "tool://invoice/party-check@1",
       "tool://invoice/commercial-match@1",
       "tool://invoice/payment-gate@1",
       "tool://invoice/finalize@1",

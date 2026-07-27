@@ -188,6 +188,14 @@ export const DOCUMENT_CATEGORY_LABELS: Record<string, string> = {
   APPROVED_CHANGE: "批准变更",
   CAUSE_EVIDENCE: "原因证据",
   RESPONSIBILITY_BASIS: "责任依据",
+  INVOICE_ORIGINAL: "发票原件",
+  CONTRACT_ORDER: "合同/订单",
+  RECEIPT_ACCEPTANCE: "收货/验收",
+  SUPPLIER_MASTER: "供应商主数据",
+  AP_LEDGER: "应付台账",
+  BUDGET_PAYMENT_POLICY: "预算与付款政策",
+  TAX_ACCOUNT_EXPORT: "税务数字账户导出",
+  BANK_CHANGE_EVIDENCE: "账户变更证据",
 };
 
 /** Keys that count when matching documents to a business work (mirrors backend). */
@@ -213,6 +221,9 @@ export function documentBindingKeys(workKey: string, workItemType: string | null
       "document-integrity",
       "invoice-assurance",
     ];
+  }
+  if (workKey === "invoice-assurance") {
+    return [workKey, workItemType ?? "invoice-assurance-case"];
   }
   return workItemType ? [workKey, workItemType] : [workKey];
 }

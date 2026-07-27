@@ -8,6 +8,10 @@ import { BackLink } from "@/components/ui/back-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  asInvoiceAssurance,
+  InvoiceAssuranceResultView,
+} from "@/components/invoice/invoice-assurance-result";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 
 const TERMINAL = new Set(["SUCCEEDED", "FAILED", "COMPLETED", "CANCELLED", "REJECTED"]);
@@ -67,8 +71,9 @@ export function AssessmentPage() {
   }
 
   const detail = assessment.data;
-  const deviationResult = asDeviationAnalysis(detail.result);
-  const result = deviationResult ? null : asPostEvaluation(detail.result);
+  const invoiceResult = asInvoiceAssurance(detail.result);
+  const deviationResult = invoiceResult ? null : asDeviationAnalysis(detail.result);
+  const result = invoiceResult || deviationResult ? null : asPostEvaluation(detail.result);
   const inProgress = !TERMINAL.has(detail.status) && !TERMINAL.has(run.data?.status ?? "");
   const snapshotItems = (snapshots.data?.items ?? []).map((item, index) => ({
     id: stringField(item, "documentUsageSnapshotId")
@@ -105,7 +110,7 @@ export function AssessmentPage() {
       <Metric label="完成时间" value={run.data?.completedAt ? formatTime(run.data.completedAt) : inProgress ? "进行中" : "—"} />
     </section>
 
-    {deviationResult ? <DeviationAnalysisResult result={deviationResult} /> : result ? <div className="space-y-4">
+    {invoiceResult ? <InvoiceAssuranceResultView result={invoiceResult} /> : deviationResult ? <DeviationAnalysisResult result={deviationResult} /> : result ? <div className="space-y-4">
       {result.readabilityGate || result.reportQuality ? <Card><CardContent className="space-y-4 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

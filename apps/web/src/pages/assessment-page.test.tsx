@@ -136,6 +136,60 @@ describe("assessment page", () => {
     expect(screen.getByText("CPE-123456789ABC")).toBeVisible();
   });
 
+  it("renders invoice-assurance outcome, dimensions, narrative and masked bank account", async () => {
+    vi.mocked(api.getAssessment).mockResolvedValue(detail({
+      scenarioType: "invoice-assurance-case",
+      result: {
+        schemaVersion: "schema://invoice-assurance/result@1",
+        title: "供应商发票一致性校验",
+        asOf: "2026-07-27",
+        outcome: "PAYMENT_READY",
+        score: 96,
+        reviewRequired: false,
+        dimensions: {
+          officialVerification: { status: "PASS", summary: "官方查验一致" },
+          faceCompliance: { status: "PASS", summary: "票面算术通过" },
+          parties: { status: "PASS", summary: "购销方一致" },
+          commercialMatch: { status: "PASS", summary: "合同订单匹配" },
+          fulfillment: { status: "PASS", summary: "验收完成" },
+          duplication: { status: "PASS", summary: "无重复入账" },
+          paymentGates: { status: "PASS", summary: "付款条件满足" },
+        },
+        findings: [{
+          findingId: "ia-1",
+          severity: "LOW",
+          status: "RESOLVED",
+          title: "账户已核对",
+          detail: "收款账号已与批准主数据一致",
+        }],
+        narrative: { executiveSummary: "发票校验通过，可进入付款队列。" },
+        resultHash: "f".repeat(64),
+        provenance: {
+          configurationHash: "aa".repeat(32),
+          businessSnapshotHash: "bb".repeat(32),
+        },
+        invoiceFactSet: {
+          seller: { bankAccount: "6222021234567890123" },
+        },
+      } as never,
+    }));
+    renderPage();
+    expect(await screen.findByText("供应商发票一致性校验")).toBeVisible();
+    expect(screen.getByText("PAYMENT_READY")).toBeVisible();
+    expect(screen.getByText("官方查验")).toBeVisible();
+    expect(screen.getByText("票面合规")).toBeVisible();
+    expect(screen.getByText("主体")).toBeVisible();
+    expect(screen.getByText("合同/订单")).toBeVisible();
+    expect(screen.getByText("履约/验收")).toBeVisible();
+    expect(screen.getByText("重复")).toBeVisible();
+    expect(screen.getByText("付款条件")).toBeVisible();
+    expect(screen.getByText("发票校验通过，可进入付款队列。")).toBeVisible();
+    expect(screen.getByText("****0123")).toBeVisible();
+    expect(screen.queryByText("6222021234567890123")).not.toBeInTheDocument();
+    expect(screen.getByText("f".repeat(64))).toBeVisible();
+    expect(screen.getByText("账户已核对")).toBeVisible();
+  });
+
   it("renders deviation dimensions, trends and proposed responsibility", async () => {
     vi.mocked(api.getAssessment).mockResolvedValue(detail({
       scenarioType: "deviation-analysis-case",

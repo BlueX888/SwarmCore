@@ -238,6 +238,7 @@ describe("capabilities page", () => {
   it("opens the policy creation flow from the page header", async () => {
     vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [] });
     renderPolicyPage();
+    expect(await screen.findByRole("heading", { name: "策略能力" })).toBeVisible();
     fireEvent.click(await screen.findByRole("button", { name: "新建策略" }));
     expect(await screen.findByText("新建策略页面")).toBeVisible();
   });

@@ -109,6 +109,121 @@ class InitiateDocumentRequest(BusinessModel):
 
 class CompleteDocumentUploadRequest(BusinessModel):
     sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    upload_batch_id: UUID | None = Field(default=None, alias="uploadBatchId")
+    profile_ref: str | None = Field(default=None, alias="profileRef", max_length=256)
+    extraction_schema_ref: str | None = Field(
+        default=None, alias="extractionSchemaRef", max_length=256
+    )
+    classification_labels: list[dict[str, str]] = Field(
+        default_factory=list, alias="classificationLabels"
+    )
+
+
+class CreateUploadBatchRequest(BusinessModel):
+    source: str = Field(default="web", min_length=1, max_length=64)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class UploadBatchSnapshot(BusinessModel):
+    batch_id: UUID = Field(alias="batchId")
+    source: str
+    context: dict[str, Any]
+    status: str
+    file_count: int = Field(alias="fileCount")
+    succeeded_count: int = Field(alias="succeededCount")
+    failed_count: int = Field(alias="failedCount")
+    created_by: str = Field(alias="createdBy")
+    created_at: datetime = Field(alias="createdAt")
+    completed_at: datetime | None = Field(default=None, alias="completedAt")
+
+
+class DocumentProcessingRunSnapshot(BusinessModel):
+    processing_run_id: UUID = Field(alias="processingRunId")
+    business_document_version_id: UUID = Field(alias="businessDocumentVersionId")
+    profile_ref: str = Field(alias="profileRef")
+    status: str
+    current_stage: str = Field(alias="currentStage")
+    stage_label: str = Field(alias="stageLabel")
+    attempt: int
+    parser_ref: str | None = Field(default=None, alias="parserRef")
+    classifier_ref: str | None = Field(default=None, alias="classifierRef")
+    extractor_refs: list[str] = Field(default_factory=list, alias="extractorRefs")
+    error_code: str | None = Field(default=None, alias="errorCode")
+    error_detail: str | None = Field(default=None, alias="errorDetail")
+    started_at: datetime = Field(alias="startedAt")
+    completed_at: datetime | None = Field(default=None, alias="completedAt")
+
+
+class DocumentProcessingResultSnapshot(BusinessModel):
+    result_id: UUID = Field(alias="resultId")
+    result_type: str = Field(alias="resultType")
+    result_version: int = Field(alias="resultVersion")
+    status: str
+    schema_ref: str | None = Field(default=None, alias="schemaRef")
+    producer_ref: str | None = Field(default=None, alias="producerRef")
+    result: dict[str, Any]
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    confirmed_by: str | None = Field(default=None, alias="confirmedBy")
+    confirmed_at: datetime | None = Field(default=None, alias="confirmedAt")
+    created_at: datetime = Field(alias="createdAt")
+
+
+class ConfirmClassificationRequest(BusinessModel):
+    label: str = Field(min_length=1, max_length=128)
+    display_name: str | None = Field(default=None, alias="displayName", max_length=256)
+    expected_result_version: int | None = Field(default=None, alias="expectedResultVersion")
+
+
+class ConfirmFieldsRequest(BusinessModel):
+    fields: list[dict[str, Any]] = Field(default_factory=list)
+    accept_high_confidence: bool = Field(default=False, alias="acceptHighConfidence")
+    expected_result_version: int | None = Field(default=None, alias="expectedResultVersion")
+
+
+class ReprocessDocumentRequest(BusinessModel):
+    profile_ref: str | None = Field(default=None, alias="profileRef")
+    extraction_schema_ref: str | None = Field(default=None, alias="extractionSchemaRef")
+    classification_labels: list[dict[str, str]] = Field(
+        default_factory=list, alias="classificationLabels"
+    )
+
+
+class ResumeDocumentUploadRequest(BusinessModel):
+    profile_ref: str | None = Field(default=None, alias="profileRef", max_length=256)
+    extraction_schema_ref: str | None = Field(
+        default=None, alias="extractionSchemaRef", max_length=256
+    )
+    classification_labels: list[dict[str, str]] = Field(
+        default_factory=list, alias="classificationLabels"
+    )
+
+
+class UpdateDocumentBindingsRequest(BusinessModel):
+    business_object_ids: list[UUID] = Field(default_factory=list, alias="businessObjectIds")
+    business_work_keys: list[str] = Field(default_factory=list, alias="businessWorkKeys")
+
+
+class DocumentRequirementSnapshot(BusinessModel):
+    key: str
+    display_name: str = Field(alias="displayName")
+    description: str = ""
+    required: bool = True
+    min_count: int = Field(default=1, alias="minCount")
+    max_count: int | None = Field(default=None, alias="maxCount")
+    accepted_media_types: list[str] = Field(default_factory=list, alias="acceptedMediaTypes")
+    classification_labels: list[str] = Field(
+        default_factory=list, alias="classificationLabels"
+    )
+    processing_profile_ref: str | None = Field(default=None, alias="processingProfileRef")
+    extraction_schema_ref: str | None = Field(default=None, alias="extractionSchemaRef")
+    category: str | None = None
+    satisfied_count: int = Field(default=0, alias="satisfiedCount")
+    satisfied: bool = False
+
+
+class DocumentRequirementListResponse(BusinessModel):
+    processing_profile_ref: str | None = Field(default=None, alias="processingProfileRef")
+    items: list[DocumentRequirementSnapshot]
 
 
 class DocumentUploadHandle(BusinessModel):
@@ -119,6 +234,7 @@ class DocumentUploadHandle(BusinessModel):
     upload_ref: str = Field(alias="uploadRef")
     capability_token: str | None = Field(alias="capabilityToken")
     status: str
+    upload_batch_id: UUID | None = Field(default=None, alias="uploadBatchId")
 
 
 class DocumentVersionSnapshot(BusinessModel):
@@ -340,3 +456,74 @@ class BindResourceRequest(BusinessModel):
     mapping_configuration: dict[str, Any] = Field(
         default_factory=dict, alias="mappingConfiguration"
     )
+
+
+class BusinessWorkBlockerSnapshot(BusinessModel):
+    code: str
+    message: str
+    ref: str | None = None
+
+
+class BusinessWorkFunctionSnapshot(BusinessModel):
+    name: str
+    description: str
+
+
+class BusinessWorkSnapshot(BusinessModel):
+    work_key: str = Field(alias="workKey")
+    name: str
+    short_name: str = Field(alias="shortName")
+    category: str
+    summary: str
+    status: Literal["planned", "not_configured", "incomplete", "runnable", "unavailable"]
+    status_label: str = Field(alias="statusLabel")
+    pack_name: str | None = Field(default=None, alias="packName")
+    pack_version_id: UUID | None = Field(default=None, alias="packVersionId")
+    pack_version: str | None = Field(default=None, alias="packVersion")
+    enabled: bool
+    binding_status: str | None = Field(default=None, alias="bindingStatus")
+    blockers: list[BusinessWorkBlockerSnapshot] = Field(default_factory=list)
+    agents: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    models: list[str] = Field(default_factory=list)
+    document_requirements: list[dict[str, Any]] = Field(
+        default_factory=list, alias="documentRequirements"
+    )
+    decision_slots: list[dict[str, Any]] = Field(default_factory=list, alias="decisionSlots")
+    functions: list[BusinessWorkFunctionSnapshot] = Field(default_factory=list)
+    configuration: dict[str, Any] = Field(default_factory=dict)
+    work_item_type: str | None = Field(default=None, alias="workItemType")
+    case_based: bool = Field(default=False, alias="caseBased")
+    bound_strategy_version_id: UUID | None = Field(
+        default=None, alias="boundStrategyVersionId"
+    )
+    bound_strategy_name: str | None = Field(default=None, alias="boundStrategyName")
+    bound_strategy_version: int | None = Field(default=None, alias="boundStrategyVersion")
+
+
+class BusinessWorkListResponse(BusinessModel):
+    items: list[BusinessWorkSnapshot]
+
+
+class BindBusinessWorkStrategyRequest(BusinessModel):
+    strategy_version_id: UUID = Field(alias="strategyVersionId")
+
+
+class AssessmentDetailSnapshot(BusinessModel):
+    assessment_id: UUID = Field(alias="assessmentId")
+    evaluation_id: UUID = Field(alias="evaluationId")
+    case_id: UUID = Field(alias="caseId")
+    work_item_id: UUID = Field(alias="workItemId")
+    work_item_revision_id: UUID = Field(alias="workItemRevisionId")
+    run_id: UUID = Field(alias="runId")
+    status: str
+    result: dict[str, Any] | None
+    capability_pack_version_id: UUID = Field(alias="capabilityPackVersionId")
+    plan_hash: str = Field(alias="planHash")
+    attachment_manifest_hash: str = Field(alias="attachmentManifestHash")
+    registry_snapshot: dict[str, Any] = Field(alias="registrySnapshot")
+    created_at: datetime = Field(alias="createdAt")
+    case_payload: dict[str, Any] | None = Field(default=None, alias="casePayload")
+    case_status: str | None = Field(default=None, alias="caseStatus")
+    scenario_type: str | None = Field(default=None, alias="scenarioType")
+    owner: str | None = None

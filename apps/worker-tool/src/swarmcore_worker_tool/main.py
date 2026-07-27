@@ -1,14 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
+from typing import Any, Literal
 
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from swarmcore_application import capability_executors
 from swarmcore_governance import OpaPolicyEngine, RolePolicyEngine, VaultSecretProvider
 from swarmcore_observability import configure_json_logging, configure_telemetry
 from swarmcore_persistence import Database, PostgresEffectJournal
 from swarmcore_registry import builtin_registry
-from swarmcore_tool_gateway import CapabilityTokenIssuer, ToolGateway, builtin_executors
+from swarmcore_tool_gateway import (
+    CapabilityTokenIssuer,
+    FilesystemExecutorMode,
+    FilesystemToolConfig,
+    ToolGateway,
+    assemble_tool_executors,
+)
+from swarmcore_tool_gateway.filesystem import DEFAULT_DENY_NAMES
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
@@ -32,6 +42,53 @@ class Settings(BaseSettings):
     vault_kubernetes_auth_mount: str = "kubernetes"
     policy_mode: str = "local"
     opa_decision_url: str = "http://localhost:8181/v1/data/swarmcore/decision"
+    deployment_mode: Literal["local", "production"] = "local"
+    filesystem_tools_enabled: bool = False
+    filesystem_root: str = ".tmp/filesystem"
+    filesystem_allowed_mounts: list[str] = Field(default_factory=lambda: ["workspace"])
+    filesystem_max_read_bytes: int = 1_048_576
+    filesystem_max_write_bytes: int = 1_048_576
+    filesystem_max_list_entries: int = 1_000
+    filesystem_deny_names: list[str] = Field(
+        default_factory=lambda: sorted(DEFAULT_DENY_NAMES)
+    )
+    filesystem_executor_mode: Literal["disabled", "local", "sandbox"] = "disabled"
+    filesystem_sandbox_url: str = "http://localhost:8092"
+    filesystem_sandbox_image: str = ""
+    filesystem_sandbox_capability_secret: str = ""
+    filesystem_sandbox_timeout_seconds: int = 60
+
+    def filesystem_config(self) -> FilesystemToolConfig:
+        return FilesystemToolConfig(
+            enabled=self.filesystem_tools_enabled,
+            root=Path(self.filesystem_root),
+            allowed_mounts=frozenset(self.filesystem_allowed_mounts),
+            max_read_bytes=self.filesystem_max_read_bytes,
+            max_write_bytes=self.filesystem_max_write_bytes,
+            max_list_entries=self.filesystem_max_list_entries,
+            deny_names=frozenset(self.filesystem_deny_names),
+            mode=FilesystemExecutorMode(self.filesystem_executor_mode),
+            deployment_mode=self.deployment_mode,
+            sandbox_base_url=self.filesystem_sandbox_url,
+            sandbox_image=self.filesystem_sandbox_image,
+            sandbox_capability_secret=self.filesystem_sandbox_capability_secret
+            or self.tool_capability_secret,
+            sandbox_timeout_seconds=self.filesystem_sandbox_timeout_seconds,
+        )
+
+    @field_validator("filesystem_allowed_mounts", "filesystem_deny_names", mode="before")
+    @classmethod
+    def _split_csv(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @model_validator(mode="after")
+    def validate_filesystem_boundary(self) -> Settings:
+        if self.deployment_mode == "production" and self.filesystem_executor_mode == "local":
+            raise ValueError("production worker-tool forbids local filesystem executor mode")
+        self.filesystem_config().validate()
+        return self
 
 
 async def serve() -> None:
@@ -49,7 +106,10 @@ async def serve() -> None:
         builtin_registry(),
         CapabilityTokenIssuer(settings.tool_capability_secret),
         PostgresEffectJournal(database.sessions),
-        {**builtin_executors(), **capability_executors(database.sessions)},
+        assemble_tool_executors(
+            filesystem=settings.filesystem_config(),
+            extra=capability_executors(database.sessions),
+        ),
         secrets=(
             VaultSecretProvider(
                 settings.vault_address,

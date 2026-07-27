@@ -31,6 +31,7 @@ members = [
   "packages/governance",
   "packages/capability-contract-integrity",
   "packages/capability-contract-post-evaluation",
+  "packages/capability-deviation-analysis",
 ]
 
 [dependency-groups]
@@ -43,6 +44,7 @@ dev = [
   "ruff==0.12.3",
   "types-jsonschema==4.25.0.20250720",
   "types-PyYAML==6.0.12.20250516",
+  "types-reportlab>=4.5.1.20260724",
 ]
 
 [tool.pytest.ini_options]
@@ -74,6 +76,7 @@ pythonpath = [
   "packages/governance/src",
   "packages/capability-contract-integrity/src",
   "packages/capability-contract-post-evaluation/src",
+  "packages/capability-deviation-analysis/src",
 ]
 
 [tool.ruff]
@@ -112,6 +115,7 @@ packages = [
   "swarmcore_governance",
   "swarmcore_capability_contract_integrity",
   "swarmcore_capability_contract_post_evaluation",
+  "swarmcore_capability_deviation_analysis",
 ]
 mypy_path = [
   "packages/application/src",
@@ -139,4 +143,5 @@ mypy_path = [
   "packages/governance/src",
   "packages/capability-contract-integrity/src",
   "packages/capability-contract-post-evaluation/src",
+  "packages/capability-deviation-analysis/src",
 ]

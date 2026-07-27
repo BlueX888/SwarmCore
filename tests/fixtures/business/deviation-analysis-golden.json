@@ -1,0 +1,78 @@
+{
+  "payload": {
+    "title": "脱敏项目偏差分析黄金样本",
+    "subject": {"subjectId": "PROJECT-GOLDEN-001", "subjectType": "project"},
+    "period": {"start": "2026-01-01", "end": "2026-06-30"},
+    "asOf": "2026-06-30",
+    "dimensions": ["TIME", "CONTENT", "COST"],
+    "trendWindow": "P6M",
+    "thresholds": {
+      "delayDaysHigh": 15,
+      "contentVarianceRateHigh": 0.1,
+      "forecastOverrunRateHigh": 0.05
+    },
+    "time": {
+      "milestones": [
+        {
+          "milestoneId": "M1",
+          "name": "基础交付",
+          "currentBaselineDate": "2026-05-01",
+          "actualDate": "2026-05-11",
+          "critical": true,
+          "evidenceRefs": ["fixture:schedule:v1:M1"]
+        },
+        {
+          "milestoneId": "M2",
+          "name": "最终交付",
+          "currentBaselineDate": "2026-06-10",
+          "forecastDate": "2026-06-08",
+          "critical": false,
+          "evidenceRefs": ["fixture:progress:v2:M2"]
+        }
+      ],
+      "pv": 100,
+      "ev": 80
+    },
+    "content": {
+      "items": [
+        {
+          "itemId": "D1",
+          "name": "成果 A",
+          "status": "ACCEPTED",
+          "weight": 3,
+          "evidenceRefs": ["fixture:acceptance:v1:D1"]
+        },
+        {
+          "itemId": "D2",
+          "name": "成果 B",
+          "status": "CONDITIONAL",
+          "weight": 1,
+          "evidenceRefs": ["fixture:acceptance:v1:D2"]
+        }
+      ]
+    },
+    "cost": {
+      "currency": "CNY",
+      "originalBAC": 1000,
+      "approvedChanges": [
+        {"amount": 100, "approved": true},
+        {"amount": 50, "approved": false}
+      ],
+      "eac": 1210,
+      "ac": 700,
+      "commitments": 200,
+      "ev": 630,
+      "evidenceRefs": ["fixture:cost:v3"]
+    }
+  },
+  "expected": {
+    "maximumDelayDays": 10,
+    "onTimeRate": 0.5,
+    "spi": 0.8,
+    "actualCompletionRate": 0.875,
+    "contentVarianceRate": -0.125,
+    "currentBAC": 1100.0,
+    "costVariance": 110.0,
+    "cpi": 0.9
+  }
+}

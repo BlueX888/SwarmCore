@@ -50,6 +50,7 @@ export function StrategyCanvas(props: {
   spec: SwarmSpecDocument;
   editorState: EditorState;
   nodeTypes: string[];
+  models?: string[];
   diagnostics: Diagnostic[];
   onSpecChange: (spec: SwarmSpecDocument) => void;
   onEditorStateChange: (state: EditorState) => void;
@@ -62,6 +63,7 @@ function StrategyCanvasInner({
   spec,
   editorState,
   nodeTypes: capabilityNodeTypes,
+  models = [],
   diagnostics,
   onSpecChange,
   onEditorStateChange,
@@ -221,6 +223,7 @@ function StrategyCanvasInner({
       nodeKey={selected}
       node={selectedNode}
       spec={spec}
+      models={models}
       readonly={selectedNode ? !isSupportedNode(selectedNode) : false}
       onSpecChange={onSpecChange}
       onDelete={remove}
@@ -246,10 +249,11 @@ function StrategyFlowNode({ data, selected }: NodeProps<CanvasNode>) {
   </div>;
 }
 
-function PropertyPanel({ nodeKey, node, spec, readonly, onSpecChange, onDelete, onError }: {
+function PropertyPanel({ nodeKey, node, spec, models, readonly, onSpecChange, onDelete, onError }: {
   nodeKey: string | null;
   node?: StrategyNode;
   spec: SwarmSpecDocument;
+  models: string[];
   readonly: boolean;
   onSpecChange: (spec: SwarmSpecDocument) => void;
   onDelete: (nodeKey: string) => void;
@@ -264,6 +268,7 @@ function PropertyPanel({ nodeKey, node, spec, readonly, onSpecChange, onDelete, 
   const fieldClass = "mt-1 h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm dark:border-gray-700";
   const agentKey = node.type === "agent" && typeof node["agent"] === "string" ? node["agent"] : "";
   const agent = agentKey ? spec.spec.agents?.[agentKey] : undefined;
+  const currentModel = stringValue(agent?.["model"]);
   return <aside className="min-w-0 space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800" aria-label="节点属性">
     <div className="flex items-center justify-between gap-2"><div><p className="font-semibold">{nodeKey}</p><p className="text-xs capitalize text-gray-500">{nodeTypeLabel(node.type)}</p></div><Button size="sm" variant="ghost" aria-label="删除节点" onClick={() => onDelete(nodeKey)}><Trash2 /></Button></div>
     <Button className="w-full" size="sm" variant={spec.spec.graph.entrypoint === nodeKey ? "primary" : "outline"} onClick={() => onSpecChange(setEntrypoint(spec, nodeKey))}><Play />{spec.spec.graph.entrypoint === nodeKey ? "当前入口" : "设为入口"}</Button>
@@ -271,7 +276,7 @@ function PropertyPanel({ nodeKey, node, spec, readonly, onSpecChange, onDelete, 
       <Field label="智能体声明"><select className={fieldClass} value={agentKey} onChange={(event) => setNode({ agent: event.target.value })}>{Object.keys(spec.spec.agents ?? {}).map((key) => <option key={key}>{key}</option>)}</select></Field>
       <Field label="角色"><input className={fieldClass} value={stringValue(agent?.["role"])} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, { role: event.target.value }))} /></Field>
       <Field label="指令"><textarea className="mt-1 min-h-28 w-full rounded-lg border border-gray-300 bg-transparent p-3 text-sm dark:border-gray-700" value={stringValue(agent?.["instructions"])} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, { instructions: event.target.value }))} /></Field>
-      <Field label="模型"><input className={fieldClass} placeholder="model://general" value={stringValue(agent?.["model"])} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, event.target.value ? { model: event.target.value } : { model: undefined }))} /></Field>
+      <Field label="模型"><select aria-label="模型" className={fieldClass} value={currentModel} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, event.target.value ? { model: event.target.value } : { model: undefined }))}><option value="">使用策略默认模型</option>{models.map((ref) => <option key={ref} value={ref}>{ref}</option>)}{currentModel && !models.includes(currentModel) ? <option value={currentModel}>{currentModel}</option> : null}</select></Field>
     </> : null}
     {node.type === "tool" ? <><Field label="工具 Ref"><input className={fieldClass} value={stringValue(node["tool"])} onChange={(event) => setNode({ tool: event.target.value })} /></Field><JsonField label="工具输入" value={recordValue(node["input"])} onCommit={(value) => setNode({ input: value })} onError={onError} /></> : null}
     {node.type === "join" ? <><Field label="汇合策略"><select className={fieldClass} value={stringValue(node["strategy"])} onChange={(event) => setNode({ strategy: event.target.value, quorum: event.target.value === "quorum" ? 1 : undefined })}>{["all", "any", "quorum", "first_success"].map((value) => <option key={value} value={value}>{joinStrategyLabel(value)}</option>)}</select></Field>{node["strategy"] === "quorum" ? <Field label="法定数量"><input type="number" min={1} className={fieldClass} value={numberValue(node["quorum"], 1)} onChange={(event) => setNode({ quorum: Number(event.target.value) })} /></Field> : null}</> : null}

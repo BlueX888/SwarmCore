@@ -1,0 +1,29 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "ViewDefinition",
+  "metadata": {"name": "deviation-analysis-case", "version": "1"},
+  "spec": {
+    "steps": [
+      {"key": "scope", "title": "分析范围"},
+      {"key": "documents", "title": "文件选择"},
+      {"key": "configuration", "title": "口径配置"},
+      {"key": "review", "title": "确认并运行"}
+    ],
+    "defaultConfiguration": {
+      "dimensions": ["TIME", "CONTENT", "COST"],
+      "timezone": "Asia/Shanghai",
+      "currency": "CNY",
+      "trendLookback": "P6M",
+      "topK": 8,
+      "thresholds": {"delayDaysHigh": 15, "contentVarianceRateHigh": 0.1, "forecastOverrunRateHigh": 0.05},
+      "approval": {
+        "requireResponsibilityConfirmation": true,
+        "requireHighImpactReview": true
+      }
+    },
+    "resultSections": [
+      "summary", "time", "content", "cost", "trends", "rootCauses",
+      "responsibility", "evidence", "report"
+    ]
+  }
+}

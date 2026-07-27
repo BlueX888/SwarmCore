@@ -1,7 +1,7 @@
 {
   "apiVersion": "swarmcore.io/v2",
   "kind": "CapabilityPack",
-  "metadata": {"name": "contract-post-evaluation", "version": "1.6.0"},
+  "metadata": {"name": "contract-post-evaluation", "version": "1.7.0"},
   "spec": {
     "case": {
       "type": "contract-post-evaluation-case",
@@ -22,9 +22,28 @@
       "tool://report/render-post-evaluation@1",
       "tool://workbench/record-post-evaluation@1"
     ],
-    "documents": [
-      {"category": "CONTRACT", "required": true}
-    ],
+    "documents": {
+      "processingProfile": "document-profile://business-default@1",
+      "requirements": [
+        {
+          "key": "primary-contract",
+          "category": "CONTRACT",
+          "displayName": "主合同文件",
+          "description": "用于合同后评价的主要合同文本或扫描件。",
+          "required": true,
+          "minCount": 1,
+          "maxCount": 5,
+          "acceptedMediaTypes": [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "text/plain",
+            "text/markdown"
+          ],
+          "classificationLabels": ["CONTRACT", "primary"],
+          "extractionSchema": "schema://document/generic-text@1"
+        }
+      ]
+    },
     "report": {"template": "report://contract/post-evaluation@1"},
     "permissions": ["case.read", "case.assess", "finding.act", "document.read", "report.read"],
     "events": {"namespace": "capability.contract-post-evaluation"},

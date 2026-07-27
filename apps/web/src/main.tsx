@@ -8,9 +8,10 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ActionCenterPage } from "@/pages/action-center-page";
 import { AuditLogsPage } from "@/pages/audit-logs-page";
 import { AgentCapabilitiesPage, ModelCapabilitiesPage, PolicyCapabilitiesPage, ToolCapabilitiesPage } from "@/pages/capabilities-page";
-import { CapabilityPacksPage } from "@/pages/capability-packs-page";
-import { CapabilityPackWorkbenchPage } from "@/pages/capability-pack-workbench-page";
-import { CapabilityPackConfigurationPage } from "@/pages/contract-post-evaluation-page";
+import { LegacyCapabilityPackDetailRedirect, LegacyCapabilityPackListRedirect } from "@/components/legacy-capability-pack-redirect";
+import { AssessmentPage } from "@/pages/assessment-page";
+import { BusinessWorkSettingsPage } from "@/pages/business-work-settings-page";
+import { BusinessWorkWorkbenchPage } from "@/pages/business-work-workbench-page";
 import { BusinessWorksPage } from "@/pages/business-works-page";
 import { ThemeProvider } from "@/context/theme-context";
 import { RunsPage } from "@/pages/runs-page";
@@ -22,6 +23,7 @@ import { StrategyDetailPage } from "@/pages/strategy-detail-page";
 import { AgentConfigurationPage, ToolConfigurationPage } from "@/pages/registry-config-page";
 import { DocumentLibraryPage } from "@/pages/resource-center-page";
 import { PolicyCreatePage } from "@/pages/policy-create-page";
+import { ReportGenerationDemoPage } from "@/pages/report-generation-demo-page";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DEMO_PROJECT_ID, DEMO_TENANT_ID, demoOverviewPath, demoWorkspacePath } from "@/lib/demo-scope";
 import {
@@ -50,9 +52,13 @@ const workspaceChildren = () => [
   { path: "capabilities", element: <Navigate to="../agents" replace /> },
   { path: "business-works", element: <BusinessWorksPage /> },
   { path: "business-works/:workKey", element: <BusinessWorksPage /> },
-  { path: "capability-packs", element: <CapabilityPacksPage /> },
-  { path: "capability-packs/:packName/workbench", element: <CapabilityPackWorkbenchPage /> },
-  { path: "capability-packs/:packName", element: <CapabilityPackConfigurationPage /> },
+  { path: "business-works/report-generation/demo", element: <ReportGenerationDemoPage /> },
+  { path: "business-works/:workKey/settings", element: <BusinessWorkSettingsPage /> },
+  { path: "business-works/:workKey/workbench", element: <BusinessWorkWorkbenchPage /> },
+  { path: "assessments/:assessmentId", element: <AssessmentPage /> },
+  { path: "capability-packs", element: <LegacyCapabilityPackListRedirect /> },
+  { path: "capability-packs/:packName/workbench", element: <LegacyCapabilityPackDetailRedirect mode="workbench" /> },
+  { path: "capability-packs/:packName", element: <LegacyCapabilityPackDetailRedirect mode="settings" /> },
   { path: DOCUMENT_LIBRARY_ROUTE, element: <DocumentLibraryPage /> },
   { path: LEGACY_RESOURCE_ROUTE, element: <Navigate to={LEGACY_RESOURCE_REDIRECT} replace /> },
   { path: "agents", children: [

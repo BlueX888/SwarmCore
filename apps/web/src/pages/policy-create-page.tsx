@@ -55,7 +55,7 @@ export function PolicyCreatePage() {
   };
 
   return <div className="min-w-0 space-y-6">
-    <div><BackLink to={`${workspacePath}/policies`}>策略</BackLink><h1 className="mt-4 text-2xl font-semibold text-gray-900 dark:text-white">新建策略</h1><p className="mt-1 text-sm text-gray-500">定义确定性的资料要求；系统会先校验草稿，再发布不可变版本。</p></div>
+    <div><BackLink to={`${workspacePath}/policies`}>策略能力</BackLink><h1 className="mt-4 text-2xl font-semibold text-gray-900 dark:text-white">新建策略</h1><p className="mt-1 text-sm text-gray-500">定义确定性的资料要求；系统会先校验草稿，再发布不可变版本。</p></div>
     <form className="space-y-5" onSubmit={submit}>
       <Card><CardHeader><CardTitle>基本信息</CardTitle></CardHeader><CardContent className="grid gap-4 md:grid-cols-2">
         <label className="text-sm font-medium">策略名称 <span className="text-error-500">*</span><input aria-label="策略名称" className={`mt-2 ${fieldClass}`} value={name} onChange={(event) => { setName(event.target.value); setFormError(""); }} placeholder="例如：采购合同资料策略" /></label>

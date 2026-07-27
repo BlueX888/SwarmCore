@@ -12,12 +12,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 
 const fieldClass = "h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm outline-none focus:border-brand-500 dark:border-gray-700";
-const kindLabels: Record<CapabilityKind, string> = { agent: "智能体", tool: "工具", model: "模型", policy: "策略" };
+const kindLabels: Record<CapabilityKind, string> = { agent: "智能体", tool: "工具", model: "模型", policy: "策略能力" };
 const pageDescriptions: Record<CapabilityKind, string> = {
   agent: "选择已就绪智能体直接运行，或基于内置版本创建可编辑的项目配置。",
   tool: "选择已就绪工具直接运行，或保存参数为我的预设。",
   model: "本环境已配置路由的模型会出现在此。默认只显示可用项；勾选可查看已配置但未就绪的模型。",
-  policy: "查看策略的就绪状态，或保存参数为我的预设。",
+  policy: "查看策略能力的就绪状态，或保存参数为我的预设。",
 };
 const reasonLabels: Record<ReadinessReasonCode, string> = {
   EXECUTOR_MISSING: "缺少执行器", ADAPTER_MISSING: "智能体适配器不可用", MODEL_ROUTE_MISSING: "缺少模型路由",

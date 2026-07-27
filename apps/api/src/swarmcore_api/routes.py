@@ -34,10 +34,12 @@ from swarmcore_application import (
     RunResultService,
     RunService,
     StrategyService,
+    is_retryable_run_failure,
     render_run_snapshot,
 )
-from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2
+from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2, MANIFEST_V2_1
 from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
+from swarmcore_capability_deviation_analysis import MANIFEST as DEVIATION_ANALYSIS_MANIFEST
 from swarmcore_domain import CapabilitySummary
 from swarmcore_governance import (
     ArtifactCapabilityIssuer,
@@ -103,6 +105,8 @@ from .schemas import (
     RunHandle,
     RunListResponse,
     RunSnapshot,
+    StrategyDeleteBlockerSnapshot,
+    StrategyDeleteImpactResponse,
     StrategyDetail,
     StrategyHandle,
     StrategyListResponse,
@@ -122,7 +126,15 @@ runs = RunService()
 commands = RunCommandService()
 run_queries = RunQueryService()
 run_results = RunResultService()
-capabilities = CapabilityCatalogService((MANIFEST, MANIFEST_V2, POST_EVALUATION_MANIFEST))
+capabilities = CapabilityCatalogService(
+    (
+        MANIFEST,
+        MANIFEST_V2,
+        MANIFEST_V2_1,
+        POST_EVALUATION_MANIFEST,
+        DEVIATION_ANALYSIS_MANIFEST,
+    )
+)
 project_configurations = ProjectConfigurationService()
 compilation = CompilationService(strategies)
 
@@ -569,6 +581,49 @@ async def get_strategy(strategy_id: UUID, scope: Scope, session: Session) -> Str
 
 
 @router.get(
+    "/projects/{project_id}/strategies/{strategy_id}/delete-impact",
+    response_model=StrategyDeleteImpactResponse,
+)
+async def get_strategy_delete_impact(
+    strategy_id: UUID, scope: Scope, session: Session
+) -> StrategyDeleteImpactResponse:
+    impact = await strategies.get_delete_impact(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        strategy_id=strategy_id,
+    )
+    return StrategyDeleteImpactResponse(
+        strategyId=impact.strategy_id,
+        deletable=impact.deletable,
+        blockers=[
+            StrategyDeleteBlockerSnapshot(
+                code=item.code, count=item.count, message=item.message
+            )
+            for item in impact.blockers
+        ],
+    )
+
+
+@router.delete(
+    "/projects/{project_id}/strategies/{strategy_id}",
+    status_code=204,
+    response_class=Response,
+)
+async def delete_strategy(
+    strategy_id: UUID, scope: Scope, session: Session
+) -> Response:
+    await strategies.delete(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        strategy_id=strategy_id,
+        actor=scope.actor_id,
+    )
+    return Response(status_code=204)
+
+
+@router.get(
     "/projects/{project_id}/strategies/{strategy_id}/drafts/{draft_id}",
     response_model=DraftSnapshot,
 )
@@ -991,6 +1046,14 @@ async def retry_task(
         raise HTTPException(status_code=404, detail="task not found")
     if task.status != "FAILED" or run.status != "FAILED":
         raise HTTPException(status_code=409, detail="task is not retryable")
+    failure = await session.scalar(
+        select(RunEvent)
+        .where(RunEvent.run_id == run.id, RunEvent.type == "run.failed")
+        .order_by(RunEvent.event_seq.desc())
+        .limit(1)
+    )
+    if not is_retryable_run_failure(failure):
+        raise HTTPException(status_code=409, detail="run failure is not retryable")
     handle = await _append_command(
         session,
         scope,

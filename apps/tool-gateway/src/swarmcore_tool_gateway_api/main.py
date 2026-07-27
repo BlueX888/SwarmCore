@@ -3,12 +3,13 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from swarmcore_application import capability_executors
 from swarmcore_domain import uuid7
@@ -36,12 +37,15 @@ from swarmcore_tool_gateway import (
     CapabilityTokenIssuer,
     EffectConflict,
     EffectInProgress,
+    FilesystemExecutorMode,
+    FilesystemToolConfig,
     GatewayError,
     TokenError,
     ToolGateway,
     ToolInvocation,
-    builtin_executors,
+    assemble_tool_executors,
 )
+from swarmcore_tool_gateway.filesystem import DEFAULT_DENY_NAMES
 
 
 class Settings(BaseSettings):
@@ -64,6 +68,18 @@ class Settings(BaseSettings):
     workload_tls_ca_file: str = ""
     workload_tls_cert_file: str = ""
     workload_tls_key_file: str = ""
+    filesystem_tools_enabled: bool = False
+    filesystem_root: str = ".tmp/filesystem"
+    filesystem_allowed_mounts: list[str] = Field(default_factory=lambda: ["workspace"])
+    filesystem_max_read_bytes: int = 1_048_576
+    filesystem_max_write_bytes: int = 1_048_576
+    filesystem_max_list_entries: int = 1_000
+    filesystem_deny_names: list[str] = Field(default_factory=lambda: sorted(DEFAULT_DENY_NAMES))
+    filesystem_executor_mode: Literal["disabled", "local", "sandbox"] = "disabled"
+    filesystem_sandbox_url: str = "http://localhost:8092"
+    filesystem_sandbox_image: str = ""
+    filesystem_sandbox_capability_secret: str = ""
+    filesystem_sandbox_timeout_seconds: int = 60
 
     def workload_tls(self) -> WorkloadTls:
         return WorkloadTls(
@@ -71,6 +87,31 @@ class Settings(BaseSettings):
             self.workload_tls_cert_file,
             self.workload_tls_key_file,
         )
+
+    def filesystem_config(self) -> FilesystemToolConfig:
+        return FilesystemToolConfig(
+            enabled=self.filesystem_tools_enabled,
+            root=Path(self.filesystem_root),
+            allowed_mounts=frozenset(self.filesystem_allowed_mounts),
+            max_read_bytes=self.filesystem_max_read_bytes,
+            max_write_bytes=self.filesystem_max_write_bytes,
+            max_list_entries=self.filesystem_max_list_entries,
+            deny_names=frozenset(self.filesystem_deny_names),
+            mode=FilesystemExecutorMode(self.filesystem_executor_mode),
+            deployment_mode=self.deployment_mode,
+            sandbox_base_url=self.filesystem_sandbox_url,
+            sandbox_image=self.filesystem_sandbox_image,
+            sandbox_capability_secret=self.filesystem_sandbox_capability_secret
+            or self.tool_capability_secret,
+            sandbox_timeout_seconds=self.filesystem_sandbox_timeout_seconds,
+        )
+
+    @field_validator("filesystem_allowed_mounts", "filesystem_deny_names", mode="before")
+    @classmethod
+    def _split_csv(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
 
     @model_validator(mode="after")
     def validate_production_boundary(self) -> Settings:
@@ -82,6 +123,9 @@ class Settings(BaseSettings):
                 raise ValueError("production Tool Gateway requires OPA")
             if not self.vault_kubernetes_role:
                 raise ValueError("production Tool Gateway requires Vault Kubernetes auth")
+            if self.filesystem_executor_mode == "local":
+                raise ValueError("production Tool Gateway forbids local filesystem executor mode")
+        self.filesystem_config().validate()
         return self
 
 
@@ -126,7 +170,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             builtin_registry(),
             token_issuer,
             PostgresEffectJournal(database.sessions),
-            {**builtin_executors(), **capability_executors(database.sessions)},
+            assemble_tool_executors(
+                filesystem=configured.filesystem_config(),
+                extra=capability_executors(database.sessions),
+            ),
             PostgresToolAuditSink(database),
             secrets=(
                 VaultSecretProvider(

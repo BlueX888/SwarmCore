@@ -127,6 +127,8 @@ def _rest_action(method: str, path: str) -> str:
         return "strategy.read" if method == "GET" else "strategy.write"
     if "/capability-packs" in path:
         return "capability.read" if method == "GET" else "capability.manage"
+    if "/business-works" in path:
+        return "capability.read" if method == "GET" else "capability.manage"
     if "/rule-set" in path:
         return "rule.read" if method == "GET" else "rule.manage"
     if "/findings" in path:

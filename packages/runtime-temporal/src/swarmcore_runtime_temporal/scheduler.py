@@ -44,3 +44,18 @@ def blocked_by_failure(
         and any(states[key] in terminal_failure for key in node.get("dependencies", []))
     ]
     return tuple(sorted(blocked))
+
+
+def propagate_failure_blocks(
+    nodes: list[dict[str, Any]], states: dict[str, NodeState], *, blocked_state: NodeState
+) -> tuple[str, ...]:
+    """Mark all transitive failure dependents until a fixed point; return newly blocked keys."""
+    newly: list[str] = []
+    while True:
+        batch = blocked_by_failure(nodes, states)
+        if not batch:
+            break
+        for key in batch:
+            states[key] = blocked_state
+            newly.append(key)
+    return tuple(newly)

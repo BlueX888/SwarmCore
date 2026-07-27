@@ -4,7 +4,7 @@
 |---|---|
 | 状态 | Living Document |
 | 版本 | 3.1 |
-| 最近更新 | 2026-07-23 |
+| 最近更新 | 2026-07-26 |
 | 已提交基线 | `eb75ac3`（受控 Tool 与有界编排） |
 | 当前候选 | M3/M4、业务扩展 E0-E4、业务上下文/决策、业务资料库、能力中心统一化位于未提交工作树 |
 | 当前焦点 | M5 / G0；B1 剩余 E5 |
@@ -31,7 +31,7 @@
 | 能力域 | 状态 | 证据 | 开放项 |
 |---|---|---|---|
 | 耐久执行与人工控制 | VERIFIED / LOCAL | `eb75ac3`；Temporal、状态、审批、输入、取消、重试 | 持续回归 |
-| REST/MCP 与策略控制台 | IMPLEMENTED / LOCAL | E1 | G0：远端 CI 与 Fake Agent E2E |
+| REST/MCP 与策略控制台 | IMPLEMENTED / LOCAL | E1、STRAT-DEL-1 | G0：远端 CI 与 Fake Agent E2E |
 | 受控 Tool、Router、Loop | VERIFIED / LOCAL | `eb75ac3`，E2 | 持续回归 |
 | 治理、安全和 Provider 候选 | IMPLEMENTED / LOCAL | E3 | G0、真实 K8s/Provider |
 | Capability Pack、Workbench、文档智能 E0-E4 | IMPLEMENTED / LOCAL | BA-E4、BA-E4.1、WB-E1 | E5、真实 OCR/模型、环境级人工复核 |
@@ -39,13 +39,17 @@
 | 业务上下文与决策资产 | IMPLEMENTED / LOCAL | BCRP-E1 | G0；真实 OPA/Temporal 资格 |
 | 业务资料库与运行文件快照 | IN_PROGRESS / LOCAL | DLIB-E1 | 完整本地回归、PostgreSQL/RLS/API 集成和 G0 |
 | 合同七维后评价能力包 | IN_PROGRESS / LOCAL | CPE-E1、CPE-E2、CPE-E3、DLIB-E1 | 文件链替换后的完整回归；有效模型 Provider 凭据、二进制文档 OCR 与生产环境资格验收 |
-| 业务工作信息架构与九项规划扩展 | IMPLEMENTED / LOCAL | BW-E1 | 九项真实 Agent、Tool、规则、资料处理和执行链均未实现 |
+| 独立偏差分析能力包 | VERIFIED / LOCAL | DA-E1、DA-E2 | 已完成 PostgreSQL、真实 Temporal/Agno/Kimi、人工审批、报告持久化与中文 PDF 页面渲染验收；图像型资料未配置 OCR，按策略归档且不进入计算选择 |
+| 业务工作信息架构与九项规划扩展 | IMPLEMENTED / LOCAL | BW-E1、DA-E1 | 除文件完整性和偏差分析外，其余规划业务的真实执行链尚未实现 |
+| 业务工作唯一入口与 Assessment 结果页 | IMPLEMENTED / LOCAL | BW-E2、DA-E1 | 其余七项规划业务仍为“规划中”；未执行 Playwright 与 PostgreSQL 集成 |
+| 受控本地文件系统工具 | IMPLEMENTED / LOCAL | FS-E1 | 生产 Sandbox/gVisor 同构执行与卷同步仍属 G3；默认 fail-closed |
 
 证据索引：
 
 | ID | 已记录结果 | 边界 |
 |---|---|---|
 | E1 | 52 单元、8 集成、17 Vitest、21 Playwright、前端 lint/build、Ollama smoke | 本地；无合格远端 CI |
+| FS-E1 | 四个 builtin filesystem 工具、SafePathResolver、共享 `assemble_tool_executors`、local/sandbox 模式边界、HIGH 写审批与 EffectJournal；Ruff、mypy（123 source files）、266 单元（1 skipped）、filesystem 定向 Vitest 1/1、相关文件 ESLint、Web build 通过 | 默认关闭；生产禁止 local；Sandbox 未返回声明结果时 fail closed；未执行真实 K8s/gVisor、Playwright e2e 与 PostgreSQL 集成；全量 `pnpm web:lint` 因工作树中既有无关前端文件失败 |
 | E2 | Ruff、mypy、69 单元、10 PostgreSQL/Temporal 集成 | 已绑定 `eb75ac3` |
 | E3 | Ruff、mypy、105 单元；项目配置集成；前端 lint、26 Vitest、33 Playwright、build | 未绑定提交；真实 Sandbox/ClamAV 未验收 |
 | BA-E3 | Ruff、mypy、117 单元、13 PostgreSQL/Temporal/Blob 集成、27 Vitest、33 Playwright、前端 lint/build | 4 项环境依赖测试跳过 |
@@ -61,7 +65,13 @@
 | WB-E1 | 已启用业务能力包新增独立工作台入口；v1 复用 WorkItem 执行，v2 自动建立 Manifest 必需 Subject、检查必需资源槽位并复用 Case Assessment，提交后进入统一 Run 详情 | Web lint、63 Vitest、build、工作台定向 Playwright 3/3 通过；全量 Playwright 27/33，6 项既有运行/能力中心用例因本地 API `127.0.0.1:8000` 未启动超时；未修改 Python，未重跑后端测试或真实 Kimi/Temporal/Tool Worker 链 |
 | CC-E2 | Agent 项目配置投影为版本化 `agent://project/{id}@{revision}` 能力，进入统一 Readiness、REST/MCP 能力目录、直接运行和画布链路；项目 Agent 复用系统能力就绪投影，避免重复探测全部依赖；Agno Adapter 在任务执行时实例化 | VERIFIED：Ruff、mypy、221 单元、Agent 配置/能力中心定向 Vitest 24/24、Web lint/build 通过；全量 Vitest 74/75，1 项既有模型连接表单在并发执行时初始化时序失败（单文件重跑 12/12）；本地浏览器完成创建、目录可见、编辑保存、刷新后字段持久化验收；E2E 32/36，3 项既有能力中心脚本未关闭模态框而超时，1 项既有移动端画布拖拽位于视口外；PostgreSQL/API 集成因未配置 `SWARMCORE_TEST_DATABASE_URL` 跳过，未执行真实模型/Temporal 链 |
 | BW-E1 | “业务工作”作为侧栏分类，保留工作总览并新增基础 AI 与评测、文件结构化、文件完整性、履约计划与采集、发票一致性、偏差分析、报告生成、调度校准、招采与供应商风控九项独立规划入口和详情骨架 | Web lint、84 Vitest、build 通过；九项统一标记“规划中”；未执行 Playwright、Python 或集成测试，未接入任何真实业务功能 |
+| BW-E2 | 产品层移除“业务能力包”入口；BusinessWorkService 集中映射 `document-integrity→contract-integrity`、`contract-post-evaluation→contract-post-evaluation`；新增独立业务工作“合同后评价”，`report-generation` 保持规划中；新增 `/business-works`、`/settings`、`/workbench`、`/assessments/:id` 与旧 `/capability-packs*` 兼容重定向；办理成功优先进入 Assessment | Ruff、mypy、单元与 Web lint/test/build 通过；未执行 Playwright 与 PostgreSQL 集成；其余规划业务仍为“规划中” |
 | DLIB-E1 | 业务资料库替换新产品调用链中的 Connection/Resource：复用 BlobObject/Artifact Gateway，新增不可变文件版本、业务对象关联、业务工作绑定、处理结果与 Assessment/Run 使用快照；`/documents` 为主路由，`/resources` 仅前端兼容重定向；REST/MCP 复用 DocumentLibraryService | Ruff、mypy（114 source files）、229 单元、80 Vitest、Web lint/build 通过，Alembic head 为 `0013_business_document_library`；5 项相关 PostgreSQL/RLS/API 集成因未配置 `SWARMCORE_TEST_DATABASE_URL` 跳过。只完成资料绑定和执行读取骨架，真实解析、OCR、抽取和人工确认能力未实现；旧 Connection/Resource ORM、migration 与 REST API 暂保留历史兼容 |
+| DLIB-E2 | 通用业务资料接入与处理：UploadBatch、ProcessingRun/Profile、Parser/OCR/Classifier/Extractor Adapter、Schema 驱动人工确认、资料要求契约；资料库与业务工作台复用同一前端组件；`contract-integrity@2.1.0` 与 `contract-post-evaluation@1.7.0` 通过不同 Pack 配置接入，公共模块无业务 work key 硬编码 | 见本轮验证记录；PostgreSQL/RLS/Temporal 集成仍依赖环境 |
+| CPE-E4 | `contract-post-evaluation@2.0.5`、策略 `generate@13`：8 类资料要求、最多 100 份冻结文件、4 个领域分析 Agent、证据复核与报告叙述 Agent、14 个 Tool、4 路并行、全量扫描后每域 Top 6 注入、Agent `node_only` 上下文隔离、资料覆盖/一致性/金额/发票/偏差/风险诊断、条件人工审批、v2 结果与 CJK PDF/JSON 持久化；配置页展示冻结 Agent/Tool 与分类数量 | VERIFIED / LOCAL：真实模型 Run `019f93dd-58a1-747b-bd46-c462917d9677` 冻结 35 份文件，6 个 Agent、25 个执行节点成功并完成人工审批；Evaluation `019f93dd-5892-7b8d-aafd-15a464b3ea64` 得分 84.55，七维结果及 JSON/PDF 已持久化，PDF 哈希 `1b05e8c5f42e70c52e9bde1b8b5e44c59cd851d9dc4ffe747e9835a3768084f1` 经文本提取与页面渲染核验。Ruff、mypy（129 个源文件）、304 单元、121 Vitest、Web lint/build 通过。PostgreSQL/Temporal 由本地真实运行覆盖，独立 pytest 集成套件仍依赖隔离测试数据库 |
+| DA-E1 | `deviation-analysis@1.0.5`、策略 `execute@6`：10 类资料要求、确定性文件/基线选择与四类冻结哈希、6 个窄职责 Agent、14 个 Tool、时间/内容/成本计算、同口径历史趋势、AI 根因、仅 `PROPOSED` 的责任建议、条件人工审批、结构化 JSON/CJK PDF 幂等持久化；统一 REST/MCP/Workbench 和专用 Assessment 指标/趋势/责任视图 | VERIFIED / LOCAL：Crossrail 公开案例 2018、2019、2021、2022 四期真实 PostgreSQL/Temporal/Agno/Kimi 运行均为 `SUCCEEDED`，每期冻结 24 个不可变文件版本并完成人工审批、Finding、Audit、Outbox 和 JSON/PDF 持久化；最终趋势为 4 点，2022 时间偏差 1,262 天、成本偏差 £4.1bn（27.70%），责任输出保持 `PROPOSED / PENDING_CONFIRMATION`。中文 PDF 通过文本提取和 3 页渲染检查。验收清单见 `.tmp/business-data/deviation-analysis/crossrail-public-case/08-run-evidence/2026-07-26-real-runtime/final-verification.json`；本结果仅为公开案例本地运行验收，不构成法律责任认定 |
+| DA-E2 | Crossrail 真实资料接入与四期历史回填：复核 21 份官方来源，上传 25 个版本，选择 24 个可解析版本；同一显式基线、配置和文件选择贯穿四期运行；原件、派生 Markdown、事实包、来源 URL、SHA-256 与派生关系留档 | VERIFIED / LOCAL：四期 `baselineHash=6fe0e0b724f0b789478720841f6e904b6fc688418834030a928cc7721fb8f1bc`、`configurationHash=808a5168ca05ad02b8cd4adcac95461dd7fbc197d18b8d67d0fb7a7f7d7540ad`；图像型完工跟踪表保留归档但未进入计算。Kimi token 用量已持久化；当前价格表缺少该 Provider 定价，因此美元成本记录为 0，但每期 `maxCostUsd=2` 预算门禁仍生效 |
+| STRAT-DEL-1 | 策略管理支持安全物理删除：仅 `ACTIVE` 且无 StrategyVersion/Run/Evaluation/能力包依赖快照的草稿策略可删；`GET delete-impact` + `DELETE` 返回稳定 blockers；列表/详情 Radix 确认对话框 | Ruff、mypy（115 source files）、247 单元、策略删除定向 Vitest 8/8、相关能力包 Vitest 12/12、Web lint/build 通过；`tests/integration/test_strategy_api_postgres.py::test_strategy_delete_impact_and_conservative_delete` 因未配置 `SWARMCORE_TEST_DATABASE_URL` 未执行；未执行 Playwright |
 
 以上是历史记录，不表示本次文档更新重新执行了测试。
 
@@ -150,7 +160,7 @@
 | 编排 | `team`、`transform`、`subflow`、`emit`、动态派生、Map/Review/Vote |
 | 生态 | A2A RemoteAgent、其他 Agent SDK Adapter、配置/CLI 入站 |
 | 数据 | 完整 Knowledge/Memory、必要时 Qdrant |
-| 业务 | 合同七维后评价 Pack 已 IMPLEMENTED / LOCAL；招采一致性、供应商风险 Pack 仍为候选 |
+| 业务 | 合同七维后评价与独立偏差分析 Pack 已 IMPLEMENTED / LOCAL；招采一致性、供应商风险 Pack 仍为候选 |
 | 基础设施 | 多区域 Artifact、Kafka 导出、Kata 高风险 Runtime |
 | 前端 | 以真实性能数据驱动的拆包和治理体验 |
 
@@ -176,3 +186,4 @@
 | 2026-07-21 | 3.1 | 完成业务上下文、DecisionAsset、资源连接平面和 contract-integrity v2 的本地实现与定向验收；保留生产资格门禁 |
 | 2026-07-22 | 3.1 | 能力中心模型页：未在 `SWARMCORE_MODEL_ROUTES` 登记的逻辑模型从目录隐藏（Registry 内置定义保留） |
 | 2026-07-22 | 3.2 | 项目智能体成为可发现、可检查、可直接运行的版本化能力，REST/MCP 保持同一投影 |
+| 2026-07-26 | 3.3 | 实现独立偏差分析能力包、确定性三维偏差/趋势、证据与责任复核、统一 Workbench 和结果视图 |

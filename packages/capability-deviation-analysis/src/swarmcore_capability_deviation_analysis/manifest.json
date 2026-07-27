@@ -1,0 +1,119 @@
+{
+  "apiVersion": "swarmcore.io/v2",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "deviation-analysis", "version": "1.0.5"},
+  "spec": {
+    "case": {
+      "type": "deviation-analysis-case",
+      "schema": "schema://deviation-analysis/case@1",
+      "subjectsRequired": true,
+      "subjectRoles": [
+        {"key": "subject", "objectType": "deviation-subject", "role": "PRIMARY", "min": 1, "max": 1}
+      ]
+    },
+    "inputSchema": "schema://deviation-analysis/input@1",
+    "outputSchema": "schema://deviation-analysis/result@1",
+    "strategies": {"execute": "strategy://deviation-analysis/execute@6"},
+    "agents": [
+      "agent://deviation/schedule-scope-fact-analyst@1",
+      "agent://deviation/cost-change-fact-analyst@1",
+      "agent://deviation/root-cause-analyst@1",
+      "agent://deviation/responsibility-analyst@1",
+      "agent://deviation/evidence-reviewer@1",
+      "agent://deviation/report-narrator@1"
+    ],
+    "tools": [
+      "tool://document/read-versions@1",
+      "tool://document/coverage-check@1",
+      "tool://evidence/search@1",
+      "tool://evidence/consistency-check@1",
+      "tool://deviation/facts-merge@1",
+      "tool://deviation/time-calculate@1",
+      "tool://deviation/content-compare@1",
+      "tool://deviation/cost-calculate@1",
+      "tool://deviation/history-read@1",
+      "tool://deviation/trend-build@1",
+      "tool://deviation/responsibility-aggregate@1",
+      "tool://deviation/finalize@1",
+      "tool://report/render-deviation-analysis@1",
+      "tool://workbench/record-deviation-analysis@1"
+    ],
+    "documents": {
+      "processingProfile": "document-profile://business-default@1",
+      "requirements": [
+        {
+          "key": "scope-baseline", "category": "SCOPE_BASELINE",
+          "displayName": "范围基线", "description": "合同范围、WBS、技术规格或批准的交付清单。",
+          "required": true, "minCount": 1, "maxCount": 5,
+          "classificationLabels": ["SCOPE_BASELINE", "CONTRACT", "WBS"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "schedule-baseline", "category": "SCHEDULE_BASELINE",
+          "displayName": "进度基线", "description": "批准的初始或当前进度基线。",
+          "required": true, "minCount": 1, "maxCount": 3,
+          "classificationLabels": ["SCHEDULE_BASELINE", "SCHEDULE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "cost-baseline", "category": "COST_BASELINE",
+          "displayName": "成本基线", "description": "原始预算、批准变更和当前 BAC 依据。",
+          "required": true, "minCount": 1, "maxCount": 5,
+          "classificationLabels": ["COST_BASELINE", "BUDGET"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "progress-actual", "category": "PROGRESS_ACTUAL",
+          "displayName": "实际进度", "required": true, "minCount": 1, "maxCount": 12,
+          "classificationLabels": ["PROGRESS_ACTUAL", "PERFORMANCE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "delivery-acceptance", "category": "DELIVERY_ACCEPTANCE",
+          "displayName": "交付与验收", "required": true, "minCount": 1, "maxCount": 20,
+          "classificationLabels": ["DELIVERY_ACCEPTANCE", "ACCEPTANCE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "cost-actual", "category": "COST_ACTUAL",
+          "displayName": "实际成本", "required": true, "minCount": 1, "maxCount": 12,
+          "classificationLabels": ["COST_ACTUAL", "PAYMENT", "INVOICE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "approved-change", "category": "APPROVED_CHANGE",
+          "displayName": "批准变更", "required": false, "minCount": 0, "maxCount": 20,
+          "classificationLabels": ["APPROVED_CHANGE", "CHANGE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "cause-evidence", "category": "CAUSE_EVIDENCE",
+          "displayName": "原因证据", "required": false, "minCount": 0, "maxCount": 20,
+          "classificationLabels": ["CAUSE_EVIDENCE", "DEVIATION", "REMEDIATION"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "responsibility-basis", "category": "RESPONSIBILITY_BASIS",
+          "displayName": "责任依据", "required": false, "minCount": 0, "maxCount": 20,
+          "classificationLabels": ["RESPONSIBILITY_BASIS", "RACI", "MEETING_MINUTES"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "supplemental-facts", "category": "SUPPLEMENTAL_FACTS",
+          "displayName": "补充结构化事实", "required": false, "minCount": 0, "maxCount": 10,
+          "classificationLabels": ["SUPPLEMENTAL_FACTS"],
+          "extractionSchema": "schema://document/generic-text@1"
+        }
+      ]
+    },
+    "report": {"template": "report://deviation-analysis@1"},
+    "permissions": [
+      "case.read", "case.assess", "document.read", "report.read",
+      "deviation.read", "deviation.assess", "deviation.review",
+      "business-object.read", "responsibility.propose",
+      "responsibility.confirm", "finding.act"
+    ],
+    "events": {"namespace": "capability.deviation-analysis"},
+    "ui": {"viewDefinition": "view://deviation-analysis/case@1"}
+  }
+}

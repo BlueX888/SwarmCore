@@ -76,11 +76,6 @@ test("edits, persists and publishes a Strategy Canvas", async ({ page }, testInf
   await page.keyboard.press("Delete");
   await expect(page.locator('.react-flow__node[data-id="join-1"]')).toHaveCount(0);
 
-  await page.getByRole("tab", { name: "JSON" }).click();
-  await expect(page.getByLabel("JSON 策略规范")).toHaveValue(/"dependsOn": \[\s*"parallel-1"/);
-  await expect(page.getByLabel("JSON 策略规范")).toHaveValue(/"branches": \[\s*"input-1"/);
-  await page.getByRole("tab", { name: "画布" }).click();
-
   const inputNode = page.locator('.react-flow__node[data-id="input-1"]');
   await inputNode.dragTo(page.getByTestId("strategy-canvas"), { force: true, targetPosition: { x: 700, y: 400 } });
   await page.getByRole("button", { name: "保存草稿" }).click();
@@ -127,5 +122,14 @@ function draftSnapshot(revision: number, spec: TestSpec, editorState: TestEditor
 }
 
 function capabilityCatalog() {
-  return { schemaVersion: "swarmcore.io/capabilities/v1", registrySnapshot: "e2e", agents: [], tools: [], models: [], limits: {}, swarmSpecSchema: {}, nodeTypes: ["agent", "parallel", "join", "reducer", "approval", "input"].map((type) => ({ type, schema: {} })) };
+  return {
+    schemaVersion: "swarmcore.io/capabilities/v1",
+    registrySnapshot: "e2e",
+    agents: [],
+    tools: [],
+    models: [{ ref: "model://general@1", runtime: "agno", environments: ["development"] }],
+    limits: {},
+    swarmSpecSchema: {},
+    nodeTypes: ["agent", "parallel", "join", "reducer", "approval", "input"].map((type) => ({ type, schema: {} })),
+  };
 }

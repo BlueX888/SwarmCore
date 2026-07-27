@@ -243,7 +243,10 @@ function formatPackDeleteError(error: Error) {
 
 function formatPackEnableError(error: Error) {
   if (error instanceof ApiError && error.code === "CAPABILITY_PACK_NOT_READY") {
-    const blockers = error.blockers ?? [];
+    const blockers = (error.blockers ?? []).filter(
+      (blocker): blocker is { ref: string; reasons: string[] } =>
+        typeof blocker.ref === "string" && Array.isArray(blocker.reasons),
+    );
     if (blockers.length) {
       const details = blockers.map((blocker) => `${blocker.ref}：${blocker.reasons.map((reason) => PACK_BLOCKER_LABELS[reason] ?? reason).join("、")}`).join("；");
       return `能力包尚未就绪：${details}。请通过“配置能力包”处理。`;

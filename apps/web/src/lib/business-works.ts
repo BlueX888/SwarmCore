@@ -123,6 +123,20 @@ export const BUSINESS_WORKS: BusinessWorkDefinition[] = [
     ],
   },
   {
+    key: "contract-post-evaluation",
+    name: "合同后评价",
+    shortName: "合同后评价",
+    category: "business",
+    summary: "围绕合同履约全过程聚合资料、履约、偏差、发票与风险事实，完成七维评价并生成可追溯报告。",
+    functions: [
+      { name: "资料与履约采集", description: "匹配合同、履约、偏差、发票和供应商等业务资料。" },
+      { name: "七维评价", description: "按七大评价维度计算指标、分值、结论和改进项。" },
+      { name: "风险与偏差分析", description: "识别履约偏差、发票差异和供应商风险关注项。" },
+      { name: "综合结论", description: "输出总分、等级、风险等级和是否需要复核。" },
+      { name: "报告与证据", description: "生成可追溯 JSON/PDF 报告，并冻结资料与决策快照。" },
+    ],
+  },
+  {
     key: "swarm-calibration",
     name: "智能体调度校准智能体",
     shortName: "调度校准",
@@ -152,6 +166,56 @@ export const BUSINESS_WORKS: BusinessWorkDefinition[] = [
     ],
   },
 ];
+
+export const DOCUMENT_CATEGORY_LABELS: Record<string, string> = {
+  CONTRACT: "合同文件",
+  PERFORMANCE: "履约资料",
+  ACCEPTANCE: "验收资料",
+  DEVIATION: "偏差资料",
+  INVOICE: "发票资料",
+  PAYMENT: "付款资料",
+  RISK: "风险资料",
+  SUPPLIER: "供应商资料",
+  PROCUREMENT: "招采资料",
+  SUPPLEMENTAL_FACTS: "补充结构化事实",
+  REPORT: "报告与成果",
+  SCOPE_BASELINE: "范围基线",
+  SCHEDULE_BASELINE: "进度基线",
+  COST_BASELINE: "成本基线",
+  PROGRESS_ACTUAL: "实际进度",
+  DELIVERY_ACCEPTANCE: "交付与验收",
+  COST_ACTUAL: "实际成本",
+  APPROVED_CHANGE: "批准变更",
+  CAUSE_EVIDENCE: "原因证据",
+  RESPONSIBILITY_BASIS: "责任依据",
+};
+
+/** Keys that count when matching documents to a business work (mirrors backend). */
+export function documentBindingKeys(workKey: string, workItemType: string | null = null): string[] {
+  if (workKey === "contract-post-evaluation") {
+    return [
+      workKey,
+      workItemType ?? "contract-post-evaluation-case",
+      "contract-post-evaluation",
+      "document-integrity",
+      "performance-plan-collection",
+      "invoice-assurance",
+      "deviation-analysis",
+      "procurement-supplier-risk",
+      "report-generation",
+    ];
+  }
+  if (workKey === "deviation-analysis") {
+    return [
+      workKey,
+      workItemType ?? "deviation-analysis-case",
+      "performance-plan-collection",
+      "document-integrity",
+      "invoice-assurance",
+    ];
+  }
+  return workItemType ? [workKey, workItemType] : [workKey];
+}
 
 export function getBusinessWork(key: string | undefined) {
   return BUSINESS_WORKS.find((work) => work.key === key);

@@ -2,18 +2,19 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@radix-ui/react-tooltip";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Activity, Bot, BrainCircuit, BriefcaseBusiness, ChartNoAxesCombined, ChevronLeft, ChevronRight,
+  Activity, ArrowLeft, Bot, BrainCircuit, BriefcaseBusiness, ChartNoAxesCombined, ChevronLeft, ChevronRight,
   Clock3, Cpu, ExternalLink, FileCheck2, FileOutput, FileScan, Files, Gauge, Inbox,
   LayoutDashboard, Menu, Moon, Network, Plus, ReceiptText, Rocket, ScrollText, ShieldCheck, Sun,
   Workflow, Wrench, X,
 } from "lucide-react";
 import * as React from "react";
-import { Link, Outlet, useLocation } from "react-router";
+import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/context/theme-context";
 import { BUSINESS_WORKS } from "@/lib/business-works";
 import { useWorkspaceScope } from "@/lib/demo-scope";
+import { canGoBackInHistory } from "@/lib/history-navigation";
 import { cn } from "@/lib/utils";
 
 interface NavigationProps { collapsed?: boolean; onNavigate?: () => void; }
@@ -27,6 +28,7 @@ const BUSINESS_WORK_ICONS: Record<string, NavItem["icon"]> = {
   "invoice-assurance": ReceiptText,
   "deviation-analysis": Gauge,
   "report-generation": FileOutput,
+  "contract-post-evaluation": ChartNoAxesCombined,
   "swarm-calibration": Network,
   "procurement-supplier-risk": ShieldCheck,
 };
@@ -50,14 +52,13 @@ export function Navigation({ collapsed = false, onNavigate }: NavigationProps) {
         label: work.shortName,
         to: `${workspacePath}/business-works/${work.key}`,
         icon: BUSINESS_WORK_ICONS[work.key] ?? FileCheck2,
-        active: (path: string) => path === `/business-works/${work.key}`,
+        active: (path: string) => path === `/business-works/${work.key}` || path.startsWith(`/business-works/${work.key}/`),
       })),
     ] },
     { id: "execution", label: "执行管理", items: [
       { label: "新建运行", to: `${workspacePath}/runs/new`, icon: Rocket, active: (path) => path === "/runs/new" },
       { label: "运行记录", to: `${workspacePath}/runs`, icon: Activity, active: (path) => path.startsWith("/runs") && path !== "/runs/new" },
       { label: "待办中心", to: `${workspacePath}/actions`, icon: Inbox, active: (path) => path.startsWith("/actions"), badge: pendingActions },
-      { label: "策略管理", to: `${workspacePath}/strategies`, icon: Workflow, active: (path) => path.startsWith("/strategies") },
       { label: "编排画布", to: `${workspacePath}/canvas`, icon: Network, active: (path) => path.startsWith("/canvas") },
     ] },
     { id: "platform", label: "平台底座", items: [
@@ -65,7 +66,8 @@ export function Navigation({ collapsed = false, onNavigate }: NavigationProps) {
       { label: "智能体", to: `${workspacePath}/agents`, icon: Bot, active: (path) => path.startsWith("/agents") || path.startsWith("/capabilities") },
       { label: "工具", to: `${workspacePath}/tools`, icon: Wrench, active: (path) => path.startsWith("/tools") },
       { label: "模型", to: `${workspacePath}/models`, icon: Cpu, active: (path) => path.startsWith("/models") },
-      { label: "策略", to: `${workspacePath}/policies`, icon: ShieldCheck, active: (path) => path.startsWith("/policies") },
+      { label: "策略管理", to: `${workspacePath}/strategies`, icon: Workflow, active: (path) => path.startsWith("/strategies") },
+      { label: "策略能力", to: `${workspacePath}/policies`, icon: ShieldCheck, active: (path) => path.startsWith("/policies") },
     ] },
     { id: "governance", label: "系统治理", items: [
       { label: "审计日志", to: `${workspacePath}/audit-logs`, icon: ScrollText, active: (path) => path.startsWith("/audit-logs") },
@@ -113,12 +115,16 @@ function Brand({ collapsed, homePath }: { collapsed?: boolean; homePath: string 
 }
 
 function currentPage(pathname: string) {
+  if (pathname.includes("/business-works/report-generation/demo")) return "报告生成 Demo";
+  if (/\/business-works\/[^/]+\/workbench/.test(pathname)) return "业务工作台";
+  if (/\/business-works\/[^/]+\/settings/.test(pathname)) return "项目配置";
   if (/\/business-works\/[^/]+/.test(pathname)) return "业务工作详情";
   if (pathname.includes("/business-works")) return "业务工作";
-  if (/\/capability-packs\/[^/]+\/workbench/.test(pathname)) return "能力包工作台";
-  if (/\/capability-packs\/[^/]+/.test(pathname)) return "能力包配置";
+  if (/\/assessments\/[^/]+/.test(pathname)) return "评估结果";
+  if (/\/capability-packs\/[^/]+\/workbench/.test(pathname)) return "业务工作台";
+  if (/\/capability-packs\/[^/]+/.test(pathname)) return "项目配置";
   if (pathname.includes("/documents") || pathname.includes("/resources")) return "业务资料库";
-  if (pathname.includes("/capability-packs")) return "业务能力包";
+  if (pathname.includes("/capability-packs")) return "业务工作";
   if (pathname.includes("/overview")) return "工作台";
   if (pathname.endsWith("/runs/new") || pathname === "/runs/new") return "新建运行";
   if (pathname.includes("/actions")) return "待办中心";
@@ -126,7 +132,7 @@ function currentPage(pathname: string) {
   if (pathname.includes("/capabilities") || pathname.includes("/agents")) return "智能体";
   if (pathname.includes("/tools")) return "工具";
   if (pathname.includes("/models")) return "模型";
-  if (pathname.includes("/policies")) return "策略";
+  if (pathname.includes("/policies")) return "策略能力";
   if (pathname.includes("/audit-logs")) return "审计日志";
   if (pathname.includes("/strategies")) return "策略管理";
   return "执行控制台";
@@ -138,6 +144,8 @@ export function AppShell() {
   const { theme, toggleTheme } = useTheme();
   const { workspacePath } = useWorkspaceScope();
   const location = useLocation();
+  const navigate = useNavigate();
+  const canGoBack = canGoBackInHistory(window.history.state);
   return <TooltipProvider>
     <div className="min-h-screen overflow-x-hidden bg-transparent">
       <aside className={cn("fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-gray-200/80 bg-white/88 px-4 shadow-[8px_0_32px_-28px_rgba(16,24,40,.45)] backdrop-blur-xl transition-[width] xl:flex dark:border-gray-800 dark:bg-gray-900/88", collapsed ? "w-[90px]" : "w-[290px]")}>
@@ -147,7 +155,7 @@ export function AppShell() {
       </aside>
       <div className={cn("transition-[margin]", collapsed ? "xl:ml-[90px]" : "xl:ml-[290px]")}>
         <header className="z-30 sticky top-0 flex h-[72px] items-center justify-between gap-3 border-b border-gray-200/70 bg-white/75 px-4 backdrop-blur-xl md:px-6 dark:border-gray-800 dark:bg-gray-900/75">
-          <div className="flex min-w-0 items-center gap-3"><Button variant="ghost" size="icon" aria-label="打开导航" className="shrink-0 xl:hidden" onClick={() => setMobileOpen(true)}><Menu /></Button><div className="min-w-0"><p className="truncate text-sm font-medium text-gray-800 dark:text-white/90">{currentPage(location.pathname)}</p><p className="hidden text-xs text-gray-500 sm:block">可靠、耐久的多智能体运行管理</p></div></div>
+          <div className="flex min-w-0 items-center gap-3"><Button variant="ghost" size="icon" aria-label="打开导航" className="shrink-0 xl:hidden" onClick={() => setMobileOpen(true)}><Menu /></Button><Button variant="ghost" size="icon" aria-label="返回上一页" disabled={!canGoBack} onClick={() => void navigate(-1)} className="shrink-0"><ArrowLeft /></Button><div className="min-w-0"><p className="truncate text-sm font-medium text-gray-800 dark:text-white/90">{currentPage(location.pathname)}</p><p className="hidden text-xs text-gray-500 sm:block">可靠、耐久的多智能体运行管理</p></div></div>
           <div className="flex items-center gap-2"><Button asChild variant="outline" size="sm" className="hidden md:inline-flex"><Link to={`${workspacePath}/canvas`}><Network />编排画布</Link></Button><Button asChild size="sm" className="hidden sm:inline-flex"><Link to={`${workspacePath}/runs/new`}><Plus />新建运行</Link></Button><Button variant="outline" size="icon" aria-label="切换颜色主题" onClick={toggleTheme}>{theme === "dark" ? <Sun /> : <Moon />}</Button></div>
         </header>
         <main className="mx-auto w-full max-w-(--breakpoint-2xl) p-4 pb-20 md:p-7 md:pb-24 xl:p-8"><Outlet /></main>

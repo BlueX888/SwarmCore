@@ -9,6 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from swarmcore_application import (
     BusinessObjectService,
+    BusinessWorkService,
+    BusinessWorkSummary,
     CapabilityBindingService,
     CapabilityPackReadinessError,
     CapabilityPackService,
@@ -18,13 +20,18 @@ from swarmcore_application import (
     DecisionAssetService,
     DecisionExecutionService,
     DocumentLibraryService,
+    DocumentProcessingService,
+    DocumentRequirementService,
+    DocumentReviewService,
     ResourceCatalogService,
     RuleSetService,
+    UploadBatchService,
     WorkbenchService,
 )
 from swarmcore_capability_contract_integrity import (
     MANIFEST,
     MANIFEST_V2,
+    MANIFEST_V2_1,
     REFERENCES,
     SCHEMAS,
     STRATEGIES,
@@ -40,6 +47,18 @@ from swarmcore_capability_contract_post_evaluation import (
 )
 from swarmcore_capability_contract_post_evaluation import (
     STRATEGIES as POST_EVALUATION_STRATEGIES,
+)
+from swarmcore_capability_deviation_analysis import (
+    MANIFEST as DEVIATION_ANALYSIS_MANIFEST,
+)
+from swarmcore_capability_deviation_analysis import (
+    REFERENCES as DEVIATION_ANALYSIS_REFERENCES,
+)
+from swarmcore_capability_deviation_analysis import (
+    SCHEMAS as DEVIATION_ANALYSIS_SCHEMAS,
+)
+from swarmcore_capability_deviation_analysis import (
+    STRATEGIES as DEVIATION_ANALYSIS_STRATEGIES,
 )
 from swarmcore_governance import BlobCapabilityIssuer
 from swarmcore_persistence.models import (
@@ -67,13 +86,21 @@ from swarmcore_persistence.models import (
 from swarmcore_registry import CapabilityReferenceCatalog
 
 from .business_schemas import (
+    AssessmentDetailSnapshot,
     AttachmentUploadHandle,
+    BindBusinessWorkStrategyRequest,
     BindDecisionRequest,
     BindResourceRequest,
+    BusinessWorkBlockerSnapshot,
+    BusinessWorkFunctionSnapshot,
+    BusinessWorkListResponse,
+    BusinessWorkSnapshot,
     CapabilityPackListResponse,
     CapabilityPackSnapshot,
     CompleteAttachmentRequest,
     CompleteDocumentUploadRequest,
+    ConfirmClassificationRequest,
+    ConfirmFieldsRequest,
     CreateBusinessObjectRelationRequest,
     CreateBusinessObjectRequest,
     CreateBusinessObjectVersionRequest,
@@ -84,8 +111,13 @@ from .business_schemas import (
     CreateDecisionAssetRequest,
     CreateResourceRequest,
     CreateRuleSetRequest,
+    CreateUploadBatchRequest,
     CreateWorkItemRequest,
     DocumentListResponse,
+    DocumentProcessingResultSnapshot,
+    DocumentProcessingRunSnapshot,
+    DocumentRequirementListResponse,
+    DocumentRequirementSnapshot,
     DocumentSnapshot,
     DocumentUploadHandle,
     DocumentVersionSnapshot,
@@ -98,13 +130,17 @@ from .business_schemas import (
     InitiateDocumentRequest,
     ReportListResponse,
     ReportSnapshot,
+    ReprocessDocumentRequest,
+    ResumeDocumentUploadRequest,
     RuleSetDraftSnapshot,
     RuleSetValidationResponse,
     RuleSetVersionSnapshot,
     UpdateCaseRequest,
     UpdateDecisionDraftRequest,
+    UpdateDocumentBindingsRequest,
     UpdateRuleSetDraftRequest,
     UpdateWorkItemRequest,
+    UploadBatchSnapshot,
     ValidateRuleSetRequest,
     WorkItemListResponse,
     WorkItemSnapshot,
@@ -119,14 +155,26 @@ from .dependencies import (
 
 router = APIRouter(prefix="/v1", dependencies=[Depends(authorize_rest)])
 capability_packs = CapabilityPackService(
-    CapabilityReferenceCatalog.from_iterable((*REFERENCES, *POST_EVALUATION_REFERENCES)),
-    trusted_manifests=(MANIFEST, MANIFEST_V2, POST_EVALUATION_MANIFEST),
-    trusted_strategies={**STRATEGIES, **POST_EVALUATION_STRATEGIES},
+    CapabilityReferenceCatalog.from_iterable(
+        (*REFERENCES, *POST_EVALUATION_REFERENCES, *DEVIATION_ANALYSIS_REFERENCES)
+    ),
+    trusted_manifests=(
+        MANIFEST,
+        MANIFEST_V2,
+        MANIFEST_V2_1,
+        POST_EVALUATION_MANIFEST,
+        DEVIATION_ANALYSIS_MANIFEST,
+    ),
+    trusted_strategies={
+        **STRATEGIES,
+        **POST_EVALUATION_STRATEGIES,
+        **DEVIATION_ANALYSIS_STRATEGIES,
+    },
 )
 rule_sets = RuleSetService()
 workbench = WorkbenchService(
     capability_packs,
-    schemas={**SCHEMAS, **POST_EVALUATION_SCHEMAS},
+    schemas={**SCHEMAS, **POST_EVALUATION_SCHEMAS, **DEVIATION_ANALYSIS_SCHEMAS},
     rule_sets=rule_sets,
 )
 business_objects = BusinessObjectService()
@@ -136,11 +184,78 @@ decision_executions = DecisionExecutionService()
 connections = ConnectionService()
 resources = ResourceCatalogService()
 bindings = CapabilityBindingService()
-documents = DocumentLibraryService()
+document_processing = DocumentProcessingService()
+documents = DocumentLibraryService(processing=document_processing)
+document_review = DocumentReviewService(document_processing)
+upload_batches = UploadBatchService()
+document_requirements = DocumentRequirementService()
+business_works = BusinessWorkService(capability_packs, workbench, cases, documents=documents)
 
 Scope = Annotated[RequestScope, Depends(request_scope)]
 Session = Annotated[AsyncSession, Depends(db_session)]
 IdempotencyKey = Annotated[str, Depends(require_idempotency_key)]
+
+
+def _business_work_snapshot(summary: BusinessWorkSummary) -> BusinessWorkSnapshot:
+    return BusinessWorkSnapshot(
+        workKey=summary.work_key,
+        name=summary.name,
+        shortName=summary.short_name,
+        category=summary.category,
+        summary=summary.summary,
+        status=summary.status,
+        statusLabel=summary.status_label,
+        packName=summary.pack_name,
+        packVersionId=summary.pack_version_id,
+        packVersion=summary.pack_version,
+        enabled=summary.enabled,
+        bindingStatus=summary.binding_status,
+        blockers=[
+            BusinessWorkBlockerSnapshot(code=item.code, message=item.message, ref=item.ref)
+            for item in summary.blockers
+        ],
+        agents=list(summary.agents),
+        tools=list(summary.tools),
+        models=list(summary.models),
+        documentRequirements=list(summary.document_requirements),
+        decisionSlots=list(summary.decision_slots),
+        functions=[
+            BusinessWorkFunctionSnapshot(name=item.name, description=item.description)
+            for item in summary.functions
+        ],
+        configuration=summary.configuration,
+        workItemType=summary.work_item_type,
+        caseBased=summary.case_based,
+        boundStrategyVersionId=summary.bound_strategy_version_id,
+        boundStrategyName=summary.bound_strategy_name,
+        boundStrategyVersion=summary.bound_strategy_version,
+    )
+
+
+def _assessment_detail(
+    evaluation: Evaluation,
+    item: WorkItem | None,
+    revision: WorkItemRevision | None,
+) -> AssessmentDetailSnapshot:
+    return AssessmentDetailSnapshot(
+        assessmentId=evaluation.id,
+        evaluationId=evaluation.id,
+        caseId=evaluation.work_item_id,
+        workItemId=evaluation.work_item_id,
+        workItemRevisionId=evaluation.work_item_revision_id,
+        runId=evaluation.run_id,
+        status=evaluation.status,
+        result=evaluation.result,
+        capabilityPackVersionId=evaluation.capability_pack_version_id,
+        planHash=evaluation.plan_hash,
+        attachmentManifestHash=evaluation.attachment_manifest_hash,
+        registrySnapshot=evaluation.registry_snapshot,
+        createdAt=evaluation.created_at,
+        casePayload=revision.payload if revision is not None else None,
+        caseStatus=item.status if item is not None else None,
+        scenarioType=item.work_item_type if item is not None else None,
+        owner=item.owner if item is not None else None,
+    )
 
 
 def _pack_snapshot(
@@ -217,6 +332,86 @@ async def list_capability_packs(scope: Scope, session: Session) -> CapabilityPac
             )
         )
     return CapabilityPackListResponse(items=items)
+
+
+@router.get(
+    "/projects/{project_id}/business-works",
+    response_model=BusinessWorkListResponse,
+)
+async def list_business_works(scope: Scope, session: Session) -> BusinessWorkListResponse:
+    items = await business_works.list_works(
+        session, tenant_id=scope.tenant_id, project_id=scope.project_id
+    )
+    return BusinessWorkListResponse(items=[_business_work_snapshot(item) for item in items])
+
+
+# Register before GET {work_key}: path params swallow `:suffix` if ordered later.
+@router.post(
+    "/projects/{project_id}/business-works/{work_key}:bind-strategy",
+    response_model=BusinessWorkSnapshot,
+)
+async def bind_business_work_strategy(
+    work_key: str,
+    body: BindBusinessWorkStrategyRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+) -> BusinessWorkSnapshot | JSONResponse:
+    try:
+        summary = await business_works.bind_strategy(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            work_key=work_key,
+            strategy_version_id=body.strategy_version_id,
+            idempotency_key=idempotency_key,
+            actor=scope.actor_id,
+        )
+    except CapabilityPackReadinessError as exc:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "title": "Capability Pack Not Ready",
+                "status": 409,
+                "code": "CAPABILITY_PACK_NOT_READY",
+                "detail": str(exc),
+                "blockers": exc.blockers,
+            },
+            media_type="application/problem+json",
+        )
+    return _business_work_snapshot(summary)
+
+
+@router.get(
+    "/projects/{project_id}/business-works/{work_key}",
+    response_model=BusinessWorkSnapshot,
+)
+async def get_business_work(
+    work_key: str, scope: Scope, session: Session
+) -> BusinessWorkSnapshot:
+    summary = await business_works.get_work(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        work_key=work_key,
+    )
+    return _business_work_snapshot(summary)
+
+
+@router.get(
+    "/projects/{project_id}/assessments/{assessment_id}",
+    response_model=AssessmentDetailSnapshot,
+)
+async def get_assessment(
+    assessment_id: UUID, scope: Scope, session: Session
+) -> AssessmentDetailSnapshot:
+    evaluation, item, revision = await business_works.get_assessment(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        assessment_id=assessment_id,
+    )
+    return _assessment_detail(evaluation, item, revision)
 
 
 @router.post(
@@ -636,7 +831,25 @@ async def complete_document(
     scope: Scope,
     session: Session,
     idempotency_key: IdempotencyKey,
+    request: Request,
 ) -> DocumentSnapshot:
+    blob_content: bytes | None = None
+    # Prefer local artifact store used by Artifact Gateway when available.
+    from pathlib import Path
+
+    from swarmcore_persistence.models import BlobObject
+
+    blob = await session.scalar(
+        select(BlobObject).where(
+            BlobObject.tenant_id == scope.tenant_id,
+            BlobObject.project_id == scope.project_id,
+            BlobObject.metadata_json["documentUploadId"].astext == str(upload_id),
+        )
+    )
+    if blob is not None:
+        candidate = Path(request.app.state.settings.artifact_root) / blob.object_key
+        if candidate.is_file():
+            blob_content = candidate.read_bytes()
     document, version = await documents.complete(
         session,
         tenant_id=scope.tenant_id,
@@ -645,7 +858,23 @@ async def complete_document(
         sha256=body.sha256,
         idempotency_key=idempotency_key,
         actor=scope.actor_id,
+        profile_ref=body.profile_ref,
+        candidate_labels=body.classification_labels or None,
+        extraction_schema_ref=body.extraction_schema_ref,
+        upload_batch_id=body.upload_batch_id,
+        blob_content=blob_content,
     )
+    if body.upload_batch_id is not None:
+        batch = await upload_batches.get(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            batch_id=body.upload_batch_id,
+        )
+        await upload_batches.mark_file_result(
+            session, batch=batch, succeeded=document.status != "FAILED"
+        )
+        await upload_batches.complete_if_idle(session, batch=batch)
     _, versions, object_links, work_bindings = await documents.details(
         session,
         tenant_id=scope.tenant_id,
@@ -724,6 +953,428 @@ async def get_document(
         versions=versions,
         business_object_ids=[value.business_object_id for value in object_links],
         business_work_keys=[value.business_work_key for value in work_bindings],
+    )
+
+
+@router.post(
+    "/projects/{project_id}/upload-batches",
+    response_model=UploadBatchSnapshot,
+    status_code=201,
+)
+async def create_upload_batch(
+    body: CreateUploadBatchRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+) -> UploadBatchSnapshot:
+    batch = await upload_batches.create(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        source=body.source,
+        context=body.context,
+        actor=scope.actor_id,
+        idempotency_key=idempotency_key,
+    )
+    return UploadBatchSnapshot(
+        batchId=batch.id,
+        source=batch.source,
+        context=batch.context,
+        status=batch.status,
+        fileCount=batch.file_count,
+        succeededCount=batch.succeeded_count,
+        failedCount=batch.failed_count,
+        createdBy=batch.created_by,
+        createdAt=batch.created_at,
+        completedAt=batch.completed_at,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/upload-batches/{batch_id}",
+    response_model=UploadBatchSnapshot,
+)
+async def get_upload_batch(
+    batch_id: UUID,
+    scope: Scope,
+    session: Session,
+) -> UploadBatchSnapshot:
+    batch = await upload_batches.get(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        batch_id=batch_id,
+    )
+    return UploadBatchSnapshot(
+        batchId=batch.id,
+        source=batch.source,
+        context=batch.context,
+        status=batch.status,
+        fileCount=batch.file_count,
+        succeededCount=batch.succeeded_count,
+        failedCount=batch.failed_count,
+        createdBy=batch.created_by,
+        createdAt=batch.created_at,
+        completedAt=batch.completed_at,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/documents/{document_id}/processing",
+    response_model=DocumentProcessingRunSnapshot,
+)
+async def get_document_processing(
+    document_id: UUID,
+    scope: Scope,
+    session: Session,
+) -> DocumentProcessingRunSnapshot:
+    from swarmcore_application.document_processing import STAGE_LABELS_ZH
+
+    document = await documents.get(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+    )
+    version = await session.scalar(
+        select(BusinessDocumentVersion).where(
+            BusinessDocumentVersion.business_document_id == document.id,
+            BusinessDocumentVersion.version == document.current_version,
+        )
+    )
+    if version is None:
+        raise LookupError("DOCUMENT_VERSION_NOT_FOUND")
+    run = await document_processing.latest_run_for_version(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        version_id=version.id,
+    )
+    if run is None:
+        raise LookupError("PROCESSING_RUN_NOT_FOUND")
+    return DocumentProcessingRunSnapshot(
+        processingRunId=run.id,
+        businessDocumentVersionId=run.business_document_version_id,
+        profileRef=run.profile_ref,
+        status=run.status,
+        currentStage=run.current_stage,
+        stageLabel=STAGE_LABELS_ZH.get(run.current_stage, run.current_stage),
+        attempt=run.attempt,
+        parserRef=run.parser_ref,
+        classifierRef=run.classifier_ref,
+        extractorRefs=list(run.extractor_refs or []),
+        errorCode=run.error_code,
+        errorDetail=run.error_detail,
+        startedAt=run.started_at,
+        completedAt=run.completed_at,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/documents/{document_id}/processing-result",
+    response_model=DocumentProcessingResultSnapshot,
+)
+async def get_document_processing_result(
+    document_id: UUID,
+    scope: Scope,
+    session: Session,
+) -> DocumentProcessingResultSnapshot:
+    document = await documents.get(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+    )
+    version = await session.scalar(
+        select(BusinessDocumentVersion).where(
+            BusinessDocumentVersion.business_document_id == document.id,
+            BusinessDocumentVersion.version == document.current_version,
+        )
+    )
+    if version is None:
+        raise LookupError("DOCUMENT_VERSION_NOT_FOUND")
+    result = await document_processing.latest_result(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        version_id=version.id,
+    )
+    if result is None:
+        raise LookupError("PROCESSING_RESULT_NOT_FOUND")
+    return DocumentProcessingResultSnapshot(
+        resultId=result.id,
+        resultType=result.result_type,
+        resultVersion=result.result_version,
+        status=result.status,
+        schemaRef=result.schema_ref,
+        producerRef=result.producer_ref,
+        result=result.result,
+        evidence=list(result.evidence or []),
+        confirmedBy=result.confirmed_by,
+        confirmedAt=result.confirmed_at,
+        createdAt=result.created_at,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/documents/{document_id}:confirm-classification",
+    response_model=DocumentProcessingResultSnapshot,
+)
+async def confirm_document_classification(
+    document_id: UUID,
+    body: ConfirmClassificationRequest,
+    scope: Scope,
+    session: Session,
+) -> DocumentProcessingResultSnapshot:
+    result = await document_review.confirm_classification(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+        label=body.label,
+        display_name=body.display_name,
+        actor=scope.actor_id,
+        expected_result_version=body.expected_result_version,
+    )
+    return DocumentProcessingResultSnapshot(
+        resultId=result.id,
+        resultType=result.result_type,
+        resultVersion=result.result_version,
+        status=result.status,
+        schemaRef=result.schema_ref,
+        producerRef=result.producer_ref,
+        result=result.result,
+        evidence=list(result.evidence or []),
+        confirmedBy=result.confirmed_by,
+        confirmedAt=result.confirmed_at,
+        createdAt=result.created_at,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/documents/{document_id}:confirm-fields",
+    response_model=DocumentProcessingResultSnapshot,
+)
+async def confirm_document_fields(
+    document_id: UUID,
+    body: ConfirmFieldsRequest,
+    scope: Scope,
+    session: Session,
+) -> DocumentProcessingResultSnapshot:
+    result = await document_review.confirm_fields(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+        fields=body.fields,
+        actor=scope.actor_id,
+        expected_result_version=body.expected_result_version,
+        accept_high_confidence=body.accept_high_confidence,
+    )
+    return DocumentProcessingResultSnapshot(
+        resultId=result.id,
+        resultType=result.result_type,
+        resultVersion=result.result_version,
+        status=result.status,
+        schemaRef=result.schema_ref,
+        producerRef=result.producer_ref,
+        result=result.result,
+        evidence=list(result.evidence or []),
+        confirmedBy=result.confirmed_by,
+        confirmedAt=result.confirmed_at,
+        createdAt=result.created_at,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/documents/{document_id}:resume-upload",
+    response_model=DocumentSnapshot,
+)
+async def resume_document_upload(
+    document_id: UUID,
+    body: ResumeDocumentUploadRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+    request: Request,
+) -> DocumentSnapshot:
+    from pathlib import Path
+
+    from swarmcore_persistence.models import BlobObject
+
+    pending_blob = await session.scalar(
+        select(BlobObject)
+        .where(
+            BlobObject.tenant_id == scope.tenant_id,
+            BlobObject.project_id == scope.project_id,
+            BlobObject.metadata_json["documentId"].astext == str(document_id),
+            BlobObject.status == "AVAILABLE",
+            BlobObject.scan_status == "CLEAN",
+        )
+        .order_by(BlobObject.created_at.desc())
+        .limit(1)
+    )
+    blob_content: bytes | None = None
+    if pending_blob is not None:
+        candidate = Path(request.app.state.settings.artifact_root) / pending_blob.object_key
+        if candidate.is_file():
+            blob_content = candidate.read_bytes()
+    document, version = await documents.resume_pending_upload(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+        idempotency_key=idempotency_key,
+        actor=scope.actor_id,
+        profile_ref=body.profile_ref,
+        candidate_labels=body.classification_labels or None,
+        extraction_schema_ref=body.extraction_schema_ref,
+        blob_content=blob_content,
+    )
+    _, versions, object_links, work_bindings = await documents.details(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document.id,
+    )
+    return _document_snapshot(
+        document,
+        current=version,
+        versions=versions,
+        business_object_ids=[value.business_object_id for value in object_links],
+        business_work_keys=[value.business_work_key for value in work_bindings],
+    )
+
+
+@router.post(
+    "/projects/{project_id}/documents/{document_id}:reprocess",
+    response_model=DocumentProcessingRunSnapshot,
+)
+async def reprocess_document(
+    document_id: UUID,
+    body: ReprocessDocumentRequest,
+    scope: Scope,
+    session: Session,
+) -> DocumentProcessingRunSnapshot:
+    from swarmcore_application.document_processing import STAGE_LABELS_ZH
+
+    run = await document_processing.reprocess(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+        actor=scope.actor_id,
+        profile_ref=body.profile_ref,
+        candidate_labels=body.classification_labels or None,
+        extraction_schema_ref=body.extraction_schema_ref,
+    )
+    return DocumentProcessingRunSnapshot(
+        processingRunId=run.id,
+        businessDocumentVersionId=run.business_document_version_id,
+        profileRef=run.profile_ref,
+        status=run.status,
+        currentStage=run.current_stage,
+        stageLabel=STAGE_LABELS_ZH.get(run.current_stage, run.current_stage),
+        attempt=run.attempt,
+        parserRef=run.parser_ref,
+        classifierRef=run.classifier_ref,
+        extractorRefs=list(run.extractor_refs or []),
+        errorCode=run.error_code,
+        errorDetail=run.error_detail,
+        startedAt=run.started_at,
+        completedAt=run.completed_at,
+    )
+
+
+@router.put(
+    "/projects/{project_id}/documents/{document_id}/bindings",
+    response_model=DocumentSnapshot,
+)
+async def update_document_bindings(
+    document_id: UUID,
+    body: UpdateDocumentBindingsRequest,
+    scope: Scope,
+    session: Session,
+) -> DocumentSnapshot:
+    await documents.update_bindings(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+        business_object_ids=body.business_object_ids,
+        business_work_keys=body.business_work_keys,
+        actor=scope.actor_id,
+    )
+    document, versions, object_links, work_bindings = await documents.details(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+    )
+    current = next(
+        (value for value in versions if value.version == document.current_version),
+        None,
+    )
+    return _document_snapshot(
+        document,
+        current=current,
+        versions=versions,
+        business_object_ids=[value.business_object_id for value in object_links],
+        business_work_keys=[value.business_work_key for value in work_bindings],
+    )
+
+
+@router.get(
+    "/projects/{project_id}/business-works/{work_key}/document-requirements",
+    response_model=DocumentRequirementListResponse,
+)
+async def list_work_document_requirements(
+    work_key: str,
+    scope: Scope,
+    session: Session,
+) -> DocumentRequirementListResponse:
+    summary = await business_works.get_work(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        work_key=work_key,
+    )
+    profile_ref, requirements = document_requirements.from_pack_documents(
+        list(summary.document_requirements)
+    )
+    bound = await documents.current_versions_for_work(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        business_work_keys=(work_key, summary.pack_name or work_key),
+    )
+    counts: dict[str, int] = {}
+    for document, _, _ in bound:
+        counts[document.category] = counts.get(document.category, 0) + 1
+    items = []
+    for item in requirements:
+        category = item.category or item.key
+        satisfied_count = counts.get(category, 0)
+        items.append(
+            DocumentRequirementSnapshot(
+                key=item.key,
+                displayName=item.display_name,
+                description=item.description,
+                required=item.required,
+                minCount=item.min_count,
+                maxCount=item.max_count,
+                acceptedMediaTypes=list(item.accepted_media_types),
+                classificationLabels=list(item.classification_labels),
+                processingProfileRef=item.processing_profile_ref,
+                extractionSchemaRef=item.extraction_schema_ref,
+                category=item.category,
+                satisfiedCount=satisfied_count,
+                satisfied=satisfied_count >= item.min_count,
+            )
+        )
+    return DocumentRequirementListResponse(
+        processingProfileRef=profile_ref,
+        items=items,
     )
 
 

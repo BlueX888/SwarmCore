@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     use_fake_agent: bool = False
     tool_gateway_url: str = "http://localhost:8090"
     model_gateway_url: str = "http://localhost:8093"
+    model_gateway_timeout_seconds: float = 300
+    agent_model_max_output_tokens: int = Field(default=8192, ge=1024, le=65536)
     model_capability_secret: str = "development-model-capability-secret-32-bytes"
     agent_readiness_host: str = "127.0.0.1"
     agent_readiness_port: int = 8094
@@ -88,6 +90,8 @@ async def serve() -> None:
                 ModelCapabilityIssuer(settings.model_capability_secret.encode()),
                 frozenset(settings.models),
                 workload_tls,
+                settings.model_gateway_timeout_seconds,
+                settings.agent_model_max_output_tokens,
             ),
             HttpGatewayProxyFactory(
                 settings.tool_gateway_url,

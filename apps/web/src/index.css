@@ -82,6 +82,14 @@ main table tbody tr { transition: background-color 160ms ease; }
   main > div { animation: none; }
 }
 
+@media print {
+  body { background: white; }
+  aside, header, .report-demo-hide-on-print { display: none !important; }
+  main { max-width: none !important; padding: 0 !important; }
+  .report-demo-print { color: #101828; }
+  .report-demo-print > * { break-inside: avoid; }
+}
+
 .react-flow__node { font-family: var(--font-outfit); }
 .react-flow__controls { overflow: hidden; border: 1px solid var(--color-gray-200); border-radius: .5rem; box-shadow: var(--shadow-theme-sm); }
 .dark .react-flow__controls { border-color: var(--color-gray-700); }

@@ -2,6 +2,7 @@ from swarmcore_application import CapabilityCatalogService, IntegrityRuleDocumen
 from swarmcore_capability_contract_integrity import (
     DEFAULT_RULES,
     MANIFEST,
+    MANIFEST_V2_1,
     REFERENCES,
     SCHEMAS,
     STRATEGIES,
@@ -70,3 +71,21 @@ def test_contract_pack_strategy_uses_exactly_its_declared_runtime_dependencies()
     assert actual_agents == set(manifest.spec.agents)
     assert set(plan.resolved_tools) == set(manifest.spec.tools)
     assert "model://fake-deterministic@1" not in plan.resolved_models
+
+
+def test_document_processing_pack_strategy_dependencies_match_manifest() -> None:
+    manifest = CapabilityPackManifest.model_validate(MANIFEST_V2_1)
+    registry = builtin_registry()
+    _, plan = StrategyService().compile(
+        STRATEGIES[manifest.spec.strategies.execute],
+        registry_snapshot=registry.snapshot_id,
+        policy_revision="test",
+    )
+
+    actual_agents = {
+        str(value["registryRef"])
+        for value in plan.resolved_agents.values()
+        if value.get("registryRef") is not None
+    }
+    assert actual_agents == set(manifest.spec.agents)
+    assert set(plan.resolved_tools) == set(manifest.spec.tools)

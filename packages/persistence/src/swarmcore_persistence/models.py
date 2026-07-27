@@ -1108,6 +1108,74 @@ class DocumentProcessingResult(Base, IdMixin, TenantMixin):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class UploadBatch(Base, IdMixin, TenantMixin, TimestampMixin):
+    __tablename__ = "upload_batches"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "project_id", "id", name="uq_upload_batches_scope_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id"],
+            ["projects.tenant_id", "projects.id"],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_upload_batches_scope_status", "project_id", "status", "created_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), default="web", nullable=False)
+    context: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="OPEN", nullable=False)
+    file_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    succeeded_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DocumentProcessingRun(Base, IdMixin, TenantMixin):
+    __tablename__ = "document_processing_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "id",
+            name="uq_document_processing_runs_scope_id",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "business_document_version_id"],
+            [
+                "business_document_versions.tenant_id",
+                "business_document_versions.project_id",
+                "business_document_versions.id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_document_processing_runs_version",
+            "business_document_version_id",
+            "attempt",
+        ),
+        Index("ix_document_processing_runs_status", "project_id", "status", "started_at"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    business_document_version_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), nullable=False
+    )
+    upload_batch_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    profile_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="PENDING", nullable=False)
+    current_stage: Mapped[str] = mapped_column(String(64), default="PENDING", nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    parser_ref: Mapped[str | None] = mapped_column(String(256))
+    classifier_ref: Mapped[str | None] = mapped_column(String(256))
+    extractor_refs: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_detail: Mapped[str | None] = mapped_column(String(2048))
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+
+
 class RuleSet(Base, IdMixin, TenantMixin, TimestampMixin):
     __tablename__ = "rule_sets"
     __table_args__ = (

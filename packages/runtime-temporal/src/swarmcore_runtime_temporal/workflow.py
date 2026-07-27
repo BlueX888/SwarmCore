@@ -13,7 +13,7 @@ from temporalio.workflow import ActivityCancellationType
 with workflow.unsafe.imports_passed_through():
     from swarmcore_spec import evaluate_condition, render_templates
 
-from .scheduler import NodeState, blocked_by_failure, ready_nodes
+from .scheduler import NodeState, propagate_failure_blocks, ready_nodes
 
 _CONTROL_QUEUE = "swarm-control"
 _AGENT_QUEUE = "agent-general"
@@ -102,12 +102,14 @@ class SwarmRunWorkflow:
                     await workflow.wait_condition(workflow.all_handlers_finished)
                     return terminal
 
-            for key in blocked_by_failure(self._nodes, self._states):
-                self._states[key] = (
-                    NodeState.BLOCKED
-                    if workflow.patched("transitive-failure-blocking-v1")
-                    else NodeState.SKIPPED
-                )
+            blocked_state = (
+                NodeState.BLOCKED
+                if workflow.patched("transitive-failure-blocking-v1")
+                else NodeState.SKIPPED
+            )
+            for key in propagate_failure_blocks(
+                self._nodes, self._states, blocked_state=blocked_state
+            ):
                 await self._project("task.skipped", {"nodeKey": key})
 
             if self._all_terminal():
@@ -314,7 +316,7 @@ class SwarmRunWorkflow:
             self._states[node_key] = NodeState.PENDING
             self._outputs.pop(node_key, None)
             for key, state in tuple(self._states.items()):
-                if state == NodeState.SKIPPED:
+                if state in {NodeState.SKIPPED, NodeState.BLOCKED}:
                     self._states[key] = NodeState.PENDING
             self._failure_wait = False
             await self._project("task.retry_requested", {"nodeKey": node_key})

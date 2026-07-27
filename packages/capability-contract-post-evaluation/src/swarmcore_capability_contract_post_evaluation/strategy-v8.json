@@ -1,0 +1,388 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "SwarmStrategy",
+  "metadata": {"name": "contract-post-evaluation-generate-v8"},
+  "spec": {
+    "inputSchema": {"type": "object"},
+    "outputSchema": {"type": "object"},
+    "defaults": {
+      "timeout": "PT15M",
+      "retryPolicy": {
+        "maxAttempts": 3,
+        "initialInterval": "PT1S",
+        "maximumInterval": "PT1M",
+        "backoffCoefficient": 2
+      }
+    },
+    "budget": {
+      "maxDuration": "PT45M",
+      "maxTokens": 60000,
+      "maxCostUsd": 3,
+      "maxAgents": 6,
+      "maxParallelism": 4,
+      "onExhausted": "wait_for_budget_approval"
+    },
+    "agents": {
+      "baseline": {"ref": "agent://contract/baseline-analyst@1"},
+      "performance": {"ref": "agent://contract/performance-quality-analyst@1"},
+      "finance": {"ref": "agent://contract/finance-invoice-analyst@1"},
+      "governance": {"ref": "agent://contract/deviation-risk-analyst@1"},
+      "reviewer": {"ref": "agent://contract/evidence-reviewer@1"},
+      "narrator": {"ref": "agent://contract/report-narrator@1"}
+    },
+    "graph": {
+      "entrypoint": "read-documents",
+      "nodes": {
+        "read-documents": {
+          "type": "tool",
+          "tool": "tool://document/read-versions@1",
+          "input": {
+            "evaluationId": "{{ input.evaluationId }}",
+            "documents": "{{ input.documents }}"
+          }
+        },
+        "coverage-check": {
+          "type": "tool",
+          "tool": "tool://document/coverage-check@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "requirements": [
+              {
+                "key": "primary-contract",
+                "category": "CONTRACT",
+                "required": true,
+                "minCount": 1,
+                "maxCount": 5
+              },
+              {
+                "key": "acceptance-evidence",
+                "category": "ACCEPTANCE",
+                "required": true,
+                "minCount": 1,
+                "maxCount": 10
+              },
+              {
+                "key": "performance-evidence",
+                "category": "PERFORMANCE",
+                "required": false,
+                "minCount": 0,
+                "maxCount": 20
+              },
+              {
+                "key": "invoice-evidence",
+                "category": "INVOICE",
+                "required": false,
+                "minCount": 0,
+                "maxCount": 30
+              },
+              {
+                "key": "deviation-evidence",
+                "category": "DEVIATION",
+                "required": false,
+                "minCount": 0,
+                "maxCount": 20
+              },
+              {
+                "key": "risk-evidence",
+                "category": "RISK",
+                "required": false,
+                "minCount": 0,
+                "maxCount": 10
+              }
+            ]
+          }
+        },
+        "search-contract": {
+          "type": "tool",
+          "tool": "tool://evidence/search@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "domain": "contract",
+            "maxHits": 12
+          }
+        },
+        "search-performance": {
+          "type": "tool",
+          "tool": "tool://evidence/search@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "domain": "performance",
+            "maxHits": 12
+          }
+        },
+        "search-finance": {
+          "type": "tool",
+          "tool": "tool://evidence/search@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "domain": "finance",
+            "maxHits": 12
+          }
+        },
+        "search-governance": {
+          "type": "tool",
+          "tool": "tool://evidence/search@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "domain": "governance",
+            "maxHits": 12
+          }
+        },
+        "analyze-baseline": {
+          "type": "agent",
+          "agent": "baseline",
+          "dependsOn": ["coverage-check", "search-contract"],
+          "input": {
+            "basePayload": "{{ input.payload }}",
+            "evidence": "{{ tasks.search-contract.output.content }}",
+            "coverage": "{{ tasks.coverage-check.output.content }}"
+          }
+        },
+        "analyze-performance": {
+          "type": "agent",
+          "agent": "performance",
+          "dependsOn": ["coverage-check", "search-performance"],
+          "input": {
+            "basePayload": "{{ input.payload }}",
+            "evidence": "{{ tasks.search-performance.output.content }}",
+            "coverage": "{{ tasks.coverage-check.output.content }}"
+          }
+        },
+        "analyze-finance": {
+          "type": "agent",
+          "agent": "finance",
+          "dependsOn": ["coverage-check", "search-finance"],
+          "input": {
+            "basePayload": "{{ input.payload }}",
+            "evidence": "{{ tasks.search-finance.output.content }}",
+            "coverage": "{{ tasks.coverage-check.output.content }}"
+          }
+        },
+        "analyze-governance": {
+          "type": "agent",
+          "agent": "governance",
+          "dependsOn": ["coverage-check", "search-governance"],
+          "input": {
+            "basePayload": "{{ input.payload }}",
+            "evidence": "{{ tasks.search-governance.output.content }}",
+            "coverage": "{{ tasks.coverage-check.output.content }}"
+          }
+        },
+        "merge-domains": {
+          "type": "tool",
+          "tool": "tool://contract/post-evaluation/merge-domains@1",
+          "dependsOn": [
+            "analyze-baseline",
+            "analyze-performance",
+            "analyze-finance",
+            "analyze-governance"
+          ],
+          "input": {
+            "basePayload": "{{ input.payload }}",
+            "analyses": {
+              "baseline": "{{ tasks.analyze-baseline.output.content }}",
+              "performance": "{{ tasks.analyze-performance.output.content }}",
+              "finance": "{{ tasks.analyze-finance.output.content }}",
+              "governance": "{{ tasks.analyze-governance.output.content }}"
+            }
+          }
+        },
+        "timeline-check": {
+          "type": "tool",
+          "tool": "tool://contract/timeline-calculate@1",
+          "dependsOn": ["merge-domains"],
+          "input": {"payload": "{{ tasks.merge-domains.output.content.payload }}"}
+        },
+        "amount-check": {
+          "type": "tool",
+          "tool": "tool://finance/amount-reconcile@1",
+          "dependsOn": ["merge-domains"],
+          "input": {"payload": "{{ tasks.merge-domains.output.content.payload }}"}
+        },
+        "invoice-check": {
+          "type": "tool",
+          "tool": "tool://invoice/assurance@1",
+          "dependsOn": ["merge-domains"],
+          "input": {"payload": "{{ tasks.merge-domains.output.content.payload }}"}
+        },
+        "deviation-check": {
+          "type": "tool",
+          "tool": "tool://deviation/aggregate@1",
+          "dependsOn": ["merge-domains"],
+          "input": {"payload": "{{ tasks.merge-domains.output.content.payload }}"}
+        },
+        "risk-check": {
+          "type": "tool",
+          "tool": "tool://risk/aggregate@1",
+          "dependsOn": ["merge-domains"],
+          "input": {"payload": "{{ tasks.merge-domains.output.content.payload }}"}
+        },
+        "consistency-check": {
+          "type": "tool",
+          "tool": "tool://evidence/consistency-check@1",
+          "dependsOn": ["merge-domains"],
+          "input": {
+            "payload": "{{ tasks.merge-domains.output.content.payload }}",
+            "evidenceFacts": "{{ tasks.merge-domains.output.content.evidenceFacts }}",
+            "declaredConflicts": "{{ tasks.merge-domains.output.content.conflicts }}"
+          }
+        },
+        "evidence-review": {
+          "type": "agent",
+          "agent": "reviewer",
+          "dependsOn": [
+            "coverage-check",
+            "consistency-check",
+            "timeline-check",
+            "amount-check",
+            "invoice-check",
+            "deviation-check",
+            "risk-check"
+          ],
+          "input": {
+            "coverage": "{{ tasks.coverage-check.output.content }}",
+            "consistency": "{{ tasks.consistency-check.output.content }}",
+            "facts": "{{ tasks.merge-domains.output.content.evidenceFacts }}",
+            "diagnostics": {
+              "timeline": "{{ tasks.timeline-check.output.content }}",
+              "amounts": "{{ tasks.amount-check.output.content }}",
+              "invoices": "{{ tasks.invoice-check.output.content }}",
+              "deviations": "{{ tasks.deviation-check.output.content }}",
+              "risks": "{{ tasks.risk-check.output.content }}"
+            }
+          }
+        },
+        "review-router": {
+          "type": "router",
+          "dependsOn": ["evidence-review"],
+          "routes": [
+            {
+              "when": "tasks.evidence-review.output.content.reviewRequired == true",
+              "target": "manual-review"
+            }
+          ],
+          "default": "auto-continue"
+        },
+        "manual-review": {
+          "type": "approval",
+          "dependsOn": ["review-router"],
+          "prompt": "资料存在缺失、冲突或低置信度事实，请确认后继续生成评价报告。",
+          "inputSchema": {
+            "type": "object",
+            "required": ["approved"],
+            "properties": {
+              "approved": {"type": "boolean"},
+              "comment": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "auto-continue": {
+          "type": "join",
+          "strategy": "all",
+          "dependsOn": ["review-router"]
+        },
+        "evaluate": {
+          "type": "tool",
+          "tool": "tool://contract/post-evaluation@1",
+          "dependsOn": ["merge-domains", "manual-review", "auto-continue"],
+          "input": {
+            "payload": "{{ tasks.merge-domains.output.content.payload }}",
+            "configuration": "{{ input.configuration }}",
+            "attachmentManifestHash": "{{ input.attachmentManifestHash }}"
+          }
+        },
+        "report-narrative": {
+          "type": "agent",
+          "agent": "narrator",
+          "dependsOn": [
+            "evaluate",
+            "evidence-review",
+            "timeline-check",
+            "amount-check",
+            "invoice-check",
+            "deviation-check",
+            "risk-check"
+          ],
+          "input": {
+            "result": "{{ tasks.evaluate.output.content }}",
+            "review": "{{ tasks.evidence-review.output.content }}",
+            "diagnostics": {
+              "timeline": "{{ tasks.timeline-check.output.content }}",
+              "amounts": "{{ tasks.amount-check.output.content }}",
+              "invoices": "{{ tasks.invoice-check.output.content }}",
+              "deviations": "{{ tasks.deviation-check.output.content }}",
+              "risks": "{{ tasks.risk-check.output.content }}"
+            }
+          }
+        },
+        "finalize": {
+          "type": "tool",
+          "tool": "tool://contract/post-evaluation/finalize@2",
+          "dependsOn": [
+            "report-narrative",
+            "coverage-check",
+            "consistency-check",
+            "timeline-check",
+            "amount-check",
+            "invoice-check",
+            "deviation-check",
+            "risk-check"
+          ],
+          "input": {
+            "score": "{{ tasks.evaluate.output.content }}",
+            "review": "{{ tasks.evidence-review.output.content }}",
+            "narrative": "{{ tasks.report-narrative.output.content }}",
+            "coverage": "{{ tasks.coverage-check.output.content }}",
+            "consistency": "{{ tasks.consistency-check.output.content }}",
+            "diagnostics": {
+              "timeline": "{{ tasks.timeline-check.output.content }}",
+              "amounts": "{{ tasks.amount-check.output.content }}",
+              "invoices": "{{ tasks.invoice-check.output.content }}",
+              "deviations": "{{ tasks.deviation-check.output.content }}",
+              "risks": "{{ tasks.risk-check.output.content }}"
+            },
+            "provenance": {
+              "documentContentHash": "{{ tasks.read-documents.output.content.contentHash }}",
+              "attachmentManifestHash": "{{ input.attachmentManifestHash }}",
+              "agents": [
+                "agent://contract/baseline-analyst@1",
+                "agent://contract/performance-quality-analyst@1",
+                "agent://contract/finance-invoice-analyst@1",
+                "agent://contract/deviation-risk-analyst@1",
+                "agent://contract/evidence-reviewer@1",
+                "agent://contract/report-narrator@1"
+              ]
+            }
+          }
+        },
+        "report": {
+          "type": "tool",
+          "tool": "tool://report/render-post-evaluation@2",
+          "dependsOn": ["finalize"],
+          "input": {
+            "title": "{{ input.payload.title }}",
+            "result": "{{ tasks.finalize.output.content }}"
+          }
+        },
+        "record": {
+          "type": "tool",
+          "tool": "tool://workbench/record-post-evaluation@2",
+          "dependsOn": ["finalize", "report"],
+          "input": {
+            "evaluationId": "{{ input.evaluationId }}",
+            "result": "{{ tasks.finalize.output.content }}",
+            "report": "{{ tasks.report.output.content }}"
+          }
+        }
+      },
+      "output": {"result": "{{ tasks.finalize.output.content }}"}
+    },
+    "$defs": {}
+  }
+}

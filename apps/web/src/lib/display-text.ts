@@ -6,6 +6,7 @@ const statusLabels: Record<string, string> = {
   CANCELLING: "取消中",
   CANCELLED: "已取消",
   CLOSED: "已关闭",
+  COMPENSATING: "补偿中",
   COMPLETED: "已完成",
   CONNECTING: "连接中",
   CREATED: "已创建",
@@ -25,6 +26,7 @@ const statusLabels: Record<string, string> = {
   STALE: "已过期",
   SUCCEEDED: "成功",
   TIMED_OUT: "已超时",
+  VALIDATING: "校验中",
   WAITING_APPROVAL: "等待审批",
   WAITING_INPUT: "等待输入",
 };

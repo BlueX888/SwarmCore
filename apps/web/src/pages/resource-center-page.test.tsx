@@ -18,9 +18,14 @@ vi.mock("@/api/client", async () => {
     api: {
       ...actual.api,
       listDocuments: vi.fn(),
+      getDocument: vi.fn(),
+      getDocumentProcessing: vi.fn(),
+      getDocumentProcessingResult: vi.fn(),
       initiateDocument: vi.fn(),
       uploadDocumentContent: vi.fn(),
       completeDocument: vi.fn(),
+      createUploadBatch: vi.fn(),
+      getUploadBatch: vi.fn(),
       createBusinessObject: vi.fn(),
     },
   };
@@ -59,6 +64,9 @@ describe("business document library", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(api.listDocuments).mockResolvedValue({ items: [document] });
+    vi.mocked(api.getDocument).mockResolvedValue(document);
+    vi.mocked(api.getDocumentProcessing).mockRejectedValue(new Error("not ready"));
+    vi.mocked(api.getDocumentProcessingResult).mockRejectedValue(new Error("not ready"));
     vi.mocked(api.initiateDocument).mockResolvedValue({
       documentId: "document-2",
       uploadId: "upload-2",
@@ -70,6 +78,30 @@ describe("business document library", () => {
     });
     vi.mocked(api.uploadDocumentContent).mockResolvedValue();
     vi.mocked(api.completeDocument).mockResolvedValue(document);
+    vi.mocked(api.createUploadBatch).mockResolvedValue({
+      batchId: "batch-1",
+      source: "web",
+      context: {},
+      status: "OPEN",
+      fileCount: 0,
+      succeededCount: 0,
+      failedCount: 0,
+      createdBy: "tester",
+      createdAt: "2026-07-23T08:00:00Z",
+      completedAt: null,
+    });
+    vi.mocked(api.getUploadBatch).mockResolvedValue({
+      batchId: "batch-1",
+      source: "web",
+      context: {},
+      status: "COMPLETED",
+      fileCount: 1,
+      succeededCount: 1,
+      failedCount: 0,
+      createdBy: "tester",
+      createdAt: "2026-07-23T08:00:00Z",
+      completedAt: "2026-07-23T08:01:00Z",
+    });
     vi.stubGlobal("crypto", {
       randomUUID: () => "request-id",
       subtle: { digest: vi.fn().mockResolvedValue(new Uint8Array(32).buffer) },
@@ -88,7 +120,17 @@ describe("business document library", () => {
     expect(screen.queryByText("Secret 引用")).not.toBeInTheDocument();
   });
 
-  it("registers a file with business-work bindings", async () => {
+  it("opens document details in a dialog", async () => {
+    renderPage();
+    await screen.findAllByText("采购合同.pdf");
+    fireEvent.click(screen.getByRole("button", { name: "详情" }));
+    expect(await screen.findByRole("dialog")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "采购合同.pdf" })).toBeVisible();
+    expect(screen.getByText("文件详情与处理确认")).toBeVisible();
+    expect(screen.getByLabelText("关闭文件详情")).toBeVisible();
+  });
+
+  it("registers a file with the shared upload panel", async () => {
     renderPage();
     await screen.findAllByText("采购合同.pdf");
     fireEvent.click(screen.getByRole("button", { name: "上传文件" }));
@@ -96,9 +138,9 @@ describe("business document library", () => {
     Object.defineProperty(file, "arrayBuffer", {
       value: () => Promise.resolve(new TextEncoder().encode("contract").buffer),
     });
-    fireEvent.change(screen.getByLabelText("选择文件"), { target: { files: [file] } });
-    fireEvent.click(screen.getByRole("checkbox", { name: /文件完整性校验/ }));
-    fireEvent.click(screen.getByRole("button", { name: "保存资料" }));
+    fireEvent.change(screen.getByLabelText("选择业务资料文件"), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "开始上传" }));
+    await waitFor(() => expect(api.createUploadBatch).toHaveBeenCalled());
     await waitFor(() => expect(api.initiateDocument).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
@@ -106,7 +148,7 @@ describe("business document library", () => {
         name: "新合同.txt",
         category: "CONTRACT",
         filename: "新合同.txt",
-        businessWorkKeys: ["document-integrity"],
+        businessWorkKeys: [],
         businessObjectIds: [],
         sha256: "0".repeat(64),
       }),
@@ -120,6 +162,7 @@ describe("business document library", () => {
       expect.any(String),
       "upload-2",
       "0".repeat(64),
+      expect.objectContaining({ uploadBatchId: "batch-1" }),
     );
   });
 

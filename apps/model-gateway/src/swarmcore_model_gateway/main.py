@@ -24,6 +24,7 @@ from swarmcore_governance import (
     PolicyRequest,
     PolicySubject,
     RolePolicyEngine,
+    SecretError,
     SecretScanner,
     VaultSecretProvider,
     WorkloadTls,
@@ -57,7 +58,7 @@ class Settings(BaseSettings):
     }
     model_price_version: str = "local-price:v1"
     litellm_url: str = "http://localhost:4000"
-    litellm_timeout_seconds: float = 120
+    litellm_timeout_seconds: float = 300
     litellm_secret_ref: str = "secret://platform/litellm"
     model_provider_url: str = ""
     model_provider_api_key: str = ""
@@ -264,7 +265,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     SecretScanner(lease.values).assert_clean(
                         json.dumps(result, ensure_ascii=False).encode()
                     )
-        except Exception:
+        except Exception as exc:
             metrics.model_requests.add(
                 1,
                 {"provider": provider, "model": capability.logical_model, "status": "failed"},
@@ -279,7 +280,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 reserved=body.max_tokens,
                 request_id=request_id,
             )
-            raise
+            if isinstance(exc, HTTPException):
+                raise
+            raise HTTPException(
+                status_code=502, detail=f"model provider failed: {exc}"
+            ) from exc
         usage = cast(dict[str, Any], result.get("usage", {}))
         input_tokens = int(usage.get("prompt_tokens", 0))
         output_tokens = int(usage.get("completion_tokens", 0))
@@ -811,8 +816,14 @@ async def _runtime_provider_configuration(
     provider_url, model_name, secret_ref = saved
     if not provider_url or not model_name or not secret_ref or secrets is None:
         return None
-    async with secrets.lease(secret_ref) as lease:
-        api_key = lease.values.get("apiKey", "")
+    try:
+        async with secrets.lease(secret_ref) as lease:
+            api_key = lease.values.get("apiKey", "")
+    except SecretError:
+        # Prefer the env/direct provider over a broken project Vault binding.
+        return None
+    if not api_key:
+        return None
     return provider_url, api_key, model_name
 
 

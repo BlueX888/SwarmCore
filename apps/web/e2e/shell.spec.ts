@@ -105,7 +105,7 @@ test("splits the capability center into agent, tool, model and policy pages", as
   await expect(page.getByRole("checkbox", { name: "显示已配置但未就绪" })).toBeVisible();
   await expect(page.getByRole("button", { name: /通用模型/ })).toBeVisible();
   await page.goto("/policies");
-  await expect(page.getByRole("heading", { name: "策略", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "策略能力", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /默认策略/ })).toBeVisible();
   await page.getByRole("button", { name: "新建策略" }).click();
   await expect(page).toHaveURL("/policies/new");

@@ -1,0 +1,339 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "SwarmStrategy",
+  "metadata": {"name": "deviation-analysis-execute-v1"},
+  "spec": {
+    "inputSchema": {"type": "object"},
+    "outputSchema": {"type": "object"},
+    "defaults": {
+      "timeout": "PT15M",
+      "retryPolicy": {
+        "maxAttempts": 3,
+        "initialInterval": "PT1S",
+        "maximumInterval": "PT1M",
+        "backoffCoefficient": 2
+      }
+    },
+    "budget": {
+      "maxDuration": "PT45M",
+      "maxTokens": 160000,
+      "maxCostUsd": 2,
+      "maxAgents": 6,
+      "maxParallelism": 4,
+      "onExhausted": "wait_for_budget_approval"
+    },
+    "agents": {
+      "schedule-scope": {"ref": "agent://deviation/schedule-scope-fact-analyst@1"},
+      "cost-change": {"ref": "agent://deviation/cost-change-fact-analyst@1"},
+      "root-cause": {"ref": "agent://deviation/root-cause-analyst@1"},
+      "responsibility": {"ref": "agent://deviation/responsibility-analyst@1"},
+      "reviewer": {"ref": "agent://deviation/evidence-reviewer@1"},
+      "narrator": {"ref": "agent://deviation/report-narrator@1"}
+    },
+    "graph": {
+      "entrypoint": "read-documents",
+      "nodes": {
+        "read-documents": {
+          "type": "tool",
+          "tool": "tool://document/read-versions@1",
+          "input": {"evaluationId": "{{ input.evaluationId }}", "documents": "{{ input.documents }}"}
+        },
+        "coverage-check": {
+          "type": "tool",
+          "tool": "tool://document/coverage-check@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "requirements": [
+              {"key": "scope-baseline", "category": "SCOPE_BASELINE", "required": true, "minCount": 1, "maxCount": 5},
+              {"key": "schedule-baseline", "category": "SCHEDULE_BASELINE", "required": true, "minCount": 1, "maxCount": 3},
+              {"key": "cost-baseline", "category": "COST_BASELINE", "required": true, "minCount": 1, "maxCount": 5},
+              {"key": "progress-actual", "category": "PROGRESS_ACTUAL", "required": true, "minCount": 1, "maxCount": 12},
+              {"key": "delivery-acceptance", "category": "DELIVERY_ACCEPTANCE", "required": true, "minCount": 1, "maxCount": 20},
+              {"key": "cost-actual", "category": "COST_ACTUAL", "required": true, "minCount": 1, "maxCount": 12}
+            ]
+          }
+        },
+        "search-schedule": {
+          "type": "tool",
+          "tool": "tool://evidence/search@1",
+          "dependsOn": ["read-documents"],
+          "input": {"documents": "{{ tasks.read-documents.output.content.documents }}", "domain": "performance", "maxHits": 8}
+        },
+        "search-scope": {
+          "type": "tool",
+          "tool": "tool://evidence/search@1",
+          "dependsOn": ["read-documents"],
+          "input": {"documents": "{{ tasks.read-documents.output.content.documents }}", "domain": "contract", "maxHits": 8}
+        },
+        "search-cost": {
+          "type": "tool",
+          "tool": "tool://evidence/search@1",
+          "dependsOn": ["read-documents"],
+          "input": {"documents": "{{ tasks.read-documents.output.content.documents }}", "domain": "finance", "maxHits": 8}
+        },
+        "search-cause": {
+          "type": "tool",
+          "tool": "tool://evidence/search@1",
+          "dependsOn": ["read-documents"],
+          "input": {"documents": "{{ tasks.read-documents.output.content.documents }}", "domain": "governance", "maxHits": 8}
+        },
+        "analyze-schedule-scope": {
+          "type": "agent",
+          "agent": "schedule-scope",
+          "dependsOn": ["coverage-check", "search-schedule", "search-scope"],
+          "input": {
+            "_contextMode": "node_only",
+            "basePayload": "{{ input.payload }}",
+            "scheduleEvidence": "{{ tasks.search-schedule.output.content }}",
+            "scopeEvidence": "{{ tasks.search-scope.output.content }}",
+            "coverage": "{{ tasks.coverage-check.output.content }}"
+          }
+        },
+        "analyze-cost-change": {
+          "type": "agent",
+          "agent": "cost-change",
+          "dependsOn": ["coverage-check", "search-cost", "search-cause"],
+          "input": {
+            "_contextMode": "node_only",
+            "basePayload": "{{ input.payload }}",
+            "costEvidence": "{{ tasks.search-cost.output.content }}",
+            "changeEvidence": "{{ tasks.search-cause.output.content }}",
+            "coverage": "{{ tasks.coverage-check.output.content }}"
+          }
+        },
+        "merge-facts": {
+          "type": "tool",
+          "tool": "tool://deviation/facts-merge@1",
+          "dependsOn": ["analyze-schedule-scope", "analyze-cost-change"],
+          "input": {
+            "basePayload": "{{ input.payload }}",
+            "configuration": "{{ input.configuration }}",
+            "analyses": {
+              "scheduleScope": "{{ tasks.analyze-schedule-scope.output.content }}",
+              "costChange": "{{ tasks.analyze-cost-change.output.content }}"
+            }
+          }
+        },
+        "time-calculate": {
+          "type": "tool",
+          "tool": "tool://deviation/time-calculate@1",
+          "dependsOn": ["merge-facts"],
+          "input": {"payload": "{{ tasks.merge-facts.output.content.payload }}"}
+        },
+        "content-compare": {
+          "type": "tool",
+          "tool": "tool://deviation/content-compare@1",
+          "dependsOn": ["merge-facts"],
+          "input": {"payload": "{{ tasks.merge-facts.output.content.payload }}"}
+        },
+        "cost-calculate": {
+          "type": "tool",
+          "tool": "tool://deviation/cost-calculate@1",
+          "dependsOn": ["merge-facts"],
+          "input": {"payload": "{{ tasks.merge-facts.output.content.payload }}"}
+        },
+        "consistency-check": {
+          "type": "tool",
+          "tool": "tool://evidence/consistency-check@1",
+          "dependsOn": ["merge-facts"],
+          "input": {
+            "payload": {
+              "title": "{{ tasks.merge-facts.output.content.payload.title }}",
+              "evaluationPeriod": "{{ tasks.merge-facts.output.content.payload.period }}",
+              "contract": "{{ tasks.merge-facts.output.content.payload.subject }}",
+              "documents": [],
+              "obligations": [],
+              "deviations": [],
+              "invoices": [],
+              "risks": []
+            },
+            "evidenceFacts": "{{ tasks.merge-facts.output.content.facts }}",
+            "declaredConflicts": "{{ tasks.merge-facts.output.content.conflicts }}"
+          }
+        },
+        "root-cause": {
+          "type": "agent",
+          "agent": "root-cause",
+          "dependsOn": ["time-calculate", "content-compare", "cost-calculate", "search-cause"],
+          "input": {
+            "_contextMode": "node_only",
+            "dimensions": {
+              "TIME": "{{ tasks.time-calculate.output.content }}",
+              "CONTENT": "{{ tasks.content-compare.output.content }}",
+              "COST": "{{ tasks.cost-calculate.output.content }}"
+            },
+            "evidence": "{{ tasks.search-cause.output.content }}"
+          }
+        },
+        "history-read": {
+          "type": "tool",
+          "tool": "tool://deviation/history-read@1",
+          "dependsOn": ["time-calculate", "content-compare", "cost-calculate"],
+          "input": {
+            "evaluationId": "{{ input.evaluationId }}",
+            "subjectId": "{{ input.payload.subject.subjectId }}",
+            "baselineHash": "{{ input.baselineHash }}",
+            "configurationHash": "{{ input.configurationHash }}",
+            "asOf": "{{ tasks.merge-facts.output.content.payload.asOf }}",
+            "trendWindow": "{{ tasks.merge-facts.output.content.payload.trendWindow }}",
+            "limit": 12
+          }
+        },
+        "trend-build": {
+          "type": "tool",
+          "tool": "tool://deviation/trend-build@1",
+          "dependsOn": ["history-read", "time-calculate", "content-compare", "cost-calculate"],
+          "input": {
+            "current": {
+              "subjectId": "{{ input.payload.subject.subjectId }}",
+              "asOf": "{{ input.payload.asOf }}",
+              "baselineHash": "{{ input.baselineHash }}",
+              "configurationHash": "{{ input.configurationHash }}",
+              "timeVarianceDays": "{{ tasks.time-calculate.output.content.metrics.maximumDelayDays }}",
+              "contentVarianceRate": "{{ tasks.content-compare.output.content.metrics.contentVarianceRate }}",
+              "costVarianceRate": "{{ tasks.cost-calculate.output.content.metrics.costVarianceRate }}"
+            },
+            "history": "{{ tasks.history-read.output.content.items }}"
+          }
+        },
+        "responsibility-analysis": {
+          "type": "agent",
+          "agent": "responsibility",
+          "dependsOn": ["root-cause", "search-cause"],
+          "input": {
+            "_contextMode": "node_only",
+            "rootCauses": "{{ tasks.root-cause.output.content.rootCauses }}",
+            "evidence": "{{ tasks.search-cause.output.content }}"
+          }
+        },
+        "responsibility-aggregate": {
+          "type": "tool",
+          "tool": "tool://deviation/responsibility-aggregate@1",
+          "dependsOn": ["responsibility-analysis"],
+          "input": {"proposals": "{{ tasks.responsibility-analysis.output.content.proposals }}"}
+        },
+        "evidence-review": {
+          "type": "agent",
+          "agent": "reviewer",
+          "dependsOn": ["coverage-check", "consistency-check", "time-calculate", "content-compare", "cost-calculate", "responsibility-aggregate"],
+          "input": {
+            "_contextMode": "node_only",
+            "coverage": "{{ tasks.coverage-check.output.content }}",
+            "consistency": "{{ tasks.consistency-check.output.content }}",
+            "dimensions": {
+              "TIME": "{{ tasks.time-calculate.output.content }}",
+              "CONTENT": "{{ tasks.content-compare.output.content }}",
+              "COST": "{{ tasks.cost-calculate.output.content }}"
+            },
+            "rootCauses": "{{ tasks.root-cause.output.content.rootCauses }}",
+            "responsibility": "{{ tasks.responsibility-aggregate.output.content }}"
+          }
+        },
+        "review-router": {
+          "type": "router",
+          "dependsOn": ["evidence-review"],
+          "routes": [
+            {"when": "tasks.evidence-review.output.content.reviewRequired == true", "target": "manual-review"},
+            {"when": "tasks.coverage-check.output.content.reviewRequired == true", "target": "manual-review"},
+            {"when": "tasks.consistency-check.output.content.reviewRequired == true", "target": "manual-review"},
+            {"when": "tasks.time-calculate.output.content.status == \"CONFLICTED\"", "target": "manual-review"},
+            {"when": "tasks.content-compare.output.content.status == \"CONFLICTED\"", "target": "manual-review"},
+            {"when": "tasks.cost-calculate.output.content.status == \"CONFLICTED\"", "target": "manual-review"},
+            {"when": "tasks.responsibility-aggregate.output.content.humanConfirmationRequired == true", "target": "manual-review"}
+          ],
+          "default": "auto-continue"
+        },
+        "manual-review": {
+          "type": "approval",
+          "dependsOn": ["review-router"],
+          "prompt": "偏差分析存在基线歧义、重要证据冲突、阻断维度或责任归属建议，请人工确认后继续。",
+          "inputSchema": {
+            "type": "object",
+            "required": ["approved"],
+            "properties": {"approved": {"type": "boolean"}, "comment": {"type": "string"}},
+            "additionalProperties": false
+          }
+        },
+        "auto-continue": {"type": "join", "strategy": "all", "dependsOn": ["review-router"]},
+        "report-narrative": {
+          "type": "agent",
+          "agent": "narrator",
+          "dependsOn": ["root-cause", "trend-build", "responsibility-aggregate", "evidence-review", "manual-review", "auto-continue"],
+          "input": {
+            "_contextMode": "node_only",
+            "dimensions": {
+              "TIME": "{{ tasks.time-calculate.output.content }}",
+              "CONTENT": "{{ tasks.content-compare.output.content }}",
+              "COST": "{{ tasks.cost-calculate.output.content }}"
+            },
+            "rootCauses": "{{ tasks.root-cause.output.content.rootCauses }}",
+            "trends": "{{ tasks.trend-build.output.content }}",
+            "responsibility": "{{ tasks.responsibility-aggregate.output.content }}",
+            "review": "{{ tasks.evidence-review.output.content }}"
+          }
+        },
+        "finalize": {
+          "type": "tool",
+          "tool": "tool://deviation/finalize@1",
+          "dependsOn": ["report-narrative", "evidence-review", "trend-build", "responsibility-aggregate"],
+          "input": {
+            "payload": "{{ tasks.merge-facts.output.content.payload }}",
+            "dimensions": {
+              "TIME": "{{ tasks.time-calculate.output.content }}",
+              "CONTENT": "{{ tasks.content-compare.output.content }}",
+              "COST": "{{ tasks.cost-calculate.output.content }}"
+            },
+            "rootCauses": "{{ tasks.root-cause.output.content.rootCauses }}",
+            "trends": "{{ tasks.trend-build.output.content }}",
+            "responsibility": "{{ tasks.responsibility-aggregate.output.content }}",
+            "coverage": "{{ tasks.coverage-check.output.content }}",
+            "evidenceReview": "{{ tasks.evidence-review.output.content }}",
+            "narrative": "{{ tasks.report-narrative.output.content }}",
+            "provenance": {
+              "documentContentHash": "{{ tasks.read-documents.output.content.contentHash }}",
+              "attachmentManifestHash": "{{ input.attachmentManifestHash }}",
+              "selectionManifestHash": "{{ input.selectionManifestHash }}",
+              "baselineHash": "{{ input.baselineHash }}",
+              "configurationHash": "{{ input.configurationHash }}",
+              "agents": [
+                "agent://deviation/schedule-scope-fact-analyst@1",
+                "agent://deviation/cost-change-fact-analyst@1",
+                "agent://deviation/root-cause-analyst@1",
+                "agent://deviation/responsibility-analyst@1",
+                "agent://deviation/evidence-reviewer@1",
+                "agent://deviation/report-narrator@1"
+              ],
+              "tools": [
+                "tool://deviation/time-calculate@1",
+                "tool://deviation/content-compare@1",
+                "tool://deviation/cost-calculate@1",
+                "tool://deviation/trend-build@1",
+                "tool://deviation/responsibility-aggregate@1",
+                "tool://deviation/finalize@1"
+              ]
+            }
+          }
+        },
+        "report": {
+          "type": "tool",
+          "tool": "tool://report/render-deviation-analysis@1",
+          "dependsOn": ["finalize"],
+          "input": {"result": "{{ tasks.finalize.output.content }}"}
+        },
+        "record": {
+          "type": "tool",
+          "tool": "tool://workbench/record-deviation-analysis@1",
+          "dependsOn": ["finalize", "report"],
+          "input": {
+            "evaluationId": "{{ input.evaluationId }}",
+            "result": "{{ tasks.finalize.output.content }}",
+            "report": "{{ tasks.report.output.content }}"
+          }
+        }
+      },
+      "output": {"result": "{{ tasks.finalize.output.content }}"}
+    },
+    "$defs": {}
+  }
+}

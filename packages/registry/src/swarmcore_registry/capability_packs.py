@@ -99,8 +99,35 @@ class CapabilityResourceSlot(PackModel):
 
 
 class CapabilityDocumentRequirement(PackModel):
+    key: str | None = Field(default=None, min_length=1, max_length=128)
     category: str = Field(min_length=1, max_length=128)
+    display_name: str | None = Field(default=None, alias="displayName", max_length=256)
+    description: str | None = Field(default=None, max_length=1024)
     required: bool = True
+    min_count: int = Field(default=1, alias="minCount", ge=0)
+    max_count: int | None = Field(default=None, alias="maxCount", ge=1)
+    accepted_media_types: tuple[str, ...] = Field(
+        default_factory=tuple, alias="acceptedMediaTypes"
+    )
+    classification_labels: tuple[str, ...] = Field(
+        default_factory=tuple, alias="classificationLabels"
+    )
+    processing_profile: str | None = Field(default=None, alias="processingProfile")
+    extraction_schema: str | None = Field(default=None, alias="extractionSchema")
+    review_policy: str | None = Field(default=None, alias="reviewPolicy")
+
+    @model_validator(mode="after")
+    def key_defaults_to_category(self) -> CapabilityDocumentRequirement:
+        if self.key is None:
+            object.__setattr__(self, "key", self.category)
+        if self.max_count is not None and self.max_count < self.min_count:
+            raise ValueError("maxCount must be >= minCount")
+        return self
+
+
+class CapabilityDocumentsConfig(PackModel):
+    processing_profile: str | None = Field(default=None, alias="processingProfile")
+    requirements: tuple[CapabilityDocumentRequirement, ...] = ()
 
 
 class CapabilityPackSpec(PackModel):
@@ -117,11 +144,22 @@ class CapabilityPackSpec(PackModel):
     rules: CapabilityPackRules | None = None
     decisions: tuple[CapabilityDecisionSlot, ...] = ()
     resources: tuple[CapabilityResourceSlot, ...] = ()
-    documents: tuple[CapabilityDocumentRequirement, ...] = ()
+    documents: tuple[CapabilityDocumentRequirement, ...] | CapabilityDocumentsConfig = ()
     report: CapabilityPackReport
     permissions: tuple[str, ...]
     events: CapabilityPackEvents
     ui: CapabilityPackUi
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_documents(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        documents = value.get("documents")
+        if isinstance(documents, dict) and "requirements" in documents:
+            # Keep nested form as CapabilityDocumentsConfig via model validation.
+            return value
+        return value
 
     @model_validator(mode="after")
     def references_are_versioned(self) -> CapabilityPackSpec:
@@ -139,10 +177,24 @@ class CapabilityPackSpec(PackModel):
             raise ValueError("decision slot keys must be unique")
         if len(resource_slots) != len(set(resource_slots)):
             raise ValueError("resource slot keys must be unique")
-        document_categories = [item.category for item in self.documents]
-        if len(document_categories) != len(set(document_categories)):
-            raise ValueError("document requirement categories must be unique")
+        requirements = self.document_requirements()
+        document_keys = [item.key or item.category for item in requirements]
+        if len(document_keys) != len(set(document_keys)):
+            raise ValueError("document requirement keys must be unique")
         return self
+
+    def document_requirements(self) -> tuple[CapabilityDocumentRequirement, ...]:
+        if isinstance(self.documents, CapabilityDocumentsConfig):
+            return self.documents.requirements
+        return self.documents
+
+    def document_processing_profile(self) -> str | None:
+        if isinstance(self.documents, CapabilityDocumentsConfig):
+            return self.documents.processing_profile
+        for item in self.document_requirements():
+            if item.processing_profile:
+                return item.processing_profile
+        return None
 
     def references(self) -> tuple[str, ...]:
         refs = [

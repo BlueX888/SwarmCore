@@ -14,7 +14,11 @@ def test_model_resolver_only_allows_registered_references() -> None:
 def test_gateway_model_resolver_scopes_agno_to_run_and_logical_model() -> None:
     tokens = ModelCapabilityIssuer(b"m" * 32)
     resolver = GatewayModelResolver(
-        "http://model-gateway:8093", tokens, frozenset({"model://general"})
+        "http://model-gateway:8093",
+        tokens,
+        frozenset({"model://general"}),
+        timeout_seconds=321,
+        max_output_tokens=6543,
     )
     model = resolver.resolve(
         "model://general@1",
@@ -34,3 +38,6 @@ def test_gateway_model_resolver_scopes_agno_to_run_and_logical_model() -> None:
     assert capability.logical_model == "model://general"
     assert model.id == "model://general"
     assert str(model.base_url) == "http://model-gateway:8093/v1"
+    assert model.http_client.timeout.read == 321
+    assert model.max_tokens == 6543
+    assert model.max_retries == 0

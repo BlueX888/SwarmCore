@@ -42,6 +42,12 @@ class RunQueryService:
                 )
             )
         )
+        failure = await session.scalar(
+            select(RunEvent)
+            .where(RunEvent.run_id == run_id, RunEvent.type == "run.failed")
+            .order_by(RunEvent.event_seq.desc())
+            .limit(1)
+        )
         errors = {
             item.task_id: item.payload.get("error")
             for item in task_events
@@ -52,7 +58,13 @@ class RunQueryService:
             for item in task_events
             if item.type == "task.completed" and isinstance(item.payload.get("output"), dict)
         }
-        return render_run_snapshot(run, tasks, errors=errors, outputs=outputs)
+        return render_run_snapshot(
+            run,
+            tasks,
+            errors=errors,
+            outputs=outputs,
+            retryable=is_retryable_run_failure(failure),
+        )
 
 
 def render_run_snapshot(
@@ -61,6 +73,7 @@ def render_run_snapshot(
     *,
     errors: dict[UUID | None, Any] | None = None,
     outputs: dict[UUID | None, Any] | None = None,
+    retryable: bool = False,
 ) -> dict[str, Any]:
     task_items = tasks or []
     task_counts: dict[str, int] = {}
@@ -73,7 +86,12 @@ def render_run_snapshot(
         actions.append("resume")
     if run.status not in _TERMINAL_RUN_STATUSES | {"FAILED"}:
         actions.append("cancel")
-    if run.status == "FAILED" and any(task.status == "FAILED" for task in task_items):
+    can_retry = (
+        retryable
+        and run.status == "FAILED"
+        and any(task.status == "FAILED" for task in task_items)
+    )
+    if can_retry:
         actions.append("retry_task")
     return {
         "runId": str(run.id),
@@ -96,16 +114,20 @@ def render_run_snapshot(
                 "nodeType": task.node_type,
                 "status": task.status,
                 "dependencies": task.dependencies,
-                "error": (errors or {}).get(task.id),
+                "error": (errors or {}).get(task.id) if task.status == "FAILED" else None,
                 "output": (outputs or {}).get(task.id),
                 "retryGeneration": task.retry_generation,
-                "allowedActions": ["retry_task"]
-                if run.status == "FAILED" and task.status == "FAILED"
-                else [],
+                "allowedActions": ["retry_task"] if can_retry and task.status == "FAILED" else [],
             }
             for task in task_items
         ],
     }
+
+
+def is_retryable_run_failure(failure: RunEvent | None) -> bool:
+    if failure is None or not isinstance(failure.payload, dict):
+        return False
+    return failure.payload.get("retryable") is True
 
 
 def _utc_text(value: Any) -> str | None:

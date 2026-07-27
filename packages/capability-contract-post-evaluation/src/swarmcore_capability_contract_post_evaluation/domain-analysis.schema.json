@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://contract/domain-analysis@1",
+  "type": "object",
+  "required": ["domain", "payloadPatch", "facts", "conflicts", "missingEvidence"],
+  "properties": {
+    "domain": {
+      "type": "string",
+      "enum": ["contract", "performance", "finance", "governance"]
+    },
+    "payloadPatch": {"type": "object"},
+    "facts": {
+      "type": "array",
+      "items": {"$ref": "schema://contract/evidence-fact@1"}
+    },
+    "conflicts": {"type": "array", "items": {"type": "string"}},
+    "missingEvidence": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

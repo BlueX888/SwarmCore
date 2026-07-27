@@ -76,6 +76,7 @@ class AgentActivities:
                             "nodeKey": node_key,
                             "modelRef": model_ref,
                             "errorType": type(exc).__name__,
+                            "error": str(exc)[:1000],
                         },
                         sort_keys=True,
                     ),

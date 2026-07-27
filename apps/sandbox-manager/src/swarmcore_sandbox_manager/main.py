@@ -399,7 +399,16 @@ def _manifest(request: SandboxRequest, *, execution_id: str, namespace: str) -> 
                                     "ephemeral-storage": f"{request.workspace_mib}Mi",
                                 }
                             },
+                            "volumeMounts": [
+                                {"name": "workspace", "mountPath": "/workspace"},
+                            ],
                         }
+                    ],
+                    "volumes": [
+                        {
+                            "name": "workspace",
+                            "emptyDir": {"sizeLimit": f"{request.workspace_mib}Mi"},
+                        },
                     ],
                 },
             },

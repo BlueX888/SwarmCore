@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://deviation-analysis/input@1",
+  "type": "object",
+  "required": [
+    "workItemId", "workItemRevisionId", "evaluationId", "payload", "subjects",
+    "documents", "attachments", "attachmentManifestHash", "selectionManifestHash",
+    "baselineHash", "configurationHash", "configuration"
+  ],
+  "properties": {
+    "workItemId": {"type": "string", "format": "uuid"},
+    "workItemRevisionId": {"type": "string", "format": "uuid"},
+    "evaluationId": {"type": "string", "format": "uuid"},
+    "payload": {
+      "type": "object",
+      "required": ["title", "subject", "period", "asOf", "dimensions", "trendWindow"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "subject": {
+          "type": "object",
+          "required": ["subjectId", "subjectType"],
+          "properties": {
+            "subjectId": {"type": "string", "minLength": 1},
+            "subjectType": {"enum": ["project", "contract", "work-package"]},
+            "name": {"type": "string"}
+          },
+          "additionalProperties": true
+        },
+        "period": {
+          "type": "object",
+          "required": ["start", "end"],
+          "properties": {
+            "start": {"type": "string", "format": "date"},
+            "end": {"type": "string", "format": "date"}
+          },
+          "additionalProperties": false
+        },
+        "asOf": {"type": "string", "format": "date"},
+        "dimensions": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"enum": ["TIME", "CONTENT", "COST"]}
+        },
+        "trendWindow": {"type": "string", "pattern": "^P[0-9]+M$"}
+      },
+      "additionalProperties": true
+    },
+    "subjects": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+    "documents": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}},
+    "attachments": {"type": "array", "items": {"type": "object"}},
+    "attachmentManifestHash": {"type": "string", "minLength": 1},
+    "selectionManifestHash": {"type": "string", "minLength": 1},
+    "baselineHash": {"type": "string", "minLength": 1},
+    "configurationHash": {"type": "string", "minLength": 1},
+    "configuration": {"type": "object"}
+  },
+  "additionalProperties": false
+}

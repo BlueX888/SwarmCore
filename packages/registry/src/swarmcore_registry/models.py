@@ -458,6 +458,479 @@ _POST_EVALUATION_PAYLOAD_SCHEMA = _object_schema(
     },
 )
 
+_EVIDENCE_FACT_SCHEMA_V1 = _object_schema(
+    required=("factId", "factType", "value", "confidence", "evidenceRefs"),
+    properties={
+        "factId": {"type": "string", "minLength": 1},
+        "factType": {"type": "string", "minLength": 1},
+        "value": {},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "evidenceRefs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    },
+)
+
+_DOMAIN_ANALYSIS_SCHEMA_V1 = _object_schema(
+    required=("domain", "payloadPatch", "facts", "conflicts", "missingEvidence"),
+    properties={
+        "domain": {"enum": ["contract", "performance", "finance", "governance"]},
+        "payloadPatch": {"type": "object"},
+        "facts": {"type": "array", "items": _EVIDENCE_FACT_SCHEMA_V1},
+        "conflicts": {"type": "array", "items": {"type": "string"}},
+        "missingEvidence": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_EVIDENCE_FACT_SCHEMA = _object_schema(
+    required=("factId", "factType", "value", "confidence", "evidenceRefs"),
+    properties={
+        "factId": {"type": "string", "minLength": 1},
+        "factType": {"type": "string", "minLength": 1},
+        "value": {"type": "string"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "evidenceRefs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    },
+)
+
+_DOMAIN_ANALYSIS_SCHEMA = _object_schema(
+    required=("domain", "payloadPatch", "facts", "conflicts", "missingEvidence"),
+    properties={
+        "domain": {
+            "type": "string",
+            "enum": ["contract", "performance", "finance", "governance"],
+        },
+        "payloadPatch": {"type": "object"},
+        "facts": {"type": "array", "items": _EVIDENCE_FACT_SCHEMA},
+        "conflicts": {"type": "array", "items": {"type": "string"}},
+        "missingEvidence": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_EVIDENCE_REVIEW_SCHEMA = _object_schema(
+    required=("reviewRequired", "reasons", "acceptedFactIds", "rejectedFactIds"),
+    properties={
+        "reviewRequired": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "acceptedFactIds": {"type": "array", "items": {"type": "string"}},
+        "rejectedFactIds": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_REPORT_NARRATIVE_SCHEMA = _object_schema(
+    required=("executiveSummary", "dimensionNarratives", "recommendations"),
+    properties={
+        "executiveSummary": {"type": "string", "minLength": 1},
+        "dimensionNarratives": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
+        "recommendations": {"type": "array", "items": {"type": "string"}},
+        "managementConclusions": {"type": "array", "items": {"type": "string"}},
+        "limitations": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_REPORT_SECTION_DRAFT_SCHEMA = _object_schema(
+    required=(
+        "title",
+        "summary",
+        "dimensionNarratives",
+        "recommendations",
+        "evidenceRefs",
+    ),
+    properties={
+        "title": {"type": "string", "minLength": 1},
+        "summary": {"type": "string", "minLength": 1},
+        "dimensionNarratives": {
+            "type": "object",
+            "additionalProperties": {"type": "string", "minLength": 1},
+        },
+        "recommendations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "evidenceRefs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    },
+)
+
+_FORMAL_EDITORIAL_SCHEMA = _object_schema(
+    required=(
+        "executiveSummary",
+        "dimensionNarratives",
+        "recommendations",
+        "managementConclusions",
+        "limitations",
+    ),
+    properties={
+        "executiveSummary": {"type": "string", "minLength": 1},
+        "dimensionNarratives": {
+            "type": "object",
+            "additionalProperties": {"type": "string", "minLength": 1},
+        },
+        "recommendations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "managementConclusions": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+        },
+        "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    },
+)
+
+_REPORT_MODEL_REVIEW_SCHEMA = _object_schema(
+    required=("passed", "issues"),
+    properties={
+        "passed": {"type": "boolean"},
+        "issues": {
+            "type": "array",
+            "items": _object_schema(
+                required=("severity", "section", "detail"),
+                properties={
+                    "severity": {
+                        "enum": ["INFO", "WARNING", "BLOCKING", "CRITICAL"]
+                    },
+                    "section": {"type": "string", "minLength": 1},
+                    "detail": {"type": "string", "minLength": 1},
+                },
+            ),
+        },
+    },
+)
+
+_READABILITY_GATE_SCHEMA = _object_schema(
+    required=(
+        "documentCount",
+        "readableDocumentCount",
+        "readabilityRate",
+        "formalThreshold",
+        "formalEligible",
+        "reportMode",
+        "reasons",
+    ),
+    properties={
+        "documentCount": {"type": "integer", "minimum": 0},
+        "readableDocumentCount": {"type": "integer", "minimum": 0},
+        "readabilityRate": {"type": "number", "minimum": 0, "maximum": 1},
+        "formalThreshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "formalEligible": {"type": "boolean"},
+        "reportMode": {"enum": ["FORMAL_REPORT", "PRE_REVIEW_REPORT"]},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_FORMAL_REPORT_DOCUMENT_SCHEMA = _object_schema(
+    required=(
+        "schemaVersion",
+        "title",
+        "reportNumber",
+        "version",
+        "reportMode",
+        "formalEligible",
+        "contractProfile",
+        "managementSummary",
+        "methodology",
+        "dimensionOverview",
+        "dimensionSections",
+        "timeline",
+        "financialAnalysis",
+        "invoiceAnalysis",
+        "deviationAndRisk",
+        "evidenceAndLimitations",
+        "remediationPlan",
+        "approval",
+        "provenance",
+    ),
+    properties={
+        "schemaVersion": {
+            "const": "schema://report/contract-post-evaluation-document@1"
+        },
+        "title": {"type": "string", "minLength": 1},
+        "reportNumber": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "reportMode": {"enum": ["FORMAL_REPORT", "PRE_REVIEW_REPORT"]},
+        "formalEligible": {"type": "boolean"},
+        "contractProfile": {"type": "object"},
+        "managementSummary": {"type": "object"},
+        "methodology": {"type": "object"},
+        "dimensionOverview": {
+            "type": "array",
+            "minItems": 7,
+            "maxItems": 7,
+            "items": {"type": "object"},
+        },
+        "dimensionSections": {
+            "type": "array",
+            "minItems": 7,
+            "maxItems": 7,
+            "items": {"type": "object"},
+        },
+        "timeline": {"type": "array", "items": {"type": "object"}},
+        "financialAnalysis": {"type": "object"},
+        "invoiceAnalysis": {"type": "object"},
+        "deviationAndRisk": {"type": "object"},
+        "evidenceAndLimitations": {"type": "object"},
+        "remediationPlan": {"type": "array", "items": {"type": "object"}},
+        "approval": {"type": "object"},
+        "provenance": {"type": "object"},
+    },
+)
+
+_CITATION_CHECK_SCHEMA = _object_schema(
+    required=(
+        "passed",
+        "indexedEvidenceCount",
+        "citedEvidenceCount",
+        "unknownCitationCodes",
+        "dimensionsWithoutCitations",
+        "scoreMismatches",
+    ),
+    properties={
+        "passed": {"type": "boolean"},
+        "indexedEvidenceCount": {"type": "integer", "minimum": 0},
+        "citedEvidenceCount": {"type": "integer", "minimum": 0},
+        "unknownCitationCodes": {"type": "array", "items": {"type": "string"}},
+        "dimensionsWithoutCitations": {"type": "array", "items": {"type": "string"}},
+        "scoreMismatches": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_REPORT_QUALITY_SCHEMA = _object_schema(
+    required=("passed", "blockingIssues", "warnings", "checks"),
+    properties={
+        "passed": {"type": "boolean"},
+        "blockingIssues": {"type": "array", "items": {"type": "string"}},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "checks": {"type": "object"},
+    },
+)
+
+_EVIDENCE_SEARCH_RESULT_SCHEMA = _object_schema(
+    required=(
+        "domain",
+        "searchedDocuments",
+        "contentAvailableDocuments",
+        "hits",
+        "contentHash",
+    ),
+    properties={
+        "domain": {"enum": ["contract", "performance", "finance", "governance"]},
+        "searchedDocuments": {"type": "integer", "minimum": 0},
+        "contentAvailableDocuments": {"type": "integer", "minimum": 0},
+        "hits": {"type": "array", "items": {"type": "object"}},
+        "contentHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    },
+)
+
+_COVERAGE_RESULT_SCHEMA = _object_schema(
+    required=(
+        "complete",
+        "reviewRequired",
+        "documentCount",
+        "contentAvailableCount",
+        "requirements",
+        "missingRequired",
+        "unreadableDocumentVersionIds",
+        "duplicateSha256",
+        "warnings",
+    ),
+    properties={
+        "complete": {"type": "boolean"},
+        "reviewRequired": {"type": "boolean"},
+        "documentCount": {"type": "integer", "minimum": 0},
+        "contentAvailableCount": {"type": "integer", "minimum": 0},
+        "requirements": {"type": "array", "items": {"type": "object"}},
+        "missingRequired": {"type": "array", "items": {"type": "string"}},
+        "unreadableDocumentVersionIds": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "duplicateSha256": {"type": "array", "items": {"type": "string"}},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_MERGED_DOMAIN_SCHEMA = _object_schema(
+    required=("payload", "evidenceFacts", "conflicts", "missingEvidence", "sourceAgents"),
+    properties={
+        "payload": _POST_EVALUATION_PAYLOAD_SCHEMA,
+        "evidenceFacts": {"type": "array", "items": _EVIDENCE_FACT_SCHEMA},
+        "conflicts": {"type": "array", "items": {"type": "string"}},
+        "missingEvidence": {"type": "array", "items": {"type": "string"}},
+        "sourceAgents": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_CONSISTENCY_RESULT_SCHEMA = _object_schema(
+    required=(
+        "reviewRequired",
+        "conflicts",
+        "warnings",
+        "unsupportedFactIds",
+        "lowConfidenceFactIds",
+        "duplicateIds",
+        "checkedFactCount",
+    ),
+    properties={
+        "reviewRequired": {"type": "boolean"},
+        "conflicts": {"type": "array", "items": {"type": "string"}},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "unsupportedFactIds": {"type": "array", "items": {"type": "string"}},
+        "lowConfidenceFactIds": {"type": "array", "items": {"type": "string"}},
+        "duplicateIds": {"type": "object"},
+        "checkedFactCount": {"type": "integer", "minimum": 0},
+    },
+)
+
+_POST_EVALUATION_RESULT_V2_SCHEMA = _object_schema(
+    required=(
+        "schemaVersion",
+        "evaluationPeriod",
+        "contractId",
+        "overallScore",
+        "grade",
+        "riskLevel",
+        "passed",
+        "reviewRequired",
+        "executiveSummary",
+        "dimensions",
+        "findings",
+        "evidenceSummary",
+        "review",
+        "narrative",
+        "diagnostics",
+        "provenance",
+    ),
+    properties={
+        **_POST_EVALUATION_RESULT_SCHEMA["properties"],
+        "schemaVersion": {"const": "schema://contract/post-evaluation-result@2"},
+        "evidenceSummary": {"type": "object"},
+        "review": {"type": "object"},
+        "narrative": {"type": "object"},
+        "diagnostics": {"type": "object"},
+        "provenance": {"type": "object"},
+    },
+)
+
+_POST_EVALUATION_RESULT_V3_SCHEMA = _object_schema(
+    required=(
+        *_POST_EVALUATION_RESULT_V2_SCHEMA["required"],
+        "readabilityGate",
+        "reportDocument",
+        "reportQuality",
+    ),
+    properties={
+        **_POST_EVALUATION_RESULT_V2_SCHEMA["properties"],
+        "schemaVersion": {"const": "schema://contract/post-evaluation-result@3"},
+        "readabilityGate": _READABILITY_GATE_SCHEMA,
+        "reportDocument": _FORMAL_REPORT_DOCUMENT_SCHEMA,
+        "reportQuality": _REPORT_QUALITY_SCHEMA,
+    },
+)
+
+_DEVIATION_FACT_ANALYSIS_SCHEMA = _object_schema(
+    required=("payloadPatch", "facts", "conflicts", "missingEvidence"),
+    properties={
+        "payloadPatch": {"type": "object"},
+        "facts": {"type": "array", "items": {"type": "object"}},
+        "conflicts": {"type": "array", "items": {"type": "string"}},
+        "missingEvidence": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_DEVIATION_ROOT_CAUSE_SCHEMA = _object_schema(
+    required=("rootCauses",),
+    properties={
+        "rootCauses": {
+            "type": "array",
+            "items": _object_schema(
+                required=(
+                    "causeId",
+                    "title",
+                    "hypothesis",
+                    "impact",
+                    "confidence",
+                    "evidenceRefs",
+                ),
+                properties={
+                    "causeId": {"type": "string", "minLength": 1},
+                    "title": {"type": "string", "minLength": 1},
+                    "hypothesis": {"type": "string", "minLength": 1},
+                    "impact": {"type": "string", "minLength": 1},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                    "evidenceRefs": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                },
+            ),
+        }
+    },
+)
+
+_DEVIATION_RESPONSIBILITY_SCHEMA = _object_schema(
+    required=("proposals",),
+    properties={
+        "proposals": {
+            "type": "array",
+            "items": _object_schema(
+                required=(
+                    "proposalId",
+                    "party",
+                    "scope",
+                    "rationale",
+                    "confidence",
+                    "evidenceRefs",
+                ),
+                properties={
+                    "proposalId": {"type": "string", "minLength": 1},
+                    "party": {"type": "string", "minLength": 1},
+                    "scope": {"type": "string", "minLength": 1},
+                    "rationale": {"type": "string", "minLength": 1},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                    "evidenceRefs": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                },
+            ),
+        }
+    },
+)
+
+_DEVIATION_REVIEW_SCHEMA = _object_schema(
+    required=("reviewRequired", "reasons"),
+    properties={
+        "reviewRequired": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_DEVIATION_NARRATIVE_SCHEMA = _object_schema(
+    required=("executiveSummary", "dimensionNarratives", "recommendations"),
+    properties={
+        "executiveSummary": {"type": "string", "minLength": 1},
+        "dimensionNarratives": {"type": "object"},
+        "recommendations": {"type": "array", "items": {"type": "string"}},
+    },
+)
+
+_DEVIATION_RESULT_SCHEMA = {
+    "type": "object",
+    "required": [
+        "schemaVersion",
+        "qualityStatus",
+        "reviewRequired",
+        "dimensions",
+        "responsibility",
+        "provenance",
+    ],
+    "properties": {
+        "schemaVersion": {"const": "schema://deviation-analysis/result@1"},
+        "qualityStatus": {"enum": ["READY", "REVIEW_REQUIRED", "BLOCKED"]},
+        "reviewRequired": {"type": "boolean"},
+        "dimensions": {"type": "object"},
+        "responsibility": {"type": "object"},
+        "provenance": {"type": "object"},
+    },
+}
+
 
 def builtin_registry() -> RegistrySnapshot:
     return RegistrySnapshot.create(
@@ -602,6 +1075,483 @@ def builtin_registry() -> RegistrySnapshot:
                     },
                 ),
                 outputSchema=_POST_EVALUATION_PAYLOAD_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://contract/baseline-analyst@1",
+                version="1",
+                role="contract-baseline-analyst",
+                instructions=(
+                    "Analyze only contract-baseline evidence: primary contracts, amendments, "
+                    "procurement commitments, parties, amount, period, and required documents. "
+                    "Return domain='contract'. Put normalized contract/documents fields in "
+                    "payloadPatch. Every material fact must include immutable document-version "
+                    "evidence references; never invent missing values. Report contradictions and "
+                    "missing evidence explicitly and match the declared schema exactly."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "evidence", "coverage"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "evidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                    },
+                ),
+                outputSchema=_DOMAIN_ANALYSIS_SCHEMA_V1,
+            ),
+            AgentRegistration(
+                ref="agent://contract/performance-quality-analyst@1",
+                version="1",
+                role="contract-performance-quality-analyst",
+                instructions=(
+                    "Analyze only delivery, milestone, acceptance, timeliness, and quality "
+                    "evidence. Return domain='performance' and normalized obligations in "
+                    "payloadPatch. Preserve fallback identifiers only when evidence does not "
+                    "supply them. Cite immutable document-version evidence for each fact, surface "
+                    "conflicts and missing evidence, and match the declared schema exactly."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "evidence", "coverage"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "evidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                    },
+                ),
+                outputSchema=_DOMAIN_ANALYSIS_SCHEMA_V1,
+            ),
+            AgentRegistration(
+                ref="agent://contract/finance-invoice-analyst@1",
+                version="1",
+                role="contract-finance-invoice-analyst",
+                instructions=(
+                    "Analyze only contract amount, amendments, actual cost, invoices, tax and "
+                    "payment evidence. Return domain='finance'; place contract updates and "
+                    "normalized invoices in payloadPatch. Never treat missing finance records as "
+                    "zero. Cite immutable document-version evidence for every material fact, "
+                    "report conflicts and gaps, and match the declared schema exactly."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "evidence", "coverage"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "evidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                    },
+                ),
+                outputSchema=_DOMAIN_ANALYSIS_SCHEMA_V1,
+            ),
+            AgentRegistration(
+                ref="agent://contract/deviation-risk-analyst@1",
+                version="1",
+                role="contract-deviation-risk-analyst",
+                instructions=(
+                    "Analyze only deviations, changes, remediation, supplier and risk evidence. "
+                    "Return domain='governance' with normalized deviations and risks in "
+                    "payloadPatch. Distinguish 'no registered record' from 'records unavailable'. "
+                    "Cite immutable document-version evidence for each fact, surface conflicts "
+                    "and missing evidence, and match the declared schema exactly."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "evidence", "coverage"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "evidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                    },
+                ),
+                outputSchema=_DOMAIN_ANALYSIS_SCHEMA_V1,
+            ),
+            AgentRegistration(
+                ref="agent://contract/baseline-analyst@2",
+                version="2",
+                role="contract-baseline-analyst",
+                instructions=(
+                    "Analyze only contract-baseline evidence: contracts, amendments, procurement "
+                    "commitments, parties, amount, period, and required documents. Return "
+                    "domain='contract'. Put normalized contract/documents fields in payloadPatch. "
+                    "Every fact value must be a string and must cite immutable document-version "
+                    "evidence. Never invent values; report conflicts and missing evidence."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "evidence", "coverage"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "evidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                    },
+                ),
+                outputSchema=_DOMAIN_ANALYSIS_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://contract/performance-quality-analyst@2",
+                version="2",
+                role="contract-performance-quality-analyst",
+                instructions=(
+                    "Analyze only delivery, milestone, acceptance, timeliness, and quality "
+                    "evidence. Return domain='performance' and normalized obligations in "
+                    "payloadPatch. Every fact value must be a string and cite immutable "
+                    "document-version evidence. Surface conflicts and missing evidence."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "evidence", "coverage"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "evidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                    },
+                ),
+                outputSchema=_DOMAIN_ANALYSIS_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://contract/finance-invoice-analyst@2",
+                version="2",
+                role="contract-finance-invoice-analyst",
+                instructions=(
+                    "Analyze only contract amount, amendments, actual cost, invoices, tax and "
+                    "payment evidence. Return domain='finance'; place normalized contract updates "
+                    "and invoices in payloadPatch. Every fact value must be a string and cite "
+                    "immutable document-version evidence. Missing records are not zero."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "evidence", "coverage"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "evidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                    },
+                ),
+                outputSchema=_DOMAIN_ANALYSIS_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://contract/deviation-risk-analyst@2",
+                version="2",
+                role="contract-deviation-risk-analyst",
+                instructions=(
+                    "Analyze only deviations, changes, remediation, supplier and risk evidence. "
+                    "Return domain='governance' with normalized deviations and risks in "
+                    "payloadPatch. Every fact value must be a string and cite immutable "
+                    "document-version evidence. Distinguish no record from unavailable records."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "evidence", "coverage"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "evidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                    },
+                ),
+                outputSchema=_DOMAIN_ANALYSIS_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://contract/evidence-reviewer@1",
+                version="1",
+                role="contract-evidence-reviewer",
+                instructions=(
+                    "Review the deterministic coverage, consistency, timeline, finance, invoice, "
+                    "deviation and risk diagnostics. Require human review for unresolved material "
+                    "conflicts, unreadable required documents, missing required evidence, or "
+                    "low-confidence material facts. Do not change extracted facts or scores. "
+                    "Return accepted/rejected fact identifiers and concise reasons using exactly "
+                    "the declared schema."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("coverage", "consistency", "diagnostics", "facts"),
+                    properties={
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                        "consistency": _CONSISTENCY_RESULT_SCHEMA,
+                        "diagnostics": {"type": "object"},
+                        "facts": {"type": "array", "items": _EVIDENCE_FACT_SCHEMA},
+                    },
+                ),
+                outputSchema=_EVIDENCE_REVIEW_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://contract/report-narrator@1",
+                version="1",
+                role="contract-post-evaluation-report-narrator",
+                instructions=(
+                    "Explain the frozen deterministic seven-dimension result in concise Chinese. "
+                    "Do not alter scores, grades, risk level, findings, or evidence. Provide one "
+                    "executive summary, narratives keyed by dimension code, and actionable "
+                    "recommendations. Match the declared schema exactly."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("result", "review", "diagnostics"),
+                    properties={
+                        "result": _POST_EVALUATION_RESULT_SCHEMA,
+                        "review": _EVIDENCE_REVIEW_SCHEMA,
+                        "diagnostics": {"type": "object"},
+                    },
+                ),
+                outputSchema=_REPORT_NARRATIVE_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://contract/performance-report-writer@1",
+                version="1",
+                role="contract-performance-report-writer",
+                instructions=(
+                    "Write the Chinese business-report sections for document completeness, "
+                    "delivery timeliness and delivery quality. Use only the frozen score, "
+                    "diagnostics and cited evidence. Explain management impact, evidence "
+                    "limitations and concrete remediation without changing any score, grade, "
+                    "risk level or evidence identifier. Match the declared schema exactly."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("result", "diagnostics", "readability"),
+                    properties={
+                        "result": _POST_EVALUATION_RESULT_SCHEMA,
+                        "diagnostics": {"type": "object"},
+                        "readability": _READABILITY_GATE_SCHEMA,
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_REPORT_SECTION_DRAFT_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://contract/governance-report-writer@1",
+                version="1",
+                role="contract-governance-report-writer",
+                instructions=(
+                    "Write the Chinese business-report sections for cost, invoice, deviation "
+                    "and risk governance. Use only frozen deterministic results and cited "
+                    "evidence. Distinguish verified facts, conflicts and data limitations. "
+                    "Produce actionable remediation without changing scores or evidence. "
+                    "Match the declared schema exactly."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("result", "diagnostics", "readability"),
+                    properties={
+                        "result": _POST_EVALUATION_RESULT_SCHEMA,
+                        "diagnostics": {"type": "object"},
+                        "readability": _READABILITY_GATE_SCHEMA,
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_REPORT_SECTION_DRAFT_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://contract/report-narrator@2",
+                version="2",
+                role="contract-post-evaluation-executive-editor",
+                instructions=(
+                    "Act as the executive editor for a formal Chinese contract post-evaluation "
+                    "report. Reconcile the two section drafts with the frozen seven-dimension "
+                    "result, evidence review, diagnostics and readability gate. Produce a "
+                    "decision-oriented executive summary, narratives for all seven dimension "
+                    "codes, prioritized recommendations, management conclusions and explicit "
+                    "limitations. Never alter scores, grades, risk level or evidence. Do not "
+                    "expose internal tool, agent or schema identifiers. Match the schema exactly."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=(
+                        "result",
+                        "review",
+                        "diagnostics",
+                        "sectionDrafts",
+                        "readability",
+                    ),
+                    properties={
+                        "result": _POST_EVALUATION_RESULT_SCHEMA,
+                        "review": _EVIDENCE_REVIEW_SCHEMA,
+                        "diagnostics": {"type": "object"},
+                        "sectionDrafts": {"type": "object"},
+                        "readability": _READABILITY_GATE_SCHEMA,
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_FORMAL_EDITORIAL_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://contract/report-quality-reviewer@1",
+                version="1",
+                role="contract-post-evaluation-report-quality-reviewer",
+                instructions=(
+                    "Review the composed formal report against the frozen result, citation "
+                    "check and readability gate. Flag only concrete omissions, contradictions, "
+                    "unsupported claims, internal identifiers or unsuitable formal-report "
+                    "language. Do not rewrite the report and do not change scores. A pre-review "
+                    "report may pass when its data-quality limitation and watermark are explicit. "
+                    "Match the declared schema exactly."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=(
+                        "reportDocument",
+                        "sourceResult",
+                        "citationCheck",
+                        "readability",
+                    ),
+                    properties={
+                        "reportDocument": _FORMAL_REPORT_DOCUMENT_SCHEMA,
+                        "sourceResult": _POST_EVALUATION_RESULT_V2_SCHEMA,
+                        "citationCheck": _CITATION_CHECK_SCHEMA,
+                        "readability": _READABILITY_GATE_SCHEMA,
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_REPORT_MODEL_REVIEW_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://deviation/schedule-scope-fact-analyst@1",
+                version="1",
+                role="deviation-schedule-scope-fact-analyst",
+                instructions=(
+                    "Extract only schedule baselines, actual or forecast milestone dates, "
+                    "critical-path indicators, PV/EV, scope items, delivery and acceptance "
+                    "statuses. Cite immutable document-version evidence for every material fact. "
+                    "Do not calculate variances, scores, SPI or trends. Never choose documents, "
+                    "invent missing values or resolve baseline ambiguity."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "scheduleEvidence", "scopeEvidence", "coverage"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "scheduleEvidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "scopeEvidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_DEVIATION_FACT_ANALYSIS_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://deviation/cost-change-fact-analyst@1",
+                version="1",
+                role="deviation-cost-change-fact-analyst",
+                instructions=(
+                    "Extract only original budget, approved changes, current budget, AC, "
+                    "commitments, EAC, PV/EV, currency and frozen exchange-rate facts. Separate "
+                    "approved from proposed changes and actual cost from commitments. Cite "
+                    "immutable evidence. Do not calculate cost variance, CV or CPI."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("basePayload", "costEvidence", "changeEvidence", "coverage"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "costEvidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "changeEvidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_DEVIATION_FACT_ANALYSIS_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://deviation/root-cause-analyst@1",
+                version="1",
+                role="deviation-root-cause-analyst",
+                instructions=(
+                    "Explain plausible root causes only from deterministic dimension diagnostics "
+                    "and cited evidence. Separate observation, causal hypothesis and impact. "
+                    "Return confidence and evidence references; do not modify any metric or state "
+                    "an unsupported cause as fact."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("dimensions", "evidence"),
+                    properties={
+                        "dimensions": {"type": "object"},
+                        "evidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_DEVIATION_ROOT_CAUSE_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://deviation/responsibility-analyst@1",
+                version="1",
+                role="deviation-responsibility-analyst",
+                instructions=(
+                    "Propose possible responsibility allocation from root causes, RACI, contract "
+                    "clauses, approvals and meeting evidence. Every item is a proposal only and "
+                    "must cite evidence and confidence. Never output CONFIRMED or DISPUTED and "
+                    "never infer responsibility from a metric alone."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=("rootCauses", "evidence"),
+                    properties={
+                        "rootCauses": {"type": "array", "items": {"type": "object"}},
+                        "evidence": _EVIDENCE_SEARCH_RESULT_SCHEMA,
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_DEVIATION_RESPONSIBILITY_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://deviation/evidence-reviewer@1",
+                version="1",
+                role="deviation-evidence-reviewer",
+                instructions=(
+                    "Review coverage, immutable evidence, conflicts, baseline ambiguity, blocked "
+                    "dimensions and responsibility proposals. Require human review for missing "
+                    "required documents, material conflicts, cross-currency blocks or any "
+                    "responsibility proposal. Do not change facts or deterministic metrics."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=(
+                        "coverage",
+                        "consistency",
+                        "dimensions",
+                        "rootCauses",
+                        "responsibility",
+                    ),
+                    properties={
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                        "consistency": _CONSISTENCY_RESULT_SCHEMA,
+                        "dimensions": {"type": "object"},
+                        "rootCauses": {"type": "array", "items": {"type": "object"}},
+                        "responsibility": {"type": "object"},
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_DEVIATION_REVIEW_SCHEMA,
+            ),
+            AgentRegistration(
+                ref="agent://deviation/report-narrator@1",
+                version="1",
+                role="deviation-report-narrator",
+                instructions=(
+                    "Write a concise Chinese management narrative from frozen deterministic "
+                    "metrics, evidence review, root causes, trends and proposed responsibility. "
+                    "Do not alter numbers, statuses, evidence or responsibility state. Explicitly "
+                    "label responsibility as pending human confirmation."
+                ),
+                model="model://general@1",
+                inputSchema=_object_schema(
+                    required=(
+                        "dimensions",
+                        "rootCauses",
+                        "trends",
+                        "responsibility",
+                        "review",
+                    ),
+                    properties={
+                        "dimensions": {"type": "object"},
+                        "rootCauses": {"type": "array", "items": {"type": "object"}},
+                        "trends": {"type": "object"},
+                        "responsibility": {"type": "object"},
+                        "review": _DEVIATION_REVIEW_SCHEMA,
+                        "_contextMode": {"const": "node_only"},
+                    },
+                ),
+                outputSchema=_DEVIATION_NARRATIVE_SCHEMA,
             ),
         ),
         models=(
@@ -875,6 +1825,173 @@ def builtin_registry() -> RegistrySnapshot:
                 recoveryPolicy="idempotent",
             ),
             ToolRegistration(
+                ref="tool://evidence/search@1",
+                version="1",
+                operation="evidence.search",
+                description=(
+                    "Search compact processed content from frozen document versions by domain."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("documents", "domain"),
+                    properties={
+                        "documents": {"type": "array", "items": {"type": "object"}},
+                        "domain": {
+                            "enum": ["contract", "performance", "finance", "governance"]
+                        },
+                        "keywords": {"type": "array", "items": {"type": "string"}},
+                        "maxHits": {"type": "integer", "minimum": 1, "maximum": 50},
+                    },
+                ),
+                outputSchema=_EVIDENCE_SEARCH_RESULT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://document/coverage-check@1",
+                version="1",
+                operation="document.coverage_check",
+                description=(
+                    "Evaluate required document categories, readability and duplicate content."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("documents", "requirements"),
+                    properties={
+                        "documents": {"type": "array", "items": {"type": "object"}},
+                        "requirements": {"type": "array", "items": {"type": "object"}},
+                    },
+                ),
+                outputSchema=_COVERAGE_RESULT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://contract/post-evaluation/merge-domains@1",
+                version="1",
+                operation="contract.post_evaluation_merge_domains",
+                description=(
+                    "Merge four evidence-backed domain analyses into one normalized payload."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("basePayload", "analyses"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "analyses": {"type": "object"},
+                    },
+                ),
+                outputSchema=_MERGED_DOMAIN_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://contract/timeline-calculate@1",
+                version="1",
+                operation="contract.post_evaluation_timeline",
+                description="Calculate deterministic obligation timeliness diagnostics.",
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload",),
+                    properties={"payload": _POST_EVALUATION_PAYLOAD_SCHEMA},
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://finance/amount-reconcile@1",
+                version="1",
+                operation="finance.post_evaluation_amounts",
+                description=(
+                    "Reconcile contract amount, actual cost and invoiced amount deterministically."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload",),
+                    properties={"payload": _POST_EVALUATION_PAYLOAD_SCHEMA},
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://invoice/assurance@1",
+                version="1",
+                operation="invoice.post_evaluation_assurance",
+                description=(
+                    "Calculate invoice matching, duplicate and compliance diagnostics."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload",),
+                    properties={"payload": _POST_EVALUATION_PAYLOAD_SCHEMA},
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://deviation/aggregate@1",
+                version="1",
+                operation="deviation.post_evaluation_aggregate",
+                description="Aggregate deviation closure, severity, delay and cost impact.",
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload",),
+                    properties={"payload": _POST_EVALUATION_PAYLOAD_SCHEMA},
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://risk/aggregate@1",
+                version="1",
+                operation="risk.post_evaluation_aggregate",
+                description="Aggregate risk closure, level and overdue remediation diagnostics.",
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload",),
+                    properties={"payload": _POST_EVALUATION_PAYLOAD_SCHEMA},
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://evidence/consistency-check@1",
+                version="1",
+                operation="evidence.consistency_check",
+                description=(
+                    "Check identifiers, declared conflicts, evidence references and confidence."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload", "evidenceFacts", "declaredConflicts"),
+                    properties={
+                        "payload": _POST_EVALUATION_PAYLOAD_SCHEMA,
+                        "evidenceFacts": {"type": "array", "items": _EVIDENCE_FACT_SCHEMA},
+                        "declaredConflicts": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                ),
+                outputSchema=_CONSISTENCY_RESULT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
                 ref="tool://contract/post-evaluation/assemble@1",
                 version="1",
                 operation="contract.post_evaluation_assemble",
@@ -922,6 +2039,40 @@ def builtin_registry() -> RegistrySnapshot:
                 recoveryPolicy="idempotent",
             ),
             ToolRegistration(
+                ref="tool://contract/post-evaluation/finalize@2",
+                version="2",
+                operation="contract.post_evaluation_finalize",
+                description=(
+                    "Freeze deterministic scoring, evidence review, diagnostics and narrative "
+                    "into the version 2 post-evaluation result."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=(
+                        "score",
+                        "review",
+                        "narrative",
+                        "coverage",
+                        "consistency",
+                        "diagnostics",
+                        "provenance",
+                    ),
+                    properties={
+                        "score": _POST_EVALUATION_RESULT_SCHEMA,
+                        "review": _EVIDENCE_REVIEW_SCHEMA,
+                        "narrative": _REPORT_NARRATIVE_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                        "consistency": _CONSISTENCY_RESULT_SCHEMA,
+                        "diagnostics": {"type": "object"},
+                        "provenance": {"type": "object"},
+                    },
+                ),
+                outputSchema=_POST_EVALUATION_RESULT_V2_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
                 ref="tool://report/render-post-evaluation@1",
                 version="1",
                 operation="report.render_post_evaluation",
@@ -933,6 +2084,181 @@ def builtin_registry() -> RegistrySnapshot:
                         "title": {"type": "string", "minLength": 1},
                         "result": _POST_EVALUATION_RESULT_SCHEMA,
                     },
+                ),
+                outputSchema=_PDF_REPORT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://report/render-post-evaluation@2",
+                version="2",
+                operation="report.render_post_evaluation_v2",
+                description=(
+                    "Render a PDF from the evidence-backed version 2 post-evaluation result."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("title", "result"),
+                    properties={
+                        "title": {"type": "string", "minLength": 1},
+                        "result": _POST_EVALUATION_RESULT_V2_SCHEMA,
+                    },
+                ),
+                outputSchema=_PDF_REPORT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://report/render-post-evaluation@3",
+                version="3",
+                operation="report.render_post_evaluation_v3",
+                description=(
+                    "Render a CJK-capable PDF from the evidence-backed version 2 "
+                    "post-evaluation result."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("title", "result"),
+                    properties={
+                        "title": {"type": "string", "minLength": 1},
+                        "result": _POST_EVALUATION_RESULT_V2_SCHEMA,
+                    },
+                ),
+                outputSchema=_PDF_REPORT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://document/readability-gate@1",
+                version="1",
+                operation="document.post_evaluation_readability_gate",
+                description=(
+                    "Classify a frozen document set as formal-report eligible or pre-review "
+                    "using a deterministic readable-content threshold."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("coverage", "formalThreshold"),
+                    properties={
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                        "formalThreshold": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1,
+                        },
+                    },
+                ),
+                outputSchema=_READABILITY_GATE_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://report/compose-post-evaluation@1",
+                version="1",
+                operation="report.compose_post_evaluation",
+                description=(
+                    "Compose a complete business-grade report document from frozen results, "
+                    "diagnostics, approved evidence and bounded model narratives."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=(
+                        "title",
+                        "result",
+                        "readability",
+                        "sectionDrafts",
+                        "editorial",
+                        "review",
+                        "coverage",
+                        "consistency",
+                        "diagnostics",
+                        "approval",
+                    ),
+                    properties={
+                        "title": {"type": "string", "minLength": 1},
+                        "result": _POST_EVALUATION_RESULT_V2_SCHEMA,
+                        "readability": _READABILITY_GATE_SCHEMA,
+                        "sectionDrafts": {"type": "object"},
+                        "editorial": _FORMAL_EDITORIAL_SCHEMA,
+                        "review": _EVIDENCE_REVIEW_SCHEMA,
+                        "coverage": _COVERAGE_RESULT_SCHEMA,
+                        "consistency": _CONSISTENCY_RESULT_SCHEMA,
+                        "diagnostics": {"type": "object"},
+                        "approval": {"type": ["object", "null"]},
+                    },
+                ),
+                outputSchema=_FORMAL_REPORT_DOCUMENT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://report/verify-post-evaluation-citations@1",
+                version="1",
+                operation="report.verify_post_evaluation_citations",
+                description=(
+                    "Verify report citations and prove that all displayed scores match the "
+                    "frozen evaluation."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("reportDocument", "sourceResult"),
+                    properties={
+                        "reportDocument": _FORMAL_REPORT_DOCUMENT_SCHEMA,
+                        "sourceResult": _POST_EVALUATION_RESULT_V2_SCHEMA,
+                    },
+                ),
+                outputSchema=_CITATION_CHECK_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://report/check-post-evaluation-quality@1",
+                version="1",
+                operation="report.check_post_evaluation_quality",
+                description=(
+                    "Apply the deterministic formal-report completeness, score, citation and "
+                    "business-language gate and emit the version 3 frozen result."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=(
+                        "sourceResult",
+                        "reportDocument",
+                        "citationCheck",
+                        "modelReview",
+                        "readability",
+                    ),
+                    properties={
+                        "sourceResult": _POST_EVALUATION_RESULT_V2_SCHEMA,
+                        "reportDocument": _FORMAL_REPORT_DOCUMENT_SCHEMA,
+                        "citationCheck": _CITATION_CHECK_SCHEMA,
+                        "modelReview": _REPORT_MODEL_REVIEW_SCHEMA,
+                        "readability": _READABILITY_GATE_SCHEMA,
+                    },
+                ),
+                outputSchema=_POST_EVALUATION_RESULT_V3_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://report/render-post-evaluation@4",
+                version="4",
+                operation="report.render_post_evaluation_v4",
+                description=(
+                    "Render a quality-gated, multi-section Chinese contract post-evaluation "
+                    "PDF with cover, score chart, tables, evidence, remediation and approval."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("result",),
+                    properties={"result": _POST_EVALUATION_RESULT_V3_SCHEMA},
                 ),
                 outputSchema=_PDF_REPORT_SCHEMA,
                 idempotent=True,
@@ -964,6 +2290,443 @@ def builtin_registry() -> RegistrySnapshot:
                 ),
                 idempotent=True,
                 sideEffecting=True,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://workbench/record-post-evaluation@2",
+                version="2",
+                operation="workbench.record_post_evaluation",
+                description=(
+                    "Idempotently persist an evidence-backed version 2 evaluation and reports."
+                ),
+                risk=ToolRisk.MEDIUM,
+                inputSchema=_object_schema(
+                    required=("evaluationId", "result", "report"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "result": _POST_EVALUATION_RESULT_V2_SCHEMA,
+                        "report": _PDF_REPORT_SCHEMA,
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=("evaluationId", "recorded", "effectId", "resultHash"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "recorded": {"type": "boolean"},
+                        "effectId": {"type": "string"},
+                        "resultHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=True,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://workbench/record-post-evaluation@3",
+                version="3",
+                operation="workbench.record_post_evaluation",
+                description=(
+                    "Idempotently persist the version 3 evaluation, formal report document, "
+                    "quality gate and rendered PDF."
+                ),
+                risk=ToolRisk.MEDIUM,
+                inputSchema=_object_schema(
+                    required=("evaluationId", "result", "report"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "result": _POST_EVALUATION_RESULT_V3_SCHEMA,
+                        "report": _PDF_REPORT_SCHEMA,
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=("evaluationId", "recorded", "effectId", "resultHash"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "recorded": {"type": "boolean"},
+                        "effectId": {"type": "string"},
+                        "resultHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=True,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://deviation/facts-merge@1",
+                version="1",
+                operation="deviation.facts_merge",
+                description=(
+                    "Merge evidence-backed deviation fact patches without calculating metrics."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("basePayload", "analyses"),
+                    properties={
+                        "basePayload": {"type": "object"},
+                        "analyses": {"type": "object"},
+                        "configuration": {"type": "object"},
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=("payload", "facts", "conflicts", "missingEvidence"),
+                    properties={
+                        "payload": {"type": "object"},
+                        "facts": {"type": "array", "items": {"type": "object"}},
+                        "conflicts": {"type": "array", "items": {"type": "string"}},
+                        "missingEvidence": {"type": "array", "items": {"type": "string"}},
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://deviation/time-calculate@1",
+                version="1",
+                operation="deviation.time_calculate",
+                description=(
+                    "Calculate milestone, on-time, critical-path and optional SPI diagnostics."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload",), properties={"payload": {"type": "object"}}
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://deviation/content-compare@1",
+                version="1",
+                operation="deviation.content_compare",
+                description=(
+                    "Compare baseline deliverables and acceptance using frozen scoring rules."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload",), properties={"payload": {"type": "object"}}
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://deviation/cost-calculate@1",
+                version="1",
+                operation="deviation.cost_calculate",
+                description=(
+                    "Calculate current BAC, EAC variance and optional CV/CPI deterministically."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("payload",), properties={"payload": {"type": "object"}}
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://deviation/history-read@1",
+                version="1",
+                operation="deviation.history_read",
+                description=(
+                    "Read same-subject historical results with identical baseline "
+                    "and configuration."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=(
+                        "evaluationId",
+                        "subjectId",
+                        "baselineHash",
+                        "configurationHash",
+                        "asOf",
+                    ),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "subjectId": {"type": "string", "minLength": 1},
+                        "baselineHash": {"type": "string", "minLength": 1},
+                        "configurationHash": {"type": "string", "minLength": 1},
+                        "asOf": {"type": "string", "format": "date"},
+                        "trendWindow": {
+                            "type": "string",
+                            "pattern": "^P[0-9]+M$",
+                        },
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=("items", "count"),
+                    properties={
+                        "items": {"type": "array", "items": {"type": "object"}},
+                        "count": {"type": "integer", "minimum": 0},
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://deviation/trend-build@1",
+                version="1",
+                operation="deviation.trend_build",
+                description=(
+                    "Build comparable trends and decline judgment on a first or incompatible run."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("current", "history"),
+                    properties={
+                        "current": {"type": "object"},
+                        "history": {"type": "array", "items": {"type": "object"}},
+                    },
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://deviation/responsibility-aggregate@1",
+                version="1",
+                operation="deviation.responsibility_aggregate",
+                description=(
+                    "Normalize AI responsibility output as human-confirmable proposals only."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("proposals",),
+                    properties={"proposals": {"type": "array", "items": {"type": "object"}}},
+                ),
+                outputSchema={"type": "object"},
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://deviation/finalize@1",
+                version="1",
+                operation="deviation.finalize",
+                description=(
+                    "Freeze metrics, root causes, trends, responsibility, review and provenance."
+                ),
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=(
+                        "payload",
+                        "dimensions",
+                        "rootCauses",
+                        "trends",
+                        "responsibility",
+                        "coverage",
+                        "evidenceReview",
+                        "narrative",
+                        "provenance",
+                    ),
+                    properties={
+                        "payload": {"type": "object"},
+                        "dimensions": {"type": "object"},
+                        "rootCauses": {"type": "array", "items": {"type": "object"}},
+                        "trends": {"type": "object"},
+                        "responsibility": {"type": "object"},
+                        "coverage": {"type": "object"},
+                        "evidenceReview": {"type": "object"},
+                        "narrative": {"type": "object"},
+                        "provenance": {"type": "object"},
+                    },
+                ),
+                outputSchema=_DEVIATION_RESULT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://report/render-deviation-analysis@1",
+                version="1",
+                operation="report.render_deviation_analysis",
+                description="Render a deterministic PDF from the structured deviation result.",
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("result",), properties={"result": _DEVIATION_RESULT_SCHEMA}
+                ),
+                outputSchema=_PDF_REPORT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://workbench/record-deviation-analysis@1",
+                version="1",
+                operation="workbench.record_deviation_analysis",
+                description="Idempotently persist deviation JSON/PDF, audit and outbox events.",
+                risk=ToolRisk.MEDIUM,
+                inputSchema=_object_schema(
+                    required=("evaluationId", "result", "report"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "result": _DEVIATION_RESULT_SCHEMA,
+                        "report": _PDF_REPORT_SCHEMA,
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=("evaluationId", "recorded", "effectId", "resultHash"),
+                    properties={
+                        "evaluationId": {"type": "string", "format": "uuid"},
+                        "recorded": {"type": "boolean"},
+                        "effectId": {"type": "string"},
+                        "resultHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=True,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://filesystem/read-text@1",
+                version="1",
+                operation="filesystem.read_text",
+                description="Read a UTF text file from a tenant/project logical filesystem mount.",
+                risk=ToolRisk.MEDIUM,
+                inputSchema=_object_schema(
+                    required=("mount", "path"),
+                    properties={
+                        "mount": {"type": "string", "minLength": 1, "maxLength": 64},
+                        "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+                        "encoding": {"type": "string", "minLength": 1, "default": "utf-8"},
+                        "expectedSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=("mount", "path", "content", "encoding", "sizeBytes", "sha256"),
+                    properties={
+                        "mount": {"type": "string"},
+                        "path": {"type": "string"},
+                        "content": {"type": "string"},
+                        "encoding": {"type": "string"},
+                        "sizeBytes": {"type": "integer", "minimum": 0},
+                        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://filesystem/write-text@1",
+                version="1",
+                operation="filesystem.write_text",
+                description=(
+                    "Atomically write a UTF text file under a tenant/project logical mount."
+                ),
+                risk=ToolRisk.HIGH,
+                inputSchema=_object_schema(
+                    required=("mount", "path", "content"),
+                    properties={
+                        "mount": {"type": "string", "minLength": 1, "maxLength": 64},
+                        "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+                        "content": {"type": "string"},
+                        "encoding": {"type": "string", "minLength": 1, "default": "utf-8"},
+                        "mode": {"enum": ["create", "replace"], "default": "create"},
+                        "expectedSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=("mount", "path", "created", "sizeBytes", "sha256", "effectId"),
+                    properties={
+                        "mount": {"type": "string"},
+                        "path": {"type": "string"},
+                        "created": {"type": "boolean"},
+                        "sizeBytes": {"type": "integer", "minimum": 0},
+                        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                        "effectId": {"type": "string", "minLength": 1},
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=True,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://filesystem/list@1",
+                version="1",
+                operation="filesystem.list",
+                description="List direct children under a tenant/project logical filesystem path.",
+                risk=ToolRisk.MEDIUM,
+                inputSchema=_object_schema(
+                    required=("mount", "path"),
+                    properties={
+                        "mount": {"type": "string", "minLength": 1, "maxLength": 64},
+                        "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=("mount", "path", "entries"),
+                    properties={
+                        "mount": {"type": "string"},
+                        "path": {"type": "string"},
+                        "entries": {
+                            "type": "array",
+                            "items": _object_schema(
+                                required=("name", "path", "type", "sizeBytes", "rejectedLink"),
+                                properties={
+                                    "name": {"type": "string"},
+                                    "path": {"type": "string"},
+                                    "type": {
+                                        "enum": ["file", "directory", "link", "other"],
+                                    },
+                                    "sizeBytes": {"type": "integer", "minimum": 0},
+                                    "rejectedLink": {"type": "boolean"},
+                                },
+                            ),
+                        },
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://filesystem/stat@1",
+                version="1",
+                operation="filesystem.stat",
+                description="Stat a path under a tenant/project logical filesystem mount.",
+                risk=ToolRisk.MEDIUM,
+                inputSchema=_object_schema(
+                    required=("mount", "path"),
+                    properties={
+                        "mount": {"type": "string", "minLength": 1, "maxLength": 64},
+                        "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+                    },
+                ),
+                outputSchema=_object_schema(
+                    required=(
+                        "mount",
+                        "path",
+                        "type",
+                        "sizeBytes",
+                        "modifiedAt",
+                        "sha256",
+                        "rejectedLink",
+                    ),
+                    properties={
+                        "mount": {"type": "string"},
+                        "path": {"type": "string"},
+                        "type": {"enum": ["file", "directory", "link", "other"]},
+                        "sizeBytes": {"type": "integer", "minimum": 0},
+                        "modifiedAt": {"type": ["string", "null"]},
+                        "sha256": {
+                            "anyOf": [
+                                {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                                {"type": "null"},
+                            ]
+                        },
+                        "rejectedLink": {"type": "boolean"},
+                    },
+                ),
+                idempotent=True,
+                sideEffecting=False,
                 recoveryPolicy="idempotent",
             ),
         ),

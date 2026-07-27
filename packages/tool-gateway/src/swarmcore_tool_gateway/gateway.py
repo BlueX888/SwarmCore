@@ -188,11 +188,21 @@ class ToolGateway:
             raise GatewayError("capability action does not allow Tool execution")
         registration = self._registry.resolve_tool(claims.tool_ref)
         if registration is None:
-            raise GatewayError("token references an unknown tool")
+            raise GatewayError(f"token references an unknown tool: {claims.tool_ref}")
         if claims.effect_id is not None and claims.effect_id != invocation.effect_id:
             raise GatewayError("effect id is outside the token scope")
         if registration.risk in {ToolRisk.HIGH, ToolRisk.CRITICAL} and not claims.approved:
             raise GatewayError("high-risk tool requires an approved capability")
+        policy_resource: dict[str, Any] = {
+            "projectId": claims.project_id,
+            "tool": registration.ref,
+            "risk": registration.risk.value,
+        }
+        policy_context: dict[str, Any] = {"runId": claims.run_id, "nodeKey": claims.node_key}
+        safe_fs = _safe_filesystem_audit_fields(invocation.input)
+        if safe_fs:
+            policy_resource = {**policy_resource, **safe_fs}
+            policy_context = {**policy_context, "operation": registration.operation}
         policy_request = PolicyRequest(
             subject=PolicySubject(
                 id=claims.execution_id,
@@ -200,12 +210,8 @@ class ToolGateway:
                 roles=("workload",),
             ),
             action="tool.execute",
-            resource={
-                "projectId": claims.project_id,
-                "tool": registration.ref,
-                "risk": registration.risk.value,
-            },
-            context={"runId": claims.run_id, "nodeKey": claims.node_key},
+            resource=policy_resource,
+            context=policy_context,
         )
         try:
             policy_decision = (await self._policy.evaluate(policy_request)).enforce()
@@ -247,7 +253,15 @@ class ToolGateway:
             return reservation.output
 
         try:
-            event = self._event("tool.started", claims, invocation.effect_id, {})
+            event = self._event(
+                "tool.started",
+                claims,
+                invocation.effect_id,
+                {
+                    "operation": registration.operation,
+                    **_safe_filesystem_audit_fields(invocation.input),
+                },
+            )
             await self._audit.record(event)
             executor = self._executors[registration.operation]
             async with AsyncExitStack() as stack:
@@ -302,7 +316,11 @@ class ToolGateway:
                     "tool.failed",
                     claims,
                     invocation.effect_id,
-                    {"errorType": type(exc).__name__},
+                    {
+                        "operation": registration.operation,
+                        "errorType": type(exc).__name__,
+                        **_safe_filesystem_audit_fields(invocation.input),
+                    },
                 )
             )
             raise
@@ -311,7 +329,12 @@ class ToolGateway:
                 "tool.completed",
                 claims,
                 invocation.effect_id,
-                {"costUsd": registration.cost_usd},
+                {
+                    "operation": registration.operation,
+                    "costUsd": registration.cost_usd,
+                    **_safe_filesystem_audit_fields(invocation.input),
+                    **_safe_filesystem_result_fields(content),
+                },
             )
         )
         return output
@@ -529,3 +552,23 @@ def _replace_secret_refs(value: Any, resolved: dict[str, dict[str, str]]) -> Any
     if isinstance(value, list):
         return [_replace_secret_refs(item, resolved) for item in value]
     return value
+
+def _safe_filesystem_audit_fields(input_value: dict[str, Any]) -> dict[str, Any]:
+    """Extract mount/path only; never content or host absolute paths."""
+
+    fields: dict[str, Any] = {}
+    mount = input_value.get("mount")
+    path = input_value.get("path")
+    if isinstance(mount, str) and mount.strip():
+        fields["mount"] = mount.strip()
+    if isinstance(path, str) and path.strip():
+        fields["path"] = path.strip()
+    return fields
+
+
+def _safe_filesystem_result_fields(result: dict[str, Any]) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    for key in ("sizeBytes", "sha256", "created", "effectId"):
+        if key in result:
+            fields[key] = result[key]
+    return fields

@@ -3,12 +3,11 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
-from swarmcore_adapter_agno import AgnoAdapter
-from swarmcore_adapter_agno import adapter as adapter_module
-
 from agno.models.message import Message
 from agno.models.metrics import Metrics
-from agno.run.agent import RunOutput
+from agno.run.agent import RunOutput, RunStatus
+from swarmcore_adapter_agno import AgnoAdapter
+from swarmcore_adapter_agno import adapter as adapter_module
 
 
 class Resolver:
@@ -29,6 +28,27 @@ def test_adapter_never_builds_input_from_tool_definitions() -> None:
         "input": {"topic": "test"},
         "nodeInput": {"x": 1},
         "dependencyOutputs": {"research": {"facts": []}},
+    }
+
+
+def test_adapter_node_only_context_omits_bulk_run_and_dependency_inputs() -> None:
+    request: dict[str, Any] = {
+        "run": {"input": {"documents": [{"text": "bulk"}]}},
+        "node": {
+            "config": {
+                "input": {
+                    "_contextMode": "node_only",
+                    "evidence": {"hits": [{"excerpt": "selected"}]},
+                }
+            }
+        },
+        "dependencyOutputs": {"search-other-domain": {"content": "bulk"}},
+    }
+
+    assert AgnoAdapter._build_input(request) == {
+        "input": {},
+        "nodeInput": {"evidence": {"hits": [{"excerpt": "selected"}]}},
+        "dependencyOutputs": {},
     }
 
 
@@ -104,6 +124,38 @@ def test_empty_response_fails_execution(monkeypatch: pytest.MonkeyPatch) -> None
         asyncio.run(AgnoAdapter(Resolver()).execute(request))
 
 
+def test_error_status_is_not_treated_as_structured_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeAgent:
+        def __init__(self, **_: Any) -> None:
+            pass
+
+        async def arun(self, *_: Any, **__: Any) -> RunOutput:
+            return RunOutput(
+                run_id="agno-run",
+                status=RunStatus.error,
+                content="Internal Server Error",
+            )
+
+    monkeypatch.setattr(adapter_module, "Agent", FakeAgent)
+    request = {
+        "agent": {
+            "role": "worker",
+            "instructions": "work",
+            "model": "model://general",
+            "outputSchema": {"type": "object"},
+        },
+        "run": {"runId": "run", "input": {}},
+        "node": {"key": "node", "config": {}},
+        "taskExecutionId": "task",
+        "agentInstanceId": "agent",
+    }
+
+    with pytest.raises(ValueError, match="model invocation failed: Internal Server Error"):
+        asyncio.run(AgnoAdapter(Resolver()).execute(request))
+
+
 def test_token_metrics_are_converted_and_cost_is_optional() -> None:
     without_cost = RunOutput(
         run_id="run",
@@ -159,3 +211,38 @@ def test_agent_receives_only_gateway_proxy_tools(monkeypatch: pytest.MonkeyPatch
     asyncio.run(AgnoAdapter(Resolver(), ProxyFactory()).execute(request))
 
     assert captured["tools"] == ["gateway:tool://search:signed-token"]
+
+
+def test_structured_agent_uses_prompt_backed_json_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeAgent:
+        def __init__(self, **values: Any) -> None:
+            captured.update(values)
+
+        async def arun(self, *_: Any, **__: Any) -> RunOutput:
+            return RunOutput(run_id="run", content={"facts": []})
+
+    monkeypatch.setattr(adapter_module, "Agent", FakeAgent)
+    request = {
+        "agent": {
+            "role": "worker",
+            "instructions": "work",
+            "model": "model://general",
+            "outputSchema": {
+                "type": "object",
+                "required": ["facts"],
+                "properties": {"facts": {"type": "array"}},
+            },
+        },
+        "run": {"runId": "run", "input": {}},
+        "node": {"key": "node", "config": {}},
+        "taskExecutionId": "task",
+        "agentInstanceId": "agent",
+    }
+
+    asyncio.run(AgnoAdapter(Resolver()).execute(request))
+
+    assert captured["use_json_mode"] is True

@@ -18,11 +18,15 @@ class GatewayModelResolver:
         tokens: ModelCapabilityIssuer,
         allowed_models: frozenset[str],
         workload_tls: WorkloadTls | None = None,
+        timeout_seconds: float = 300,
+        max_output_tokens: int = 8192,
     ) -> None:
         self._gateway_url = gateway_url.rstrip("/")
         self._tokens = tokens
         self._allowed_models = allowed_models
         self._workload_tls = workload_tls or WorkloadTls()
+        self._timeout_seconds = timeout_seconds
+        self._max_output_tokens = max_output_tokens
 
     def resolve(self, reference: str, context: Mapping[str, Any]) -> OpenAIChat:
         logical_model = reference.rsplit("@", 1)[0]
@@ -41,8 +45,10 @@ class GatewayModelResolver:
             id=logical_model,
             api_key=token,
             base_url=f"{self._gateway_url}/v1",
+            max_tokens=self._max_output_tokens,
+            max_retries=0,
             http_client=httpx.AsyncClient(
-                timeout=120,
+                timeout=self._timeout_seconds,
                 verify=self._workload_tls.client_context() or True,
             ),
         )

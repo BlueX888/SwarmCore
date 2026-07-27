@@ -226,7 +226,7 @@ async def test_model_gateway_releases_budget_on_provider_429_500_and_timeout(
             for status, delay in ((429, 0.0), (500, 0.0), (200, 0.3)):
                 responses.put((status, {"error": "provider failure"}, delay))
                 response = _invoke_model(client, issuer, runtime_harness, run_id)
-                assert response.status_code == 500
+                assert response.status_code == 502
 
     async with tenant_transaction(
         runtime_harness.database.sessions,

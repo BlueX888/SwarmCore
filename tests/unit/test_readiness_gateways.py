@@ -1,7 +1,8 @@
 import json
-from typing import cast
+from typing import Any, cast
 from urllib.error import URLError
 from urllib.request import Request
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -114,7 +115,7 @@ def test_model_gateway_readiness_uses_direct_provider_configuration(
         response = client.get("/internal/v1/readiness")
 
     assert response.status_code == 200
-    assert probes == [("https://gateway.example", 120, "provider-test-key")]
+    assert probes == [("https://gateway.example", 300, "provider-test-key")]
     assert "provider-test-key" not in response.text
 
 
@@ -325,3 +326,29 @@ def test_portal_capability_invoke_posts_input_messages(
         "stream": False,
     }
     assert result["choices"][0]["message"]["content"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_runtime_provider_falls_back_when_vault_lease_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenSecrets:
+        def lease(self, _secret_ref: str) -> Any:
+            raise model_gateway.SecretError("Vault read failed: HTTPError")
+
+    async def saved(*_args: Any, **_kwargs: Any) -> tuple[str, str, str]:
+        return (
+            "https://gateway.example/v1",
+            "kimi-k2.5",
+            "secret://projects/demo/models/general",
+        )
+
+    monkeypatch.setattr(model_gateway, "_saved_runtime_provider", saved)
+    result = await model_gateway._runtime_provider_configuration(
+        object(),  # type: ignore[arg-type]
+        BrokenSecrets(),  # type: ignore[arg-type]
+        tenant_id=UUID("00000000-0000-0000-0000-000000000001"),
+        project_id=UUID("00000000-0000-0000-0000-000000000002"),
+        logical_model="model://general",
+    )
+    assert result is None

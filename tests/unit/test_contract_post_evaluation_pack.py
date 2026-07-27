@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from jsonschema import Draft202012Validator
 from swarmcore_application import (
     CapabilityCatalogService,
@@ -20,6 +23,10 @@ from swarmcore_registry import (
     CapabilityReferenceCatalog,
     builtin_registry,
     resolve_manifest,
+)
+
+DEMO_PAYLOAD_PATH = (
+    Path(__file__).parents[1] / "fixtures" / "business" / "report-generation-demo-payload.json"
 )
 
 
@@ -109,8 +116,17 @@ def test_post_evaluation_pack_is_self_consistent_and_runnable() -> None:
     assert manifest.case_type == "contract-post-evaluation-case"
     assert set(snapshot) == set(manifest.spec.references())
     assert manifest.spec.resources == ()
-    assert [(value.category, value.required) for value in manifest.spec.documents] == [
-        ("CONTRACT", True)
+    assert [
+        (value.category, value.required) for value in manifest.spec.document_requirements()
+    ] == [
+        ("CONTRACT", True),
+        ("ACCEPTANCE", True),
+        ("PERFORMANCE", False),
+        ("INVOICE", False),
+        ("DEVIATION", False),
+        ("RISK", False),
+        ("PROCUREMENT", False),
+        ("SUPPLEMENTAL_FACTS", False),
     ]
     assert VIEW_DEFINITION["detail"]["sections"][2] == "seven-dimensions"
     for schema in SCHEMAS.values():
@@ -123,17 +139,72 @@ def test_post_evaluation_pack_is_self_consistent_and_runnable() -> None:
         policy_revision="test",
     )
     assert {item["registryRef"] for item in plan.resolved_agents.values()} == {
-        "agent://contract/post-evaluation-analyst@1"
+        "agent://contract/baseline-analyst@2",
+        "agent://contract/performance-quality-analyst@2",
+        "agent://contract/finance-invoice-analyst@2",
+        "agent://contract/deviation-risk-analyst@2",
+        "agent://contract/evidence-reviewer@1",
+        "agent://contract/performance-report-writer@1",
+        "agent://contract/governance-report-writer@1",
+        "agent://contract/report-narrator@2",
+        "agent://contract/report-quality-reviewer@1",
     }
+    assert len(plan.nodes) == 33
+    assert plan.budget["maxParallelism"] == 4
+    assert plan.budget["maxAgents"] == 9
+    assert plan.budget["maxTokens"] == 750_000
+    assert len(manifest.spec.tools) == 18
     assert set(plan.resolved_tools) == set(manifest.spec.tools)
     assemble_tool = next(
         item for item in registry.tools if item.ref == "tool://contract/post-evaluation/assemble@1"
     )
     assemble_output = assemble_tool.output_schema
     assert "evidenceAvailability" in assemble_output["properties"]
-    assert STRATEGIES[manifest.spec.strategies.execute]["spec"]["graph"]["nodes"]["record"][
-        "input"
-    ]["report"] == "{{ tasks.report.output.content }}"
+    strategy_nodes = STRATEGIES[manifest.spec.strategies.execute]["spec"]["graph"]["nodes"]
+    expected_search_dependencies = {
+        "coverage-check",
+        "search-contract",
+        "search-performance",
+        "search-finance",
+        "search-governance",
+    }
+    for node_key in (
+        "analyze-baseline",
+        "analyze-performance",
+        "analyze-finance",
+        "analyze-governance",
+    ):
+        assert set(strategy_nodes[node_key]["dependsOn"]) == expected_search_dependencies
+    for node_key in (
+        "search-contract",
+        "search-performance",
+        "search-finance",
+        "search-governance",
+    ):
+        assert strategy_nodes[node_key]["input"]["maxHits"] == 6
+    for node_key in (
+        "analyze-baseline",
+        "analyze-performance",
+        "analyze-finance",
+        "analyze-governance",
+        "evidence-review",
+        "write-performance-report",
+        "write-governance-report",
+        "report-narrative",
+        "review-report-quality",
+    ):
+        assert strategy_nodes[node_key]["input"]["_contextMode"] == "node_only"
+    assert strategy_nodes["record"]["input"]["report"] == "{{ tasks.report.output.content }}"
+    assert strategy_nodes["report"]["tool"] == "tool://report/render-post-evaluation@4"
+    assert (
+        strategy_nodes["record"]["tool"]
+        == "tool://workbench/record-post-evaluation@3"
+    )
+    assert strategy_nodes["quality-gate"]["input"]["modelReview"] == (
+        "{{ tasks.review-report-quality.output.content }}"
+    )
+    assert strategy_nodes["review-router"]["default"] == "auto-continue"
+    assert strategy_nodes["manual-review"]["type"] == "approval"
 
     catalog = CapabilityCatalogService((MANIFEST,)).get()
     assert [item.name for item in catalog.capability_packs] == ["contract-post-evaluation"]
@@ -156,6 +227,63 @@ def test_post_evaluation_generates_exactly_seven_deterministic_dimensions() -> N
     assert result.grade == "不合格"
     assert result.risk_level == "CRITICAL"
     assert result.passed is False
+    Draft202012Validator(SCHEMAS["schema://contract/post-evaluation-result@1"]).validate(
+        result.model_dump(mode="json", by_alias=True)
+    )
+
+
+def test_report_generation_demo_payload_matches_agent_schema_and_scoring() -> None:
+    value = json.loads(DEMO_PAYLOAD_PATH.read_text(encoding="utf-8"))
+    analyst = next(
+        item
+        for item in builtin_registry().agents
+        if item.ref == "agent://contract/post-evaluation-analyst@1"
+    )
+
+    Draft202012Validator(analyst.output_schema).validate(value)
+    payload = PostEvaluationPayload.model_validate(value)
+    result = evaluate_post_evaluation(payload)
+
+    assert sum(item.document_id.startswith("PUBLIC-CORE:") for item in payload.documents) == 4
+    assert (
+        sum(item.document_id.startswith("DEMO-SUPPLEMENT:") for item in payload.documents)
+        == 3
+    )
+    assert not any(
+        item.document_id.startswith("CROSS-PROJECT-SAMPLE:")
+        for item in payload.documents
+    )
+    assert all(
+        item.invoice_id.startswith("DEMO-SUPPLEMENT:") for item in payload.invoices
+    )
+    assert all(
+        item.deviation_id.startswith("DEMO-SUPPLEMENT:") for item in payload.deviations
+    )
+    assert all(item.risk_id.startswith("DEMO-SUPPLEMENT:") for item in payload.risks)
+    assert payload.evidence_availability == {
+        "contract-files": "PUBLIC_CORE_EVIDENCE",
+        "performance-data": "MIXED_PUBLIC_AND_DEMO",
+        "cost-data": "DEMO_SUPPLEMENT",
+        "deviation-data": "DEMO_SUPPLEMENT",
+        "invoice-data": "DEMO_SUPPLEMENT",
+        "risk-data": "DEMO_SUPPLEMENT",
+    }
+    assert [item.score for item in result.dimensions] == [
+        87.5,
+        87.5,
+        92.5,
+        93.33,
+        88.89,
+        68.1,
+        68.57,
+    ]
+    assert result.overall_score == 84.55
+    assert result.grade == "良好"
+    assert result.risk_level == "LOW"
+    assert {item.dimension for item in result.findings} == {
+        "DEVIATION_GOVERNANCE",
+        "RISK_GOVERNANCE",
+    }
     Draft202012Validator(SCHEMAS["schema://contract/post-evaluation-result@1"]).validate(
         result.model_dump(mode="json", by_alias=True)
     )

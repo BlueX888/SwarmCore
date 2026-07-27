@@ -228,5 +228,28 @@ class ProjectConfigurationService:
         elif kind is ConfigurationKind.TOOL:
             if self._registry.resolve_tool(source_ref) is None:
                 raise ValueError("tool source is not present in the registry snapshot")
+            if source_ref.startswith("tool://filesystem/"):
+                _reject_filesystem_host_paths(configuration)
         elif self._registry.resolve_model(source_ref) is None:
             raise ValueError("model source is not present in the registry snapshot")
+
+
+def _reject_filesystem_host_paths(configuration: dict[str, Any]) -> None:
+    for node in configuration.values():
+        if not isinstance(node, dict):
+            continue
+        raw_input = node.get("input")
+        if not isinstance(raw_input, dict):
+            continue
+        path = raw_input.get("path")
+        if not isinstance(path, str):
+            continue
+        cleaned = path.strip()
+        if (
+            cleaned.startswith("/")
+            or cleaned.startswith("\\")
+            or (len(cleaned) >= 2 and cleaned[1] == ":" and cleaned[0].isalpha())
+            or cleaned.startswith("\\\\")
+            or cleaned.startswith("//")
+        ):
+            raise ValueError("filesystem tool configuration cannot use host absolute paths")

@@ -20,8 +20,9 @@ from swarmcore_application import (
     RunService,
     StrategyService,
 )
-from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2
+from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2, MANIFEST_V2_1
 from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
+from swarmcore_capability_deviation_analysis import MANIFEST as DEVIATION_ANALYSIS_MANIFEST
 from swarmcore_governance import (
     PolicyDenied,
     PolicyError,
@@ -34,7 +35,9 @@ from swarmcore_persistence.errors import PersistenceConflictError
 from swarmcore_persistence.models import Project
 
 from .authentication import AuthenticationError, Identity, JwtAuthenticator
+from .business_routes import _assessment_detail, _business_work_snapshot
 from .business_routes import business_objects as _business_objects
+from .business_routes import business_works as _business_works
 from .business_routes import capability_packs as _capability_packs
 from .business_routes import cases as _cases
 from .business_routes import documents as _documents
@@ -48,7 +51,15 @@ _runs = RunService()
 _commands = RunCommandService()
 _run_queries = RunQueryService()
 _run_results = RunResultService()
-_capabilities = CapabilityCatalogService((MANIFEST, MANIFEST_V2, POST_EVALUATION_MANIFEST))
+_capabilities = CapabilityCatalogService(
+    (
+        MANIFEST,
+        MANIFEST_V2,
+        MANIFEST_V2_1,
+        POST_EVALUATION_MANIFEST,
+        DEVIATION_ANALYSIS_MANIFEST,
+    )
+)
 _compilation = CompilationService(_strategies)
 logger = logging.getLogger(__name__)
 
@@ -180,6 +191,41 @@ _TOOLS = [
         "name": "list_capability_packs",
         "description": "List trusted capability pack versions and project enablement state.",
         "inputSchema": _business_schema(),
+    },
+    {
+        "name": "list_business_works",
+        "description": "List product business works with runnable status and blockers.",
+        "inputSchema": _business_schema(),
+    },
+    {
+        "name": "get_business_work",
+        "description": "Get one business work summary, readiness, and configuration projection.",
+        "inputSchema": _business_schema(
+            required=("workKey",),
+            properties={"workKey": {"type": "string"}},
+        ),
+    },
+    {
+        "name": "bind_business_work_strategy",
+        "description": (
+            "Bind a published execution strategy version to a business work and enable it."
+        ),
+        "inputSchema": _business_schema(
+            required=("workKey", "strategyVersionId", "idempotencyKey"),
+            properties={
+                "workKey": {"type": "string"},
+                "strategyVersionId": {"type": "string", "format": "uuid"},
+                "idempotencyKey": {"type": "string"},
+            },
+        ),
+    },
+    {
+        "name": "get_assessment",
+        "description": "Get an assessment (evaluation) result with case context.",
+        "inputSchema": _business_schema(
+            required=("assessmentId",),
+            properties={"assessmentId": {"type": "string", "format": "uuid"}},
+        ),
     },
     {
         "name": "create_work_item",
@@ -476,6 +522,10 @@ async def _call_tool(
         "swarm.run.result": "run.read",
         "swarm.run.control": "run.control",
         "list_capability_packs": "capability.read",
+        "list_business_works": "capability.read",
+        "get_business_work": "capability.read",
+        "bind_business_work_strategy": "capability.manage",
+        "get_assessment": "work-item.read",
         "create_work_item": "work-item.write",
         "upsert_business_object": "business-object.write",
         "create_case": "case.write",
@@ -618,6 +668,45 @@ async def _call_tool(
                     }
                 )
             return {"items": pack_items}
+        if name == "list_business_works":
+            work_summaries = await _business_works.list_works(
+                session, tenant_id=tenant_id, project_id=project_id
+            )
+            return {
+                "items": [
+                    _business_work_snapshot(item).model_dump(by_alias=True, mode="json")
+                    for item in work_summaries
+                ]
+            }
+        if name == "get_business_work":
+            summary = await _business_works.get_work(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                work_key=str(arguments["workKey"]),
+            )
+            return _business_work_snapshot(summary).model_dump(by_alias=True, mode="json")
+        if name == "bind_business_work_strategy":
+            summary = await _business_works.bind_strategy(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                work_key=str(arguments["workKey"]),
+                strategy_version_id=UUID(str(arguments["strategyVersionId"])),
+                idempotency_key=str(arguments["idempotencyKey"]),
+                actor=identity.subject_id,
+            )
+            return _business_work_snapshot(summary).model_dump(by_alias=True, mode="json")
+        if name == "get_assessment":
+            evaluation, item, revision = await _business_works.get_assessment(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                assessment_id=UUID(str(arguments["assessmentId"])),
+            )
+            return _assessment_detail(evaluation, item, revision).model_dump(
+                by_alias=True, mode="json"
+            )
         if name == "list_documents":
             document_rows = await _documents.list_documents(
                 session,

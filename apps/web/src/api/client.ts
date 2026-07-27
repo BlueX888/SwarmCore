@@ -2,11 +2,11 @@ import type {
   ApprovalListResponse, AuditListResponse, CapabilityCatalog, CapabilityCenterResponse, CapabilityPreset, CapabilityPresetListResponse, CapabilityPresetRequest, CommandHandle, CompileResponse, ConfigurationKind, CreateSavedConfiguration,
   DraftSnapshot, EditorState, EventHistory, ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, SavedConfiguration,
   CapabilityPackListResponse, CapabilityPackSnapshot, CreateCapabilityPackRequest,
-  AssessmentListResponse, BusinessObjectSnapshot, CaseSnapshot, CaseSubjectInput, DocumentDownloadHandle, DocumentListResponse, DocumentSnapshot, DocumentUploadHandle, EvaluationSnapshot, InitiateDocumentRequest, PackBindings, ReportListResponse,
-  SavedConfigurationListResponse, StrategyHandle,
+  AssessmentDetailSnapshot, AssessmentListResponse, BusinessObjectSnapshot, BusinessWorkListResponse, BusinessWorkSnapshot, CaseSnapshot, CaseSubjectInput, DocumentDownloadHandle, DocumentListResponse, DocumentProcessingResultSnapshot, DocumentProcessingRunSnapshot, DocumentRequirementListResponse, DocumentSnapshot, DocumentUploadHandle, EvaluationSnapshot, FindingListResponse, InitiateDocumentRequest, PackBindings, ReportListResponse,
+  SavedConfigurationListResponse, StrategyDeleteImpact, StrategyHandle,
   ModelProviderConfiguration, ModelProviderConfigurationRequest, ModelProviderTestResult,
   StrategyListResponse, StrategyVersionDetail,
-  StrategyVersionListResponse, WorkItemSnapshot, RuleSetDraftSnapshot, RuleSetValidationResponse, RuleSetVersionSnapshot,
+  StrategyVersionListResponse, UploadBatchSnapshot, WorkItemSnapshot, RuleSetDraftSnapshot, RuleSetValidationResponse, RuleSetVersionSnapshot,
 } from "./types";
 
 const configuredApiUrl: unknown = import.meta.env["VITE_API_URL"];
@@ -20,7 +20,13 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public code?: string,
-    public blockers?: CapabilityPackSnapshot["blockers"],
+    public blockers?: Array<{
+      ref?: string;
+      reasons?: string[];
+      code?: string;
+      count?: number;
+      message?: string;
+    }>,
   ) { super(message); }
 }
 
@@ -35,7 +41,17 @@ async function request<T>(path: string, tenantId: string, init?: RequestInit): P
   if (!response.ok) {
     const body = await response.text();
     try {
-      const problem = JSON.parse(body) as { detail?: string; code?: string; blockers?: CapabilityPackSnapshot["blockers"] };
+      const problem = JSON.parse(body) as {
+        detail?: string;
+        code?: string;
+        blockers?: Array<{
+          ref?: string;
+          reasons?: string[];
+          code?: string;
+          count?: number;
+          message?: string;
+        }>;
+      };
       throw new ApiError(response.status, problem.detail ?? body, problem.code, problem.blockers);
     } catch (error) {
       if (error instanceof ApiError) throw error;
@@ -66,7 +82,13 @@ async function uploadBlob(uploadRef: string, capabilityToken: string, file: File
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ capabilityToken, contentBase64: btoa(binary) }),
   });
-  if (!response.ok) throw new ApiError(response.status, await response.text());
+  if (!response.ok) {
+    const body = await response.text();
+    if (response.status === 404) {
+      throw new ApiError(404, "文件存储服务不可用。请确认 Artifact Gateway 已启动（默认 8091）。");
+    }
+    throw new ApiError(response.status, body || response.statusText);
+  }
 }
 
 async function downloadBlob(handle: DocumentDownloadHandle): Promise<Blob> {
@@ -100,6 +122,8 @@ export const api = {
   listVersions: (tenantId: string, projectId: string, strategyId: string) => request<StrategyVersionListResponse>(`/v1/projects/${projectId}/strategies/${strategyId}/versions`, tenantId),
   getVersion: (tenantId: string, projectId: string, strategyId: string, versionId: string) => request<StrategyVersionDetail>(`/v1/projects/${projectId}/strategies/${strategyId}/versions/${versionId}`, tenantId),
   publishStrategy: (tenantId: string, projectId: string, strategyId: string, draftId: string) => request<StrategyVersionDetail | { strategyVersionId: string; version: number; planHash: string }>(`/v1/projects/${projectId}/strategies/${strategyId}/publish`, tenantId, { method: "POST", body: JSON.stringify({ draftId }) }),
+  getStrategyDeleteImpact: (tenantId: string, projectId: string, strategyId: string) => request<StrategyDeleteImpact>(`/v1/projects/${projectId}/strategies/${strategyId}/delete-impact`, tenantId),
+  deleteStrategy: (tenantId: string, projectId: string, strategyId: string) => request<undefined>(`/v1/projects/${projectId}/strategies/${strategyId}`, tenantId, { method: "DELETE" }),
   listRuns: (tenantId: string, projectId: string) => request<RunListResponse>(`/v1/projects/${projectId}/runs`, tenantId),
   createRun: (tenantId: string, projectId: string, strategyVersionId: string, input: Record<string, unknown>, idempotencyKey: string) => request<RunHandle>(`/v1/projects/${projectId}/runs`, tenantId, { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ strategyVersionId, input }) }),
   getRun: (tenantId: string, projectId: string, runId: string) => request<RunSnapshot>(`/v1/projects/${projectId}/runs/${runId}`, tenantId),
@@ -117,6 +141,11 @@ export const api = {
   exportAuditLogs: (tenantId: string, projectId: string) => requestFile(`/v1/projects/${projectId}/audit-logs:export`, tenantId, { method: "POST" }),
   retryTask: (tenantId: string, projectId: string, runId: string, taskId: string) => request<CommandHandle>(`/v1/projects/${projectId}/runs/${runId}/tasks/${taskId}:retry`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   listCapabilityPacks: (tenantId: string, projectId: string) => request<CapabilityPackListResponse>(`/v1/projects/${projectId}/capability-packs`, tenantId),
+  listBusinessWorks: (tenantId: string, projectId: string) => request<BusinessWorkListResponse>(`/v1/projects/${projectId}/business-works`, tenantId),
+  getBusinessWork: (tenantId: string, projectId: string, workKey: string) => request<BusinessWorkSnapshot>(`/v1/projects/${projectId}/business-works/${encodeURIComponent(workKey)}`, tenantId),
+  bindBusinessWorkStrategy: (tenantId: string, projectId: string, workKey: string, strategyVersionId: string) => request<BusinessWorkSnapshot>(`/v1/projects/${projectId}/business-works/${encodeURIComponent(workKey)}:bind-strategy`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ strategyVersionId }) }),
+  getAssessment: (tenantId: string, projectId: string, assessmentId: string) => request<AssessmentDetailSnapshot>(`/v1/projects/${projectId}/assessments/${assessmentId}`, tenantId),
+  listAssessmentDocumentSnapshots: (tenantId: string, projectId: string, assessmentId: string) => request<{ items: Array<Record<string, unknown>> }>(`/v1/projects/${projectId}/assessments/${assessmentId}/document-snapshots`, tenantId),
   createCapabilityPack: (tenantId: string, projectId: string, body: CreateCapabilityPackRequest) => request<CapabilityPackSnapshot>(`/v1/projects/${projectId}/capability-packs`, tenantId, { method: "POST", body: JSON.stringify(body) }),
   createRuleSet: (tenantId: string, projectId: string, body: { name: string; purpose: string; rules: Record<string, unknown> }) => request<RuleSetDraftSnapshot>(`/v1/projects/${projectId}/rule-sets`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
   validateRuleSet: (tenantId: string, projectId: string, draftId: string) => request<RuleSetValidationResponse>(`/v1/projects/${projectId}/rule-set-drafts/${draftId}:validate`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ attachments: null }) }),
@@ -140,8 +169,69 @@ export const api = {
     if (!handle.capabilityToken) throw new ApiError(409, "文件上传凭证不可用");
     return uploadBlob(handle.uploadRef, handle.capabilityToken, file);
   },
-  completeDocument: (tenantId: string, projectId: string, uploadId: string, sha256: string) => request<DocumentSnapshot>(`/v1/projects/${projectId}/document-uploads/${uploadId}:complete`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ sha256 }) }),
+  completeDocument: (
+    tenantId: string,
+    projectId: string,
+    uploadId: string,
+    sha256: string,
+    options: {
+      uploadBatchId?: string;
+      profileRef?: string;
+      extractionSchemaRef?: string;
+      classificationLabels?: Array<{ label: string; displayName?: string }>;
+    } = {},
+  ) => request<DocumentSnapshot>(`/v1/projects/${projectId}/document-uploads/${uploadId}:complete`, tenantId, {
+    method: "POST",
+    headers: { "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({
+      sha256,
+      uploadBatchId: options.uploadBatchId,
+      profileRef: options.profileRef,
+      extractionSchemaRef: options.extractionSchemaRef,
+      classificationLabels: options.classificationLabels ?? [],
+    }),
+  }),
+  createUploadBatch: (tenantId: string, projectId: string, body: { source?: string; context?: Record<string, unknown> }) =>
+    request<UploadBatchSnapshot>(`/v1/projects/${projectId}/upload-batches`, tenantId, {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({ source: body.source ?? "web", context: body.context ?? {} }),
+    }),
+  getUploadBatch: (tenantId: string, projectId: string, batchId: string) =>
+    request<UploadBatchSnapshot>(`/v1/projects/${projectId}/upload-batches/${batchId}`, tenantId),
+  getDocumentProcessing: (tenantId: string, projectId: string, documentId: string) =>
+    request<DocumentProcessingRunSnapshot>(`/v1/projects/${projectId}/documents/${documentId}/processing`, tenantId),
+  getDocumentProcessingResult: (tenantId: string, projectId: string, documentId: string) =>
+    request<DocumentProcessingResultSnapshot>(`/v1/projects/${projectId}/documents/${documentId}/processing-result`, tenantId),
+  confirmDocumentClassification: (tenantId: string, projectId: string, documentId: string, body: { label: string; displayName?: string; expectedResultVersion?: number }) =>
+    request<DocumentProcessingResultSnapshot>(`/v1/projects/${projectId}/documents/${documentId}:confirm-classification`, tenantId, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  confirmDocumentFields: (tenantId: string, projectId: string, documentId: string, body: { fields: Array<Record<string, unknown>>; acceptHighConfidence?: boolean; expectedResultVersion?: number }) =>
+    request<DocumentProcessingResultSnapshot>(`/v1/projects/${projectId}/documents/${documentId}:confirm-fields`, tenantId, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  reprocessDocument: (tenantId: string, projectId: string, documentId: string, body: Record<string, unknown> = {}) =>
+    request<DocumentProcessingRunSnapshot>(`/v1/projects/${projectId}/documents/${documentId}:reprocess`, tenantId, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateDocumentBindings: (tenantId: string, projectId: string, documentId: string, body: { businessObjectIds: string[]; businessWorkKeys: string[] }) =>
+    request<DocumentSnapshot>(`/v1/projects/${projectId}/documents/${documentId}/bindings`, tenantId, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  listWorkDocumentRequirements: (tenantId: string, projectId: string, workKey: string) =>
+    request<DocumentRequirementListResponse>(`/v1/projects/${projectId}/business-works/${workKey}/document-requirements`, tenantId),
   getDocument: (tenantId: string, projectId: string, documentId: string) => request<DocumentSnapshot>(`/v1/projects/${projectId}/documents/${documentId}`, tenantId),
+  resumeDocumentUpload: (tenantId: string, projectId: string, documentId: string) =>
+    request<DocumentSnapshot>(`/v1/projects/${projectId}/documents/${documentId}:resume-upload`, tenantId, {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({}),
+    }),
   downloadDocumentVersion: async (tenantId: string, projectId: string, documentId: string, version: number) => {
     const handle = await request<DocumentDownloadHandle>(`/v1/projects/${projectId}/documents/${documentId}/versions/${version}:download`, tenantId, { method: "POST" });
     return { filename: handle.filename, content: await downloadBlob(handle) };
@@ -151,6 +241,7 @@ export const api = {
   createCase: (tenantId: string, projectId: string, body: { scenarioType: string; payload: Record<string, unknown>; subjects: CaseSubjectInput[]; owner?: string }) => request<CaseSnapshot>(`/v1/projects/${projectId}/cases`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
   assessCase: (tenantId: string, projectId: string, caseId: string) => request<EvaluationSnapshot>(`/v1/projects/${projectId}/cases/${caseId}:assess`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   listCaseAssessments: (tenantId: string, projectId: string, caseId: string) => request<AssessmentListResponse>(`/v1/projects/${projectId}/cases/${caseId}/assessments`, tenantId),
+  listCaseFindings: (tenantId: string, projectId: string, caseId: string) => request<FindingListResponse>(`/v1/projects/${projectId}/cases/${caseId}/findings`, tenantId),
   listEvaluationReports: (tenantId: string, projectId: string, evaluationId: string) => request<ReportListResponse>(`/v1/projects/${projectId}/evaluations/${evaluationId}/reports`, tenantId),
   eventUrl: (projectId: string, runId: string, after: number) => `${baseUrl}/v1/projects/${projectId}/runs/${runId}/events?after=${after}`,
   temporalUiUrl,

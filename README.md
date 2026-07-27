@@ -19,6 +19,23 @@ pnpm web:build
 pnpm web:e2e
 ```
 
+## Report generation guided demo
+
+The local Web console includes a credential-free, public-data guided demo for the report generation
+agent. Start it with:
+
+```powershell
+pnpm web:dev
+```
+
+Open `/business-works/report-generation`, select **体验公开数据 Demo**, and then select
+**开始生成七维报告**. The flow shows the 32-file public corpus coverage, a deterministic
+seven-dimension result, evidence notes, JSON download, and browser print/PDF output.
+
+The corpus contains materials from multiple public projects. The demo keeps core-project evidence
+separate from rule/classification samples and clearly labels supplemental structured records. Its
+result validates the user flow and is not a formal conclusion about any real contract.
+
 Start infrastructure and apply the schema:
 
 ```powershell
@@ -50,8 +67,18 @@ local store by default and can select S3 plus ClamAV; Model Gateway routes logic
 LiteLLM by default, or directly to a local OpenAI-compatible endpoint configured with
 `SWARMCORE_MODEL_PROVIDER_URL` and `SWARMCORE_MODEL_PROVIDER_API_KEY`. Direct credentials are
 rejected in production, where Vault remains required. The production Agent Worker creates only
-run-scoped Model Gateway clients. Sandbox
+run-scoped Model Gateway clients. `SWARMCORE_AGENT_MODEL_MAX_OUTPUT_TOKENS` controls the
+per-invocation structured-output ceiling (8192 by default); capability-pack run budgets remain the
+aggregate enforcement boundary. Sandbox
 Manager is dry-run locally and admits only digest-pinned allowlisted images.
+
+Controlled filesystem tools (`tool://filesystem/read-text@1`, `write-text@1`, `list@1`,
+`stat@1`) are disabled by default. Enable them with `SWARMCORE_FILESYSTEM_TOOLS_ENABLED=true` and
+set `SWARMCORE_FILESYSTEM_EXECUTOR_MODE` to `local` (development/test only) or `sandbox`
+(production). Configure `SWARMCORE_FILESYSTEM_ROOT` as the deployment jail root; tenants and
+projects receive deterministic subdirectories under allowed logical mounts such as `workspace`.
+Production rejects `local` mode at startup. These tools are not a document library: durable business
+files remain BlobObject / BusinessDocument / Artifact.
 
 M4 also adds scoped Artifact listing and one-time download grants, append-only Audit query/NDJSON
 export, and Webhook endpoint APIs under `/v1`. Every console process emits redacted JSON logs and
@@ -62,6 +89,13 @@ Project-scoped agent, tool, and model configurations are persisted through
 immutable built-in Registry, remain isolated by tenant and project RLS, and create audit records on
 create, update, and delete. Updates retain the configuration ID and increment its revision. Apply
 Alembic migrations before using these endpoints.
+
+Strategy drafts are managed under `/v1/projects/{project_id}/strategies`. Use
+`GET .../strategies/{strategy_id}/delete-impact` to inspect blockers, and
+`DELETE .../strategies/{strategy_id}` to physically remove only unused draft-only `ACTIVE`
+strategies. Published versions, runs, assessments, business-work dependency snapshots, and
+`TRUSTED`/`EPHEMERAL` strategies return `409 STRATEGY_DELETE_BLOCKED` with stable blocker codes;
+cross-tenant or missing strategies return `404`.
 
 The unified Capability Center is enabled by default and can be disabled with
 `SWARMCORE_CAPABILITY_CENTER_V2=false`. It adds
@@ -91,12 +125,17 @@ Agent tools are exposed to Agno only as Gateway proxy functions. Side-effecting 
 explicit `tool` nodes so Temporal can retain a stable effect ID across Activity retries; HIGH and
 CRITICAL tools enter the durable Approval flow before a capability token is issued.
 
-The first trusted business capability pack is `contract-integrity`; its v1 and v2 manifests can
-coexist. The v1 Workbench resources remain under `/v1/projects/{project_id}/capability-packs`,
-`/work-items`, `/evaluations`, `/findings`, `/reports`, and `/rule-sets`. The v2 business API adds
-`/business-objects`, `/cases`, `/decision-assets`, and `/documents`. Document endpoints initiate
-uploads, list immutable versions and business bindings, complete hash-verified uploads, and expose
-the exact document-version snapshots used by an Assessment. Capability-pack list and enable responses include the current
+The first trusted internal execution definitions are `contract-integrity` and
+`contract-post-evaluation`. Product users enter through **Business Works**
+(`/business-works`, `/business-works/:workKey`, `/settings`, `/workbench`) and Assessment results
+(`/assessments/:assessmentId`). Capability Pack remains the internal immutable execution model;
+legacy Web routes under `/capability-packs*` redirect to the mapped business work when possible.
+Compatibility Workbench resources remain under `/v1/projects/{project_id}/capability-packs`,
+`/work-items`, `/evaluations`, `/findings`, `/reports`, and `/rule-sets`. Product APIs add
+`/business-works`, `/business-objects`, `/cases`, `/decision-assets`, `/assessments`, and `/documents`. Document endpoints initiate
+uploads, list immutable versions and business bindings, complete hash-verified uploads, track
+processing runs/results, confirm classification and extracted fields, and expose the exact
+document-version snapshots used by an Assessment. Capability-pack list and enable responses include the current
 project binding `configuration`; updating it re-enables the same immutable version with new
 project-scoped parameters. `POST /v1/projects/{project_id}/capability-packs` publishes a custom
 Manifest bound to an existing published `StrategyVersion`; the server reads the frozen plan and
@@ -104,13 +143,16 @@ rejects Agent/Tool declarations that differ from that version. The Web console b
 from a trusted business-asset template and a version selected from Strategy Management. Input files
 are initiated through the API, uploaded to Artifact
 Gateway with a short-lived Blob capability, hash/scanned there, and only then attached to an
-immutable WorkItemRevision or BusinessDocumentVersion. The business document library manages only
+immutable WorkItemRevision or BusinessDocumentVersion and processed by the shared document pipeline.
+The business document library manages only
 user files and their business bindings; it does not connect to ERP, SharePoint, databases, external
 APIs, or other business systems. Local disk and S3 remain deployment-level storage adapters.
+Optional OCR is configured with `SWARMCORE_OCR_ENDPOINT`; when unset, text-native files still process
+and scan images enter review with an explicit “OCR not configured” warning.
 The legacy `/connections`, `/resources`, resource-binding, and resource-snapshot contracts remain
 temporarily available for historical compatibility, but new document and business-work flows do
 not depend on them. Include the Web console origin in `SWARMCORE_CORS_ORIGINS`. Apply all migrations
-through `0013_business_document_library` before using the document library.
+through `0014_document_processing_pipeline` before using upload batches and processing runs.
 
 `WorkItem`, `Evaluation`, and `RuleSet` remain stable storage/API compatibility terms. New clients
 should use the product terms `Case`, `Assessment`, and `DecisionAsset`; the compatibility APIs are

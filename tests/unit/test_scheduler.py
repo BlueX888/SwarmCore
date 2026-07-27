@@ -1,4 +1,9 @@
-from swarmcore_runtime_temporal.scheduler import NodeState, blocked_by_failure, ready_nodes
+from swarmcore_runtime_temporal.scheduler import (
+    NodeState,
+    blocked_by_failure,
+    propagate_failure_blocks,
+    ready_nodes,
+)
 
 NODES = [
     {"key": "a", "dependencies": []},
@@ -33,3 +38,37 @@ def test_blocked_dependency_propagates_to_downstream() -> None:
 
     assert ready_nodes(nodes, states, max_parallelism=8) == ()
     assert blocked_by_failure(nodes, states) == ("d",)
+
+
+def test_propagate_failure_blocks_reaches_fixed_point() -> None:
+    nodes = [
+        {"key": "read", "dependencies": []},
+        {"key": "analyze", "dependencies": ["read"]},
+        {"key": "evaluate", "dependencies": ["analyze"]},
+        {"key": "report", "dependencies": ["evaluate"]},
+        {"key": "record", "dependencies": ["evaluate", "report"]},
+    ]
+    states = {
+        "read": NodeState.SUCCEEDED,
+        "analyze": NodeState.FAILED,
+        "evaluate": NodeState.PENDING,
+        "report": NodeState.PENDING,
+        "record": NodeState.PENDING,
+    }
+
+    newly = propagate_failure_blocks(nodes, states, blocked_state=NodeState.BLOCKED)
+
+    assert newly == ("evaluate", "record", "report")
+    assert states["evaluate"] == NodeState.BLOCKED
+    assert states["report"] == NodeState.BLOCKED
+    assert states["record"] == NodeState.BLOCKED
+    assert ready_nodes(nodes, states, max_parallelism=8) == ()
+    assert all(
+        state
+        in {
+            NodeState.SUCCEEDED,
+            NodeState.FAILED,
+            NodeState.BLOCKED,
+        }
+        for state in states.values()
+    )

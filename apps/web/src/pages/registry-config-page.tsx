@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
+import { filesystemToolInputError } from "@/lib/filesystem-tool-config";
 
 const fieldClass = "mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm outline-none focus:border-brand-500 dark:border-gray-700";
 const textAreaClass = "mt-1 min-h-28 w-full rounded-lg border border-gray-300 bg-transparent p-3 text-sm outline-none focus:border-brand-500 dark:border-gray-700";
@@ -175,16 +176,18 @@ function ToolConfigurator({ catalog, initial, onSave, saving, submitLabel, saveN
   const [inputSource, setInputSource] = React.useState(JSON.stringify(asObject(savedNode["input"]), null, 2));
   const tool = catalog.tools.find((item) => item.ref === (selected || catalog.tools[0]?.ref));
   const input = parseObject(inputSource);
+  const filesystemError = tool && input.value ? filesystemToolInputError(tool.ref, input.value) : null;
   const validKey = /^[a-z][a-z0-9_-]*$/.test(nodeKey);
   const preview = { type: "tool", tool: tool?.ref ?? "", dependsOn: [], input: input.value ?? {} };
+  const canSave = Boolean(name.trim() && tool && validKey && !input.error && !filesystemError);
   return <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]">
     <div className="space-y-5"><Card><CardHeader><CardTitle>工具节点参数</CardTitle>{tool ? <RiskBadge risk={tool.risk} /> : null}</CardHeader><CardContent className="space-y-4">
       <Field label="配置名称"><input aria-label="配置名称" className={fieldClass} value={name} onChange={(event) => setName(event.target.value)} /></Field>
       <Field label="注册工具"><select aria-label="注册工具" className={fieldClass} value={tool?.ref ?? ""} onChange={(event) => setSelected(event.target.value)}>{catalog.tools.map((item) => <option key={item.ref} value={item.ref}>{item.ref}</option>)}</select></Field>
       <Field label="节点标识" hint="小写字母开头，可使用数字、短横线和下划线"><input className={fieldClass} value={nodeKey} onChange={(event) => setNodeKey(event.target.value)} />{validKey ? null : <p role="alert" className="mt-1 text-xs text-error-600">节点标识格式无效。</p>}</Field>
-      <Field label="节点输入（JSON 对象）"><textarea aria-label="节点输入（JSON 对象）" className={`${textAreaClass} font-mono text-xs`} value={inputSource} onChange={(event) => setInputSource(event.target.value)} />{input.error ? <p role="alert" className="mt-1 text-xs text-error-600">{input.error}</p> : null}</Field>
+      <Field label="节点输入（JSON 对象）" hint={tool?.ref.startsWith("tool://filesystem/") ? "仅填写逻辑 mount 与相对路径；不能填写宿主机绝对路径或物理根目录。" : undefined}><textarea aria-label="节点输入（JSON 对象）" className={`${textAreaClass} font-mono text-xs`} value={inputSource} onChange={(event) => setInputSource(event.target.value)} />{input.error ? <p role="alert" className="mt-1 text-xs text-error-600">{input.error}</p> : null}{filesystemError ? <p role="alert" className="mt-1 text-xs text-error-600">{filesystemError}</p> : null}</Field>
     </CardContent></Card>{tool ? <ToolSchemas tool={tool} /> : <EmptyCatalog label="暂无已注册工具。" />}</div>
-    <PreviewCard title="工具节点配置" value={{ [nodeKey]: preview }} disabled={!name.trim() || !tool || !validKey || Boolean(input.error)} saving={saving} submitLabel={submitLabel} saveNotice={saveNotice} onSave={() => tool && onSave({ name, sourceRef: tool.ref, configuration: { [nodeKey]: preview } })} />
+    <PreviewCard title="工具节点配置" value={{ [nodeKey]: preview }} disabled={!canSave} saving={saving} submitLabel={submitLabel} saveNotice={saveNotice} onSave={() => tool && onSave({ name, sourceRef: tool.ref, configuration: { [nodeKey]: preview } })} />
   </div>;
 }
 

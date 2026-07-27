@@ -1,4 +1,12 @@
 from .builtins import builtin_executors
+from .filesystem import (
+    FilesystemErrorCode,
+    FilesystemExecutorMode,
+    FilesystemToolConfig,
+    FilesystemToolError,
+    assemble_tool_executors,
+    filesystem_executors,
+)
 from .gateway import (
     AuditEvent,
     CompensationInvocation,
@@ -28,6 +36,10 @@ __all__ = [
     "EffectInProgress",
     "EffectJournal",
     "EffectReservation",
+    "FilesystemErrorCode",
+    "FilesystemExecutorMode",
+    "FilesystemToolConfig",
+    "FilesystemToolError",
     "GatewayError",
     "HealthyToolExecutor",
     "InMemoryEffectJournal",
@@ -37,5 +49,7 @@ __all__ = [
     "ToolExecutor",
     "ToolGateway",
     "ToolInvocation",
+    "assemble_tool_executors",
     "builtin_executors",
+    "filesystem_executors",
 ]

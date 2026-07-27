@@ -1,0 +1,140 @@
+{
+  "apiVersion": "swarmcore.io/v2",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "contract-post-evaluation", "version": "2.0.0"},
+  "spec": {
+    "case": {
+      "type": "contract-post-evaluation-case",
+      "schema": "schema://contract/post-evaluation-case@1",
+      "subjectsRequired": true,
+      "subjectRoles": [
+        {"key": "contract", "objectType": "contract", "role": "PRIMARY", "min": 1, "max": 1},
+        {"key": "supplier", "objectType": "supplier", "role": "RELATED", "min": 0, "max": 1}
+      ]
+    },
+    "inputSchema": "schema://contract/post-evaluation-input@3",
+    "outputSchema": "schema://contract/post-evaluation-result@2",
+    "strategies": {"execute": "strategy://contract-post-evaluation/generate@8"},
+    "agents": [
+      "agent://contract/baseline-analyst@1",
+      "agent://contract/performance-quality-analyst@1",
+      "agent://contract/finance-invoice-analyst@1",
+      "agent://contract/deviation-risk-analyst@1",
+      "agent://contract/evidence-reviewer@1",
+      "agent://contract/report-narrator@1"
+    ],
+    "tools": [
+      "tool://document/read-versions@1",
+      "tool://evidence/search@1",
+      "tool://document/coverage-check@1",
+      "tool://contract/post-evaluation/merge-domains@1",
+      "tool://contract/timeline-calculate@1",
+      "tool://finance/amount-reconcile@1",
+      "tool://invoice/assurance@1",
+      "tool://deviation/aggregate@1",
+      "tool://risk/aggregate@1",
+      "tool://evidence/consistency-check@1",
+      "tool://contract/post-evaluation@1",
+      "tool://contract/post-evaluation/finalize@2",
+      "tool://report/render-post-evaluation@2",
+      "tool://workbench/record-post-evaluation@2"
+    ],
+    "documents": {
+      "processingProfile": "document-profile://business-default@1",
+      "requirements": [
+        {
+          "key": "primary-contract",
+          "category": "CONTRACT",
+          "displayName": "主合同及补充协议",
+          "description": "主合同、补充协议或合同变更文本。",
+          "required": true,
+          "minCount": 1,
+          "maxCount": 5,
+          "acceptedMediaTypes": [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "text/plain",
+            "text/markdown"
+          ],
+          "classificationLabels": ["CONTRACT", "primary", "amendment"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "acceptance-evidence",
+          "category": "ACCEPTANCE",
+          "displayName": "验收资料",
+          "description": "阶段验收、最终验收和质量确认资料。",
+          "required": true,
+          "minCount": 1,
+          "maxCount": 10,
+          "classificationLabels": ["ACCEPTANCE", "quality"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "performance-evidence",
+          "category": "PERFORMANCE",
+          "displayName": "履约过程资料",
+          "required": false,
+          "minCount": 0,
+          "maxCount": 20,
+          "classificationLabels": ["PERFORMANCE", "delivery"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "invoice-evidence",
+          "category": "INVOICE",
+          "displayName": "发票及付款资料",
+          "required": false,
+          "minCount": 0,
+          "maxCount": 30,
+          "classificationLabels": ["INVOICE", "PAYMENT"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "deviation-evidence",
+          "category": "DEVIATION",
+          "displayName": "偏差、变更及整改资料",
+          "required": false,
+          "minCount": 0,
+          "maxCount": 20,
+          "classificationLabels": ["DEVIATION", "CHANGE", "REMEDIATION"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "risk-evidence",
+          "category": "RISK",
+          "displayName": "风险及供应商资料",
+          "required": false,
+          "minCount": 0,
+          "maxCount": 10,
+          "classificationLabels": ["RISK", "SUPPLIER"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "procurement-evidence",
+          "category": "PROCUREMENT",
+          "displayName": "招采资料",
+          "required": false,
+          "minCount": 0,
+          "maxCount": 10,
+          "classificationLabels": ["PROCUREMENT"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "supplemental-facts",
+          "category": "SUPPLEMENTAL_FACTS",
+          "displayName": "补充结构化事实",
+          "required": false,
+          "minCount": 0,
+          "maxCount": 10,
+          "classificationLabels": ["SUPPLEMENTAL_FACTS"],
+          "extractionSchema": "schema://document/generic-text@1"
+        }
+      ]
+    },
+    "report": {"template": "report://contract/post-evaluation@1"},
+    "permissions": ["case.read", "case.assess", "finding.act", "document.read", "report.read"],
+    "events": {"namespace": "capability.contract-post-evaluation"},
+    "ui": {"viewDefinition": "view://contract-post-evaluation/case@1"}
+  }
+}

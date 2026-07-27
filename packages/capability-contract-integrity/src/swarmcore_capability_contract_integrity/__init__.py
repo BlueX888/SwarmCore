@@ -14,6 +14,7 @@ def _load(name: str) -> dict[str, Any]:
 
 MANIFEST = _load("manifest.json")
 MANIFEST_V2 = _load("manifest-v2.json")
+MANIFEST_V2_1 = _load("manifest-v2.1.json")
 SCHEMAS = {
     "schema://contract/case@1": _load("case.schema.json"),
     "schema://contract/validation-input@1": _load("input.schema.json"),
@@ -34,6 +35,7 @@ REFERENCES = frozenset(
         "agent://contract/document-classifier@1",
         "agent://contract/field-extractor@1",
         "tool://document/read@1",
+        "tool://document/read-versions@1",
         "tool://rules/evaluate@1",
         "tool://contract/cross-file-consistency@1",
         "tool://workbench/record-evaluation@1",
@@ -47,6 +49,7 @@ __all__ = [
     "DEFAULT_RULES",
     "MANIFEST",
     "MANIFEST_V2",
+    "MANIFEST_V2_1",
     "REFERENCES",
     "SCHEMAS",
     "STRATEGIES",

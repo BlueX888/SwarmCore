@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://contract/post-evaluation-result@3",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "evaluationPeriod",
+    "contractId",
+    "overallScore",
+    "grade",
+    "riskLevel",
+    "passed",
+    "reviewRequired",
+    "executiveSummary",
+    "dimensions",
+    "findings",
+    "evidenceSummary",
+    "review",
+    "narrative",
+    "diagnostics",
+    "provenance",
+    "readabilityGate",
+    "reportDocument",
+    "reportQuality"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "schema://contract/post-evaluation-result@3"
+    },
+    "evaluationPeriod": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"type": "string", "format": "date"},
+        "end": {"type": "string", "format": "date"}
+      },
+      "additionalProperties": false
+    },
+    "contractId": {"type": "string", "minLength": 1},
+    "overallScore": {"type": "number", "minimum": 0, "maximum": 100},
+    "grade": {"enum": ["优秀", "良好", "中等", "待改进", "不合格"]},
+    "riskLevel": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+    "passed": {"type": "boolean"},
+    "reviewRequired": {"type": "boolean"},
+    "executiveSummary": {"type": "string", "minLength": 1},
+    "dimensions": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {"type": "object"}
+    },
+    "findings": {"type": "array", "items": {"type": "object"}},
+    "evidenceSummary": {"type": "object"},
+    "review": {"type": "object"},
+    "narrative": {"type": "object"},
+    "diagnostics": {"type": "object"},
+    "provenance": {"type": "object"},
+    "readabilityGate": {
+      "type": "object",
+      "required": [
+        "documentCount",
+        "readableDocumentCount",
+        "readabilityRate",
+        "formalThreshold",
+        "formalEligible",
+        "reportMode",
+        "reasons"
+      ],
+      "properties": {
+        "documentCount": {"type": "integer", "minimum": 0},
+        "readableDocumentCount": {"type": "integer", "minimum": 0},
+        "readabilityRate": {"type": "number", "minimum": 0, "maximum": 1},
+        "formalThreshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "formalEligible": {"type": "boolean"},
+        "reportMode": {"enum": ["FORMAL_REPORT", "PRE_REVIEW_REPORT"]},
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "reportDocument": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "title",
+        "reportNumber",
+        "version",
+        "reportMode",
+        "formalEligible",
+        "contractProfile",
+        "managementSummary",
+        "methodology",
+        "dimensionOverview",
+        "dimensionSections",
+        "timeline",
+        "financialAnalysis",
+        "invoiceAnalysis",
+        "deviationAndRisk",
+        "evidenceAndLimitations",
+        "remediationPlan",
+        "approval",
+        "provenance"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "schema://report/contract-post-evaluation-document@1"
+        },
+        "title": {"type": "string", "minLength": 1},
+        "reportNumber": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "reportMode": {"enum": ["FORMAL_REPORT", "PRE_REVIEW_REPORT"]},
+        "formalEligible": {"type": "boolean"},
+        "contractProfile": {"type": "object"},
+        "managementSummary": {"type": "object"},
+        "methodology": {"type": "object"},
+        "dimensionOverview": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": {"type": "object"}
+        },
+        "dimensionSections": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": {"type": "object"}
+        },
+        "timeline": {"type": "array", "items": {"type": "object"}},
+        "financialAnalysis": {"type": "object"},
+        "invoiceAnalysis": {"type": "object"},
+        "deviationAndRisk": {"type": "object"},
+        "evidenceAndLimitations": {"type": "object"},
+        "remediationPlan": {"type": "array", "items": {"type": "object"}},
+        "approval": {"type": "object"},
+        "provenance": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "reportQuality": {
+      "type": "object",
+      "required": ["passed", "blockingIssues", "warnings", "checks"],
+      "properties": {
+        "passed": {"type": "boolean"},
+        "blockingIssues": {"type": "array", "items": {"type": "string"}},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "checks": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

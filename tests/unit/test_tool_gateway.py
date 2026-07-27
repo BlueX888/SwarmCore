@@ -114,6 +114,20 @@ async def test_high_risk_tool_requires_approved_capability() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unknown_tool_ref_is_rejected_with_tool_identity() -> None:
+    issuer = CapabilityTokenIssuer(SECRET)
+    gateway = ToolGateway(builtin_registry(), issuer, InMemoryEffectJournal(), executors={})
+    with pytest.raises(GatewayError, match="unknown tool: tool://missing@1"):
+        await gateway.invoke(
+            ToolInvocation(
+                token=token(issuer, tool_ref="tool://missing@1"),
+                effectId="effect-1",
+                input={},
+            )
+        )
+
+
+@pytest.mark.asyncio
 async def test_token_scope_and_input_schema_are_enforced() -> None:
     issuer = CapabilityTokenIssuer(SECRET)
     gateway = ToolGateway(builtin_registry(), issuer, InMemoryEffectJournal(), executors={})

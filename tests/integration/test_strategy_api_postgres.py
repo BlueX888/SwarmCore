@@ -209,3 +209,125 @@ async def test_strategy_queries_are_project_scoped_and_versioned() -> None:
             )
     finally:
         await cleanup_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_strategy_delete_impact_and_conservative_delete() -> None:
+    database_url = os.getenv("SWARMCORE_TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("SWARMCORE_TEST_DATABASE_URL is not configured")
+
+    tenant_id, other_tenant_id, project_id = uuid4(), uuid4(), uuid4()
+    engine = create_async_engine(database_url)
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO tenants (id, name, status, created_at, updated_at) "
+                "VALUES (:tenant, :name, 'ACTIVE', now(), now()), "
+                "(:other, :other_name, 'ACTIVE', now(), now())"
+            ),
+            {
+                "tenant": tenant_id,
+                "name": f"delete-tenant-{tenant_id}",
+                "other": other_tenant_id,
+                "other_name": f"delete-tenant-{other_tenant_id}",
+            },
+        )
+        await connection.execute(
+            text("SELECT set_config('app.tenant_id', :tenant, true)"),
+            {"tenant": str(tenant_id)},
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO projects "
+                "(id, tenant_id, name, settings, created_at, updated_at) "
+                "VALUES (:project, :tenant, 'delete-project', '{}', now(), now())"
+            ),
+            {"project": project_id, "tenant": tenant_id},
+        )
+    await engine.dispose()
+
+    agent = {"role": "worker", "instructions": "work"}
+    spec = sequential("delete-strategy", {"one": agent}).model_dump(
+        mode="json", by_alias=True, exclude_none=True
+    )
+    headers = {"X-Tenant-ID": str(tenant_id)}
+    base = f"/v1/projects/{project_id}/strategies"
+    with TestClient(create_app(Settings(database_url=database_url))) as client:
+        draft_only = client.post(
+            base,
+            headers=headers,
+            json={"name": "delete-draft-only", "spec": spec},
+        )
+        assert draft_only.status_code == 201
+        draft_handle = draft_only.json()
+
+        impact = client.get(
+            f"{base}/{draft_handle['strategyId']}/delete-impact",
+            headers=headers,
+        )
+        assert impact.status_code == 200
+        assert impact.json()["deletable"] is True
+        assert impact.json()["blockers"] == []
+
+        deleted = client.delete(
+            f"{base}/{draft_handle['strategyId']}",
+            headers=headers,
+        )
+        assert deleted.status_code == 204
+
+        missing = client.delete(
+            f"{base}/{draft_handle['strategyId']}",
+            headers=headers,
+        )
+        assert missing.status_code == 404
+
+        published = client.post(
+            base,
+            headers=headers,
+            json={"name": "delete-published", "spec": spec},
+        )
+        assert published.status_code == 201
+        published_handle = published.json()
+        publish = client.post(
+            f"{base}/{published_handle['strategyId']}/publish",
+            headers=headers,
+            json={"draftId": published_handle["draftId"]},
+        )
+        assert publish.status_code == 200
+        version_id = publish.json()["strategyVersionId"]
+
+        blocked_impact = client.get(
+            f"{base}/{published_handle['strategyId']}/delete-impact",
+            headers=headers,
+        )
+        assert blocked_impact.status_code == 200
+        body = blocked_impact.json()
+        assert body["deletable"] is False
+        assert any(
+            item["code"] == "STRATEGY_HAS_PUBLISHED_VERSIONS" for item in body["blockers"]
+        )
+
+        blocked_delete = client.delete(
+            f"{base}/{published_handle['strategyId']}",
+            headers=headers,
+        )
+        assert blocked_delete.status_code == 409
+        problem = blocked_delete.json()
+        assert problem["code"] == "STRATEGY_DELETE_BLOCKED"
+        assert any(
+            item["code"] == "STRATEGY_HAS_PUBLISHED_VERSIONS"
+            for item in problem["blockers"]
+        )
+
+        still_there = client.get(
+            f"{base}/{published_handle['strategyId']}/versions/{version_id}",
+            headers=headers,
+        )
+        assert still_there.status_code == 200
+
+        cross_tenant = client.delete(
+            f"{base}/{published_handle['strategyId']}",
+            headers={"X-Tenant-ID": str(other_tenant_id)},
+        )
+        assert cross_tenant.status_code == 404

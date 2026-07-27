@@ -5,11 +5,10 @@ import logging
 from collections.abc import Mapping
 from typing import Any, Protocol, cast
 
-from jsonschema import Draft202012Validator, ValidationError
-
 from agno.agent import Agent
 from agno.models.base import Model
 from agno.run.agent import RunOutput
+from jsonschema import Draft202012Validator, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +49,15 @@ class AgnoAdapter:
             for tool_ref in tool_refs
             if self._gateway_proxies is not None
         ]
+        output_schema = agent_spec.get("outputSchema")
         agent = Agent(
             id=f"{run['runId']}:{node['key']}",
             model=self._models.resolve(model_ref, request),
             role=str(agent_spec["role"]),
             instructions=str(agent_spec["instructions"]),
             tools=tools,
-            output_schema=agent_spec.get("outputSchema"),
+            output_schema=output_schema,
+            use_json_mode=output_schema is not None,
         )
         output = await agent.arun(
             json.dumps(self._build_input(request), sort_keys=True),
@@ -66,6 +67,10 @@ class AgnoAdapter:
         )
         if not isinstance(output, RunOutput):
             raise TypeError("Agno returned a streaming result for a non-streaming call")
+        status = getattr(output.status, "value", output.status)
+        if isinstance(status, str) and status.upper() == "ERROR":
+            detail = _error_detail(output)
+            raise ValueError(f"model invocation failed: {detail}")
         if output.active_requirements:
             return {
                 "status": "SUSPENDED",
@@ -96,13 +101,13 @@ class AgnoAdapter:
         )
         if not self._has_content(content):
             raise ValueError("model returned no final answer")
-        output_schema = agent_spec.get("outputSchema")
         if output_schema is not None:
             try:
                 Draft202012Validator(output_schema).validate(content)
             except ValidationError as exc:
+                path = ".".join(str(part) for part in exc.absolute_path) or "$"
                 raise ValueError(
-                    f"agent output does not match output schema: {exc.message}"
+                    f"agent output does not match output schema at {path}: {exc.message}"
                 ) from exc
         return {
             "status": "COMPLETED",
@@ -174,8 +179,27 @@ class AgnoAdapter:
     @staticmethod
     def _build_input(request: Mapping[str, Any]) -> dict[str, Any]:
         node = cast(dict[str, Any], request["node"])
+        node_input = dict(node.get("config", {}).get("input", {}))
+        context_mode = node_input.pop("_contextMode", "full")
+        if context_mode not in {"full", "node_only"}:
+            raise ValueError(f"unsupported agent context mode: {context_mode}")
+        if context_mode == "node_only":
+            return {
+                "input": {},
+                "nodeInput": node_input,
+                "dependencyOutputs": {},
+            }
         return {
             "input": cast(dict[str, Any], request["run"]).get("input", {}),
-            "nodeInput": node.get("config", {}).get("input", {}),
+            "nodeInput": node_input,
             "dependencyOutputs": request.get("dependencyOutputs", {}),
         }
+
+
+def _error_detail(output: RunOutput) -> str:
+    content = output.content
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    if content is not None:
+        return str(content)
+    return str(output.status)

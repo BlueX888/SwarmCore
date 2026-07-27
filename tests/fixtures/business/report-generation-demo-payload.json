@@ -1,0 +1,173 @@
+{
+  "title": "采购履约公开数据综合演示案例",
+  "evaluationPeriod": {
+    "start": "2026-01-01",
+    "end": "2026-06-30"
+  },
+  "contract": {
+    "contractId": "DEMO-CPE-2026-001",
+    "contractName": "新乡学院数字资源采购项目标段4（演示评价）",
+    "contractAmount": 900000,
+    "actualCost": 912000,
+    "currency": "CNY"
+  },
+  "documents": [
+    {
+      "documentId": "PUBLIC-CORE:PROCUREMENT-INVITATION",
+      "category": "采购邀请",
+      "required": true,
+      "status": "VALID"
+    },
+    {
+      "documentId": "PUBLIC-CORE:AWARD-NOTICE",
+      "category": "成交公告",
+      "required": true,
+      "status": "VALID"
+    },
+    {
+      "documentId": "PUBLIC-CORE:SIGNED-CONTRACT-LOT-4",
+      "category": "主合同",
+      "required": true,
+      "status": "VALID"
+    },
+    {
+      "documentId": "PUBLIC-CORE:ACCEPTANCE-REPORT",
+      "category": "履约验收报告",
+      "required": true,
+      "status": "VALID"
+    },
+    {
+      "documentId": "DEMO-SUPPLEMENT:PERFORMANCE-REGISTER",
+      "category": "履约进度资料",
+      "required": true,
+      "status": "VALID"
+    },
+    {
+      "documentId": "DEMO-SUPPLEMENT:COST-PAYMENT-REGISTER",
+      "category": "成本与付款资料",
+      "required": true,
+      "status": "VALID"
+    },
+    {
+      "documentId": "DEMO-SUPPLEMENT:DEVIATION-REGISTER",
+      "category": "偏差与变更资料",
+      "required": true,
+      "status": "VALID"
+    },
+    {
+      "documentId": "MISSING:REAL-TRANSACTION-INVOICE",
+      "category": "真实交易发票",
+      "required": true,
+      "status": "MISSING"
+    }
+  ],
+  "obligations": [
+    {
+      "obligationId": "PUBLIC-CORE:DIGITAL-RESOURCE-DELIVERY",
+      "category": "数字资源交付",
+      "timeliness": "ON_TIME",
+      "quality": "ACCEPTED"
+    },
+    {
+      "obligationId": "PUBLIC-CORE:SERVICE-ACTIVATION",
+      "category": "服务开通",
+      "timeliness": "ON_TIME",
+      "quality": "ACCEPTED"
+    },
+    {
+      "obligationId": "PUBLIC-CORE:ACCEPTANCE-DELIVERABLE",
+      "category": "验收交付物",
+      "timeliness": "ON_TIME",
+      "quality": "ACCEPTED"
+    },
+    {
+      "obligationId": "DEMO-SUPPLEMENT:TRAINING",
+      "category": "使用培训",
+      "timeliness": "LATE",
+      "quality": "CONDITIONALLY_ACCEPTED"
+    }
+  ],
+  "deviations": [
+    {
+      "deviationId": "DEMO-SUPPLEMENT:CONTRACT-SCOPE-CHANGE",
+      "category": "合同范围变更",
+      "severity": "HIGH",
+      "status": "CLOSED",
+      "costImpact": 12000,
+      "delayDays": 0
+    },
+    {
+      "deviationId": "DEMO-SUPPLEMENT:ACCEPTANCE-CORRECTION",
+      "category": "验收整改",
+      "severity": "LOW",
+      "status": "CLOSED",
+      "costImpact": 0,
+      "delayDays": 0
+    },
+    {
+      "deviationId": "DEMO-SUPPLEMENT:TRAINING-DELAY",
+      "category": "培训进度",
+      "severity": "MEDIUM",
+      "status": "IN_PROGRESS",
+      "costImpact": 0,
+      "delayDays": 10
+    }
+  ],
+  "invoices": [
+    {
+      "invoiceId": "DEMO-SUPPLEMENT:INVOICE-001",
+      "amount": 400000,
+      "contractMatched": true,
+      "acceptanceMatched": true,
+      "taxValid": true,
+      "duplicate": false
+    },
+    {
+      "invoiceId": "DEMO-SUPPLEMENT:INVOICE-002",
+      "amount": 400000,
+      "contractMatched": true,
+      "acceptanceMatched": true,
+      "taxValid": true,
+      "duplicate": false
+    },
+    {
+      "invoiceId": "DEMO-SUPPLEMENT:INVOICE-003",
+      "amount": 100000,
+      "contractMatched": true,
+      "acceptanceMatched": false,
+      "taxValid": true,
+      "duplicate": false
+    }
+  ],
+  "risks": [
+    {
+      "riskId": "DEMO-SUPPLEMENT:COMPLAINT-DISPUTE",
+      "category": "采购投诉",
+      "level": "HIGH",
+      "status": "CLOSED",
+      "actionOverdue": false
+    },
+    {
+      "riskId": "DEMO-SUPPLEMENT:SUPPLIER-COMPLIANCE",
+      "category": "供应商合规",
+      "level": "LOW",
+      "status": "CLOSED",
+      "actionOverdue": false
+    },
+    {
+      "riskId": "DEMO-SUPPLEMENT:RECTIFICATION-FOLLOW-UP",
+      "category": "整改跟踪",
+      "level": "MEDIUM",
+      "status": "IN_PROGRESS",
+      "actionOverdue": true
+    }
+  ],
+  "evidenceAvailability": {
+    "contract-files": "PUBLIC_CORE_EVIDENCE",
+    "performance-data": "MIXED_PUBLIC_AND_DEMO",
+    "cost-data": "DEMO_SUPPLEMENT",
+    "deviation-data": "DEMO_SUPPLEMENT",
+    "invoice-data": "DEMO_SUPPLEMENT",
+    "risk-data": "DEMO_SUPPLEMENT"
+  }
+}

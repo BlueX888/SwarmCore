@@ -171,11 +171,18 @@ async def test_cross_file_check_pdf_and_accuracy_baseline() -> None:
     pdf = render_evidence_pdf("Evidence report", [first, second], findings)
     assert pdf.startswith(b"%PDF-1.4") and pdf.endswith(b"%%EOF\n")
     assert pdf_report_payload(pdf)["mediaType"] == "application/pdf"
+    assert pdf == render_evidence_pdf("Evidence report", [first, second], findings)
     baseline = calculate_accuracy_baseline(
         [{("party", "ACME")}, {("party", "Other")}], [first, second]
     )
     assert baseline.precision == baseline.recall == 1
     assert baseline.review_rate == 0
+
+
+def test_pdf_report_preserves_chinese_text_font() -> None:
+    pdf = render_evidence_pdf("采购履约后评价报告", [], [])
+
+    assert b"STSong-Light" in pdf
 
 
 def test_deidentified_accuracy_fixture_has_frozen_baseline() -> None:

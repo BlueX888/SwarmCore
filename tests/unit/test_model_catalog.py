@@ -35,6 +35,22 @@ def test_registered_agent_definitions_are_available_for_safe_customization() -> 
         "agent://contract/document-classifier@1",
         "agent://contract/field-extractor@1",
         "agent://contract/post-evaluation-analyst@1",
+        "agent://contract/baseline-analyst@1",
+        "agent://contract/baseline-analyst@2",
+        "agent://contract/performance-quality-analyst@1",
+        "agent://contract/performance-quality-analyst@2",
+        "agent://contract/finance-invoice-analyst@1",
+        "agent://contract/finance-invoice-analyst@2",
+        "agent://contract/deviation-risk-analyst@1",
+        "agent://contract/deviation-risk-analyst@2",
+        "agent://contract/evidence-reviewer@1",
+        "agent://contract/report-narrator@1",
+        "agent://deviation/schedule-scope-fact-analyst@1",
+        "agent://deviation/cost-change-fact-analyst@1",
+        "agent://deviation/root-cause-analyst@1",
+        "agent://deviation/responsibility-analyst@1",
+        "agent://deviation/evidence-reviewer@1",
+        "agent://deviation/report-narrator@1",
     }
     assert agents["agent://builtin/researcher@1"].model == "model://general@1"
     assert agents["agent://builtin/researcher@1"].tools == ["tool://search@1"]

@@ -14,6 +14,8 @@ from swarmcore_persistence import AuditRepository
 from swarmcore_persistence.errors import PersistenceConflictError
 from swarmcore_persistence.models import (
     BlobObject,
+    BusinessDocument,
+    BusinessDocumentVersion,
     Evaluation,
     Finding,
     FindingAction,
@@ -550,12 +552,103 @@ class WorkbenchService:
             business_work_keys=business_work_keys,
             business_object_ids=tuple(value.business_object_id for value in subjects),
         )
-        available_categories = {document.category for document, _, _ in document_versions}
+        # Workbench creates ephemeral subjects; fall back to work-scoped bindings
+        # when no document is linked to those object ids yet.
+        if not document_versions and subjects:
+            document_versions = await self._documents.current_versions_for_work(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                business_work_keys=business_work_keys,
+            )
+        selection = revision.payload.get("documentSelection", {})
+        if not isinstance(selection, dict):
+            selection = {}
+        include_ids = {
+            str(value) for value in selection.get("includeVersionIds", [])
+        }
+        exclude_ids = {
+            str(value) for value in selection.get("excludeVersionIds", [])
+        }
+        baseline_ids = {
+            str(value) for value in selection.get("baselineVersionIds", [])
+        }
+        available_version_ids = {str(row[1].id) for row in document_versions}
+        if (include_ids | baseline_ids) - available_version_ids:
+            raise ValueError("DOCUMENT_SELECTION_INVALID")
+        if (include_ids | baseline_ids) & exclude_ids:
+            raise ValueError("DOCUMENT_SELECTION_INVALID")
+        document_versions = [
+            row for row in document_versions if str(row[1].id) not in exclude_ids
+        ]
+        if manifest.metadata.name == "deviation-analysis":
+            baseline_categories = {
+                "SCOPE_BASELINE",
+                "SCHEDULE_BASELINE",
+                "COST_BASELINE",
+            }
+            for category in baseline_categories:
+                candidates = [
+                    row for row in document_versions if row[0].category == category
+                ]
+                selected_baselines = [
+                    row for row in candidates if str(row[1].id) in baseline_ids
+                ]
+                if len(candidates) > 1 and not selected_baselines:
+                    raise ValueError("BASELINE_SELECTION_REQUIRED")
+                if selected_baselines:
+                    document_versions = [
+                        row
+                        for row in document_versions
+                        if row[0].category != category or row in selected_baselines
+                    ]
+        requirements = manifest.spec.document_requirements()
+        requirements_by_category = {
+            requirement.category: requirement for requirement in requirements
+        }
+        documents_by_category: dict[
+            str, list[tuple[BusinessDocument, BusinessDocumentVersion, BlobObject]]
+        ] = {}
+        for row in document_versions:
+            documents_by_category.setdefault(row[0].category, []).append(row)
+        selected_documents: list[
+            tuple[BusinessDocument, BusinessDocumentVersion, BlobObject]
+        ] = []
+        for requirement in requirements:
+            rows = documents_by_category.get(requirement.category, [])
+            rows.sort(
+                key=lambda row: (
+                    0 if str(row[1].id) in include_ids else 1,
+                    -row[1].version,
+                    str(row[0].id),
+                )
+            )
+            limit = requirement.max_count if requirement.max_count is not None else len(rows)
+            selected_documents.extend(rows[:limit])
+        for category in sorted(set(documents_by_category) - set(requirements_by_category)):
+            selected_documents.extend(documents_by_category[category])
+        document_versions = selected_documents[:100]
+        selected_counts: dict[str, int] = {}
+        for document, _, _ in document_versions:
+            selected_counts[document.category] = (
+                selected_counts.get(document.category, 0) + 1
+            )
         if any(
-            requirement.required and requirement.category not in available_categories
-            for requirement in manifest.spec.documents
+            requirement.required
+            and selected_counts.get(requirement.category, 0) < requirement.min_count
+            for requirement in manifest.spec.document_requirements()
         ):
             raise ValueError("DOCUMENT_SELECTION_REQUIRED")
+        if self._schema_requires_non_empty(
+            manifest.spec.input_schema, "documents"
+        ) and not document_versions:
+            raise ValueError("DOCUMENT_SELECTION_REQUIRED")
+        if (
+            manifest.api_version == "swarmcore.io/v2"
+            and self._schema_requires_non_empty(manifest.spec.input_schema, "subjects")
+            and not subjects
+        ):
+            raise ValueError("CASE_SUBJECT_REQUIRED")
         attachment_hash = canonical_hash(
             {
                 "attachments": [
@@ -577,6 +670,42 @@ class WorkbenchService:
                     }
                     for document, version, blob in document_versions
                 ],
+            }
+        )
+        selection_hash = canonical_hash(
+            {
+                "algorithm": "deviation-analysis-selection@1",
+                "includeVersionIds": sorted(include_ids),
+                "excludeVersionIds": sorted(exclude_ids),
+                "baselineVersionIds": sorted(baseline_ids),
+                "selectedVersionIds": sorted(
+                    str(version.id) for _, version, _ in document_versions
+                ),
+            }
+        )
+        baseline_hash = canonical_hash(
+            [
+                {
+                    "category": document.category,
+                    "documentVersionId": str(version.id),
+                    "sha256": version.sha256,
+                }
+                for document, version, _ in document_versions
+                if document.category
+                in {"SCOPE_BASELINE", "SCHEDULE_BASELINE", "COST_BASELINE"}
+            ]
+        )
+        configuration_hash = canonical_hash(
+            {
+                "binding": binding.configuration,
+                "currency": revision.payload.get("currency", "CNY"),
+                "timezone": revision.payload.get("timezone", "Asia/Shanghai"),
+                "dimensions": revision.payload.get(
+                    "dimensions", ["TIME", "CONTENT", "COST"]
+                ),
+                "thresholds": revision.payload.get("thresholds", {}),
+                "approval": revision.payload.get("approval", {}),
+                "approvalRules": revision.payload.get("approvalRules", {}),
             }
         )
         rule_version = None
@@ -618,6 +747,14 @@ class WorkbenchService:
             "attachmentManifestHash": attachment_hash,
             "configuration": dict(binding.configuration),
         }
+        if manifest.metadata.name == "deviation-analysis":
+            input_data.update(
+                {
+                    "selectionManifestHash": selection_hash,
+                    "baselineHash": baseline_hash,
+                    "configurationHash": configuration_hash,
+                }
+            )
         if manifest.api_version == "swarmcore.io/v2":
             input_data["subjects"] = [
                 {
@@ -1308,6 +1445,19 @@ class WorkbenchService:
         if schema is not None:
             Draft202012Validator(schema).validate(value)
 
+    def _schema_requires_non_empty(self, schema_ref: str, field: str) -> bool:
+        schema = self._schemas.get(schema_ref)
+        if not isinstance(schema, dict):
+            return False
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            return False
+        field_schema = properties.get(field)
+        if not isinstance(field_schema, dict):
+            return False
+        min_items = field_schema.get("minItems")
+        return isinstance(min_items, int) and min_items >= 1
+
     async def _idempotent_response(
         self,
         session: AsyncSession,
@@ -1375,18 +1525,9 @@ class WorkbenchService:
 
 
 def _business_work_keys(pack_name: str, work_item_type: str) -> tuple[str, ...]:
-    if pack_name == "contract-post-evaluation":
-        return (
-            pack_name,
-            work_item_type,
-            "document-integrity",
-            "performance-plan-collection",
-            "invoice-assurance",
-            "deviation-analysis",
-            "procurement-supplier-risk",
-            "report-generation",
-        )
-    return (pack_name, work_item_type)
+    from .business_works import document_binding_keys
+
+    return document_binding_keys(pack_name, work_item_type)
 
 
 def _render_html_report(item: WorkItem, evaluation: Evaluation, result: dict[str, Any]) -> str:

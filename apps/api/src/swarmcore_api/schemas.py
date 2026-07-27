@@ -75,6 +75,18 @@ class StrategyDetail(StrategySummary):
     project_id: UUID = Field(alias="projectId")
 
 
+class StrategyDeleteBlockerSnapshot(ApiModel):
+    code: str
+    count: int
+    message: str
+
+
+class StrategyDeleteImpactResponse(ApiModel):
+    strategy_id: UUID = Field(alias="strategyId")
+    deletable: bool
+    blockers: list[StrategyDeleteBlockerSnapshot] = Field(default_factory=list)
+
+
 class DraftSnapshot(ApiModel):
     draft_id: UUID = Field(alias="draftId")
     strategy_id: UUID = Field(alias="strategyId")
@@ -313,6 +325,7 @@ class Problem(ApiModel):
     code: str
     detail: str
     trace_id: str | None = Field(default=None, alias="traceId")
+    blockers: list[StrategyDeleteBlockerSnapshot] | None = None
 
 
 class JsonRpcRequest(ApiModel):

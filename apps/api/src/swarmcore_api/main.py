@@ -17,6 +17,7 @@ from swarmcore_application import (
     CapabilityPresetService,
     RunCommandConflictError,
     RunNotTerminalError,
+    StrategyDeleteError,
 )
 from swarmcore_compiler import CompileError
 from swarmcore_governance import OpaPolicyEngine, PolicyDenied, PolicyError, RolePolicyEngine
@@ -34,7 +35,6 @@ from .business_routes import router as business_router
 from .capability_readiness import create_capability_center
 from .mcp import router as mcp_router
 from .routes import router
-from .schemas import Problem
 from .settings import Settings
 
 
@@ -132,6 +132,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         return _problem(request, 409, exc.code, exc.detail)
 
+    @app.exception_handler(StrategyDeleteError)
+    async def strategy_delete_denied(
+        request: Request, exc: StrategyDeleteError
+    ) -> JSONResponse:
+        return _problem(
+            request,
+            409,
+            exc.code,
+            exc.detail,
+            blockers=[
+                {"code": item.code, "count": item.count, "message": item.message}
+                for item in exc.blockers
+            ],
+        )
+
     @app.exception_handler(PersistenceConflictError)
     async def conflict(request: Request, exc: PersistenceConflictError) -> JSONResponse:
         return _problem(request, 409, "CONFLICT", str(exc))
@@ -179,6 +194,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         detail = str(exc)
         if detail == "IDEMPOTENCY_KEY_REUSED":
             return _problem(request, 409, "IDEMPOTENCY_KEY_REUSED", detail)
+        known = {
+            "DOCUMENT_SELECTION_REQUIRED": (
+                422,
+                "DOCUMENT_SELECTION_REQUIRED",
+                "请先提供并绑定所需业务资料后再开始办理。",
+            ),
+            "CASE_SUBJECT_REQUIRED": (
+                422,
+                "CASE_SUBJECT_REQUIRED",
+                "缺少必需的业务对象主体。",
+            ),
+            "BUSINESS_WORK_NOT_READY": (
+                422,
+                "BUSINESS_WORK_NOT_READY",
+                "业务工作尚未满足运行资格。",
+            ),
+            "DECISION_BINDING_REQUIRED": (
+                422,
+                "DECISION_BINDING_REQUIRED",
+                "缺少必需的决策绑定。",
+            ),
+        }
+        if detail in known:
+            status, code, message = known[detail]
+            return _problem(request, status, code, message)
         return _problem(request, 422, "VALIDATION_ERROR", detail)
 
     @app.exception_handler(PolicyError)
@@ -192,10 +232,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-def _problem(request: Request, status: int, code: str, detail: str) -> JSONResponse:
-    problem = Problem(title=code.replace("_", " ").title(), status=status, code=code, detail=detail)
+def _problem(
+    request: Request,
+    status: int,
+    code: str,
+    detail: str,
+    *,
+    blockers: list[dict[str, object]] | None = None,
+) -> JSONResponse:
+    del request
+    payload: dict[str, object] = {
+        "type": "about:blank",
+        "title": code.replace("_", " ").title(),
+        "status": status,
+        "code": code,
+        "detail": detail,
+        "traceId": None,
+    }
+    if blockers is not None:
+        payload["blockers"] = blockers
     return JSONResponse(
-        problem.model_dump(mode="json", by_alias=True),
+        payload,
         status_code=status,
         media_type="application/problem+json",
     )

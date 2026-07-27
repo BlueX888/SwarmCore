@@ -4,13 +4,27 @@ import asyncio
 import base64
 import hashlib
 import json
+import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from io import BytesIO
+from pathlib import Path
 from typing import Any, Literal, Protocol
 from urllib.request import Request, urlopen
 from uuid import UUID
+from xml.sax.saxutils import escape
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen.canvas import Canvas
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 
 class IntelligenceModel(BaseModel):
@@ -465,6 +479,10 @@ def render_text_pdf(lines: Sequence[str]) -> bytes:
     return _minimal_pdf(lines)
 
 
+def render_embedded_text_pdf(lines: Sequence[str]) -> bytes:
+    return _minimal_pdf(lines, embed_cjk=True)
+
+
 class AccuracyBaseline(IntelligenceModel):
     precision: float = Field(ge=0, le=1)
     recall: float = Field(ge=0, le=1)
@@ -515,37 +533,140 @@ def _canonical_value(value: str | int | float | bool | None) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
-def _minimal_pdf(lines: Sequence[str]) -> bytes:
-    escaped = [
-        line.encode("ascii", "replace")
-        .decode("ascii")
-        .replace("\\", "\\\\")
-        .replace("(", "\\(")
-        .replace(")", "\\)")
-        for line in lines
-    ]
-    stream = (
-        "BT /F1 10 Tf 50 790 Td 12 TL "
-        + " ".join(f"({line[:140]}) Tj T*" for line in escaped[:58])
-        + " ET"
+def _minimal_pdf(lines: Sequence[str], *, embed_cjk: bool = False) -> bytes:
+    font_name = "STSong-Light"
+    body_font_name = "Helvetica"
+    if embed_cjk:
+        font_path = next(
+            (
+                candidate
+                for candidate in (
+                    Path("C:/Windows/Fonts/simhei.ttf"),
+                    Path("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"),
+                )
+                if candidate.is_file()
+            ),
+            None,
+        )
+        if font_path is None:
+            raise RuntimeError("embedded CJK font is not installed: fonts-wqy-zenhei")
+        font_name = "WenQuanYiZenHei"
+        body_font_name = font_name
+        if font_name not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont(font_name, font_path, subfontIndex=0))
+    elif font_name not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(UnicodeCIDFont(font_name))
+    stream = BytesIO()
+    document = SimpleDocTemplate(
+        stream,
+        pagesize=A4,
+        leftMargin=22 * mm,
+        rightMargin=22 * mm,
+        topMargin=24 * mm,
+        bottomMargin=20 * mm,
+        title=str(lines[0]) if lines else "SwarmCore Report",
+        author="SwarmCore",
     )
-    objects = [
-        "<< /Type /Catalog /Pages 2 0 R >>",
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
-        "/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-        f"<< /Length {len(stream.encode())} >>\nstream\n{stream}\nendstream",
-        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    ]
-    payload = bytearray(b"%PDF-1.4\n")
-    offsets = [0]
-    for index, item in enumerate(objects, start=1):
-        offsets.append(len(payload))
-        payload.extend(f"{index} 0 obj\n{item}\nendobj\n".encode())
-    xref = len(payload)
-    payload.extend(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode())
-    payload.extend(b"".join(f"{offset:010d} 00000 n \n".encode() for offset in offsets[1:]))
-    payload.extend(
-        f"trailer << /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    title_style = ParagraphStyle(
+        "ReportTitle",
+        fontName=body_font_name,
+        fontSize=18,
+        leading=25,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#172554"),
+        spaceAfter=8 * mm,
+        wordWrap="CJK",
     )
-    return bytes(payload)
+    heading_style = ParagraphStyle(
+        "ReportHeading",
+        fontName=body_font_name,
+        fontSize=13,
+        leading=19,
+        textColor=colors.HexColor("#1E3A8A"),
+        spaceBefore=4 * mm,
+        spaceAfter=2 * mm,
+        wordWrap="CJK",
+    )
+    body_style = ParagraphStyle(
+        "ReportBody",
+        fontName=body_font_name,
+        fontSize=10,
+        leading=16,
+        textColor=colors.HexColor("#1F2937"),
+        spaceAfter=1.8 * mm,
+        wordWrap="CJK",
+    )
+    bullet_style = ParagraphStyle(
+        "ReportBullet",
+        parent=body_style,
+        leftIndent=5 * mm,
+        firstLineIndent=-3 * mm,
+        bulletIndent=1 * mm,
+        spaceAfter=2.5 * mm,
+    )
+
+    def mixed_font_text(value: str) -> str:
+        if embed_cjk:
+            return escape(value)
+        return "".join(
+            escape(part)
+            if part.isascii()
+            else f'<font name="{font_name}">{escape(part)}</font>'
+            for part in re.split(r"([\x00-\x7f]+)", value)
+            if part
+        )
+
+    story: list[Any] = []
+    for index, raw_line in enumerate(lines):
+        line = str(raw_line).strip()
+        if not line:
+            story.append(Spacer(1, 2 * mm))
+            continue
+        if index == 0:
+            style = title_style
+            text = mixed_font_text(line)
+        elif line in {
+            "Contract Post-Evaluation Report",
+            "运行结论",
+            "三维偏差",
+            "趋势可视化 (同基线、同配置)",
+            "AI 根因假设",
+            "责任归属建议",
+            "管理摘要",
+            "不可变证据版本",
+            "复核与免责声明",
+            "证据与复核",
+            "改进建议",
+        }:
+            style = heading_style
+            text = mixed_font_text(line)
+        elif line.startswith("- "):
+            style = bullet_style
+            text = mixed_font_text(line)
+        else:
+            style = body_style
+            text = mixed_font_text(line)
+        story.append(Paragraph(text, style))
+
+    def canvas_factory(filename: Any, **kwargs: Any) -> Canvas:
+        kwargs["invariant"] = 1
+        return Canvas(filename, **kwargs)
+
+    def add_page_number(canvas: Canvas, _: Any) -> None:
+        canvas.saveState()
+        canvas.setFont(font_name, 8)
+        canvas.setFillColor(colors.HexColor("#64748B"))
+        canvas.drawCentredString(
+            A4[0] / 2,
+            10 * mm,
+            f"第 {canvas.getPageNumber()} 页",
+        )
+        canvas.restoreState()
+
+    document.build(
+        story,
+        onFirstPage=add_page_number,
+        onLaterPages=add_page_number,
+        canvasmaker=canvas_factory,
+    )
+    return stream.getvalue()

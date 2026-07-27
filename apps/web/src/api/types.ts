@@ -108,6 +108,16 @@ export interface StrategySummary {
   draftId: string | null; draftRevision: number | null; latestVersion: number | null;
 }
 export interface StrategyListResponse { items: StrategySummary[]; total: number; }
+export interface StrategyDeleteBlocker {
+  code: string;
+  count: number;
+  message: string;
+}
+export interface StrategyDeleteImpact {
+  strategyId: string;
+  deletable: boolean;
+  blockers: StrategyDeleteBlocker[];
+}
 export interface DraftSnapshot {
   draftId: string; strategyId: string; revision: number; spec: Record<string, unknown>;
   editorState: EditorState;
@@ -263,6 +273,103 @@ export interface DocumentUploadHandle {
   uploadRef: string;
   capabilityToken: string | null;
   status: string;
+  uploadBatchId?: string | null;
+}
+
+export interface UploadBatchSnapshot {
+  batchId: string;
+  source: string;
+  context: Record<string, unknown>;
+  status: string;
+  fileCount: number;
+  succeededCount: number;
+  failedCount: number;
+  createdBy: string;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface DocumentProcessingRunSnapshot {
+  processingRunId: string;
+  businessDocumentVersionId: string;
+  profileRef: string;
+  status: string;
+  currentStage: string;
+  stageLabel: string;
+  attempt: number;
+  parserRef: string | null;
+  classifierRef: string | null;
+  extractorRefs: string[];
+  errorCode: string | null;
+  errorDetail: string | null;
+  startedAt: string;
+  completedAt: string | null;
+}
+
+export interface DocumentProcessingResultSnapshot {
+  resultId: string;
+  resultType: string;
+  resultVersion: number;
+  status: string;
+  schemaRef: string | null;
+  producerRef: string | null;
+  result: {
+    schemaVersion?: string;
+    status?: string;
+    documentType?: {
+      label?: string;
+      displayName?: string;
+      confidence?: number;
+      confirmedLabel?: string;
+      alternatives?: Array<{ label: string; displayName?: string; confidence?: number }>;
+      evidence?: Array<Record<string, unknown>>;
+    };
+    content?: {
+      textExcerpt?: string;
+      pages?: Array<Record<string, unknown>>;
+      warnings?: string[];
+    };
+    extractions?: Array<{
+      fieldPath: string;
+      displayName: string;
+      value: unknown;
+      valueType: string;
+      confidence: number;
+      reviewStatus: string;
+      evidenceRefs: Array<Record<string, unknown>>;
+      machineValue: unknown;
+      confirmedValue: unknown;
+    }>;
+    evidence?: Array<Record<string, unknown>>;
+    qualityFlags?: string[];
+    warnings?: string[];
+    provenance?: Record<string, unknown>;
+  };
+  evidence: Array<Record<string, unknown>>;
+  confirmedBy: string | null;
+  confirmedAt: string | null;
+  createdAt: string;
+}
+
+export interface DocumentRequirementSnapshot {
+  key: string;
+  displayName: string;
+  description: string;
+  required: boolean;
+  minCount: number;
+  maxCount: number | null;
+  acceptedMediaTypes: string[];
+  classificationLabels: string[];
+  processingProfileRef: string | null;
+  extractionSchemaRef: string | null;
+  category: string | null;
+  satisfiedCount: number;
+  satisfied: boolean;
+}
+
+export interface DocumentRequirementListResponse {
+  processingProfileRef: string | null;
+  items: DocumentRequirementSnapshot[];
 }
 
 export interface DocumentDownloadHandle {
@@ -298,6 +405,27 @@ export interface PostEvaluationResult {
   overallScore: number; grade: string; riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   passed: boolean; reviewRequired: boolean; executiveSummary: string;
   dimensions: PostEvaluationDimension[]; findings: PostEvaluationFinding[];
+  readabilityGate?: {
+    documentCount: number;
+    readableDocumentCount: number;
+    readabilityRate: number;
+    formalThreshold: number;
+    formalEligible: boolean;
+    reportMode: "FORMAL_REPORT" | "PRE_REVIEW_REPORT";
+    reasons: string[];
+  };
+  reportQuality?: {
+    passed: boolean;
+    blockingIssues: string[];
+    warnings: string[];
+    checks: Record<string, boolean>;
+  };
+  reportDocument?: {
+    title: string;
+    reportNumber: string;
+    reportMode: "FORMAL_REPORT" | "PRE_REVIEW_REPORT";
+    formalEligible: boolean;
+  };
 }
 export interface EvaluationSnapshot {
   evaluationId: string; workItemId: string; workItemRevisionId: string; runId: string;
@@ -310,6 +438,97 @@ export interface ReportSnapshot {
   resultSchemaVersion: string; content: Record<string, unknown> | null; contentHash: string; createdAt: string;
 }
 export interface ReportListResponse { items: ReportSnapshot[]; }
+
+export type BusinessWorkStatus = "planned" | "not_configured" | "incomplete" | "runnable" | "unavailable";
+
+export interface BusinessWorkBlocker {
+  code: string;
+  message: string;
+  ref: string | null;
+}
+
+export interface BusinessWorkFunctionSnapshot {
+  name: string;
+  description: string;
+}
+
+export interface BusinessWorkSnapshot {
+  workKey: string;
+  name: string;
+  shortName: string;
+  category: string;
+  summary: string;
+  status: BusinessWorkStatus;
+  statusLabel: string;
+  packName: string | null;
+  packVersionId: string | null;
+  packVersion: string | null;
+  enabled: boolean;
+  bindingStatus: string | null;
+  blockers: BusinessWorkBlocker[];
+  agents: string[];
+  tools: string[];
+  models: string[];
+  documentRequirements: Array<{
+    key?: string;
+    category: string;
+    displayName?: string;
+    description?: string;
+    required: boolean;
+    minCount?: number;
+    maxCount?: number | null;
+    acceptedMediaTypes?: string[];
+    classificationLabels?: string[];
+    processingProfile?: string | null;
+    extractionSchema?: string | null;
+  }>;
+  decisionSlots: Array<{ slot: string; required: boolean }>;
+  functions: BusinessWorkFunctionSnapshot[];
+  configuration: Record<string, unknown>;
+  workItemType: string | null;
+  caseBased: boolean;
+  boundStrategyVersionId: string | null;
+  boundStrategyName: string | null;
+  boundStrategyVersion: number | null;
+}
+
+export interface BusinessWorkListResponse { items: BusinessWorkSnapshot[]; }
+
+export interface AssessmentDetailSnapshot {
+  assessmentId: string;
+  evaluationId: string;
+  caseId: string;
+  workItemId: string;
+  workItemRevisionId: string;
+  runId: string;
+  status: string;
+  result: PostEvaluationResult | Record<string, unknown> | null;
+  capabilityPackVersionId: string;
+  planHash: string;
+  attachmentManifestHash: string;
+  registrySnapshot: Record<string, unknown>;
+  createdAt: string;
+  casePayload: Record<string, unknown> | null;
+  caseStatus: string | null;
+  scenarioType: string | null;
+  owner: string | null;
+}
+
+export interface FindingSnapshot {
+  findingId: string;
+  workItemId: string;
+  evaluationId: string;
+  ruleKey: string;
+  code: string;
+  category: string;
+  severity: string;
+  status: string;
+  title: string;
+  detail: string;
+  evidence: Record<string, unknown>;
+}
+
+export interface FindingListResponse { items: FindingSnapshot[]; }
 
 export interface RuleSetDraftSnapshot {
   ruleSetId: string; draftId: string; revision: number; rules: Record<string, unknown>;

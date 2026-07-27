@@ -15,6 +15,7 @@ from swarmcore_persistence.models import (
     BusinessObject,
     BusinessObjectVersion,
     DocumentBusinessObjectLink,
+    DocumentProcessingResult,
     DocumentUsageSnapshot,
     DocumentWorkBinding,
     Evaluation,
@@ -23,12 +24,19 @@ from swarmcore_persistence.models import (
 )
 from swarmcore_persistence.repositories import canonical_hash
 
+from .document_processing import DocumentProcessingService
+
 
 class DocumentLibraryService:
     """Project-scoped document metadata backed by the existing BlobObject gateway."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        processing: DocumentProcessingService | None = None,
+    ) -> None:
         self._audit = AuditRepository()
+        self._processing = processing or DocumentProcessingService()
 
     async def initiate(
         self,
@@ -185,6 +193,12 @@ class DocumentLibraryService:
         sha256: str,
         idempotency_key: str,
         actor: str,
+        profile_ref: str | None = None,
+        candidate_labels: list[dict[str, str]] | None = None,
+        extraction_schema_ref: str | None = None,
+        upload_batch_id: UUID | None = None,
+        blob_content: bytes | None = None,
+        start_processing: bool = True,
     ) -> tuple[BusinessDocument, BusinessDocumentVersion]:
         blob = await session.scalar(
             select(BlobObject)
@@ -243,12 +257,12 @@ class DocumentLibraryService:
             media_type=blob.media_type,
             size_bytes=blob.size_bytes,
             sha256=blob.sha256,
-            processing_status="AVAILABLE",
+            processing_status="PROCESSING" if start_processing else "AVAILABLE",
             created_by=actor,
         )
         session.add(version)
         document.current_version = version_number
-        document.status = "AVAILABLE"
+        document.status = "PROCESSING" if start_processing else "AVAILABLE"
         await session.flush()
         await self._record_idempotency(
             session,
@@ -292,7 +306,78 @@ class DocumentLibraryService:
                 "sizeBytes": version.size_bytes,
             },
         )
+        if start_processing:
+            labels = candidate_labels
+            if not labels:
+                labels = [{"label": document.category, "displayName": document.category}]
+            await self._processing.start_for_version(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                version=version,
+                document=document,
+                profile_ref=profile_ref,
+                candidate_labels=labels,
+                extraction_schema_ref=extraction_schema_ref,
+                upload_batch_id=upload_batch_id,
+                actor=actor,
+                blob_content=blob_content,
+            )
         return document, version
+
+    async def resume_pending_upload(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        document_id: UUID,
+        idempotency_key: str,
+        actor: str,
+        profile_ref: str | None = None,
+        candidate_labels: list[dict[str, str]] | None = None,
+        extraction_schema_ref: str | None = None,
+        blob_content: bytes | None = None,
+    ) -> tuple[BusinessDocument, BusinessDocumentVersion]:
+        """Complete an UPLOADING document whose blob is already AVAILABLE."""
+        document = await self.get(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            document_id=document_id,
+            for_update=True,
+        )
+        if document.status != "UPLOADING":
+            raise ValueError("DOCUMENT_NOT_PENDING_UPLOAD")
+        blob = await session.scalar(
+            select(BlobObject)
+            .where(
+                BlobObject.tenant_id == tenant_id,
+                BlobObject.project_id == project_id,
+                BlobObject.metadata_json["documentId"].astext == str(document.id),
+                BlobObject.status == "AVAILABLE",
+                BlobObject.scan_status == "CLEAN",
+            )
+            .order_by(BlobObject.created_at.desc())
+            .limit(1)
+            .with_for_update()
+        )
+        if blob is None:
+            raise ValueError("DOCUMENT_UPLOAD_NOT_READY")
+        upload_id = UUID(str(blob.metadata_json["documentUploadId"]))
+        return await self.complete(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            upload_id=upload_id,
+            sha256=blob.sha256,
+            idempotency_key=idempotency_key,
+            actor=actor,
+            profile_ref=profile_ref,
+            candidate_labels=candidate_labels,
+            extraction_schema_ref=extraction_schema_ref,
+            blob_content=blob_content,
+        )
 
     async def list_documents(
         self,
@@ -465,6 +550,50 @@ class DocumentLibraryService:
             if existing is not None:
                 frozen.append(existing)
                 continue
+            processing = await session.scalar(
+                select(DocumentProcessingResult)
+                .where(
+                    DocumentProcessingResult.business_document_version_id == version.id,
+                    DocumentProcessingResult.tenant_id == tenant_id,
+                    DocumentProcessingResult.project_id == project_id,
+                    DocumentProcessingResult.result_type == "PROCESSING",
+                )
+                .order_by(DocumentProcessingResult.result_version.desc())
+                .limit(1)
+            )
+            evidence = [
+                {
+                    "documentVersionId": str(version.id),
+                    "blobId": str(blob.id),
+                    "sha256": version.sha256,
+                    "mediaType": version.media_type,
+                    "sizeBytes": version.size_bytes,
+                    "processingStatus": version.processing_status,
+                }
+            ]
+            if processing is not None:
+                result_payload = processing.result if isinstance(processing.result, dict) else {}
+                document_type = result_payload.get("documentType") or {}
+                evidence.append(
+                    {
+                        "processingResultId": str(processing.id),
+                        "processingResultVersion": processing.result_version,
+                        "schemaRef": processing.schema_ref,
+                        "producerRef": processing.producer_ref,
+                        "classification": {
+                            "label": document_type.get("label"),
+                            "confirmedLabel": document_type.get("confirmedLabel"),
+                            "confidence": document_type.get("confidence"),
+                        },
+                        "provenance": result_payload.get("provenance") or {},
+                        "confirmedBy": processing.confirmed_by,
+                        "confirmedAt": (
+                            processing.confirmed_at.isoformat()
+                            if processing.confirmed_at
+                            else None
+                        ),
+                    }
+                )
             snapshot = DocumentUsageSnapshot(
                 tenant_id=tenant_id,
                 project_id=project_id,
@@ -478,12 +607,54 @@ class DocumentLibraryService:
                 sha256=version.sha256,
                 size_bytes=version.size_bytes,
                 media_type=version.media_type,
-                evidence=[],
+                evidence=evidence,
             )
             session.add(snapshot)
             frozen.append(snapshot)
         await session.flush()
         return frozen
+
+    async def update_bindings(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        document_id: UUID,
+        business_object_ids: list[UUID],
+        business_work_keys: list[str],
+        actor: str,
+    ) -> BusinessDocument:
+        document = await self.get(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            document_id=document_id,
+            for_update=True,
+        )
+        await self._replace_links(
+            session,
+            document=document,
+            business_object_ids=business_object_ids,
+            business_work_keys=sorted(
+                {value.strip() for value in business_work_keys if value.strip()}
+            ),
+            actor=actor,
+        )
+        await self._audit.append(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            actor_id=actor,
+            action="document.bindings.updated",
+            resource_type="business_document",
+            resource_id=str(document.id),
+            metadata={
+                "businessObjectIds": [str(value) for value in business_object_ids],
+                "businessWorkKeys": business_work_keys,
+            },
+        )
+        return document
 
     async def _replace_links(
         self,

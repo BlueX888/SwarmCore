@@ -46,6 +46,22 @@ def test_saved_configuration_rejects_unknown_registry_sources(
         )
 
 
+def test_filesystem_tool_configuration_rejects_host_absolute_paths() -> None:
+    with pytest.raises(ValueError, match="host absolute paths"):
+        ProjectConfigurationService().validate(
+            kind=ConfigurationKind.TOOL,
+            name="fs-bad",
+            source_ref="tool://filesystem/read-text@1",
+            configuration={
+                "tool-1": {
+                    "type": "tool",
+                    "tool": "tool://filesystem/read-text@1",
+                    "input": {"mount": "workspace", "path": "/etc/passwd"},
+                }
+            },
+        )
+
+
 def test_project_configuration_migration_enforces_tenant_and_project_rls() -> None:
     migration = Path(
         "packages/persistence/alembic/versions/0007_project_configurations.py"

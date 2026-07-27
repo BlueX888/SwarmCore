@@ -1,0 +1,151 @@
+{
+  "apiVersion": "swarmcore.io/v2",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "invoice-assurance", "version": "1.0.0"},
+  "spec": {
+    "case": {
+      "type": "invoice-assurance-case",
+      "schema": "schema://invoice-assurance/case@1",
+      "subjectsRequired": true,
+      "subjectRoles": [
+        {"key": "invoice", "objectType": "invoice", "role": "PRIMARY", "min": 1, "max": 1}
+      ]
+    },
+    "inputSchema": "schema://invoice-assurance/input@1",
+    "outputSchema": "schema://invoice-assurance/result@1",
+    "strategies": {"execute": "strategy://invoice-assurance/assess@1"},
+    "agents": [
+      "agent://invoice/fact-normalizer@1",
+      "agent://invoice/commercial-match-analyst@1",
+      "agent://invoice/evidence-risk-reviewer@1"
+    ],
+    "tools": [
+      "tool://document/read-versions@1",
+      "tool://document/coverage-check@1",
+      "tool://evidence/search@1",
+      "tool://invoice/parse@1",
+      "tool://invoice/official-verify@1",
+      "tool://business/snapshot-read@1",
+      "tool://invoice/deduplicate@1",
+      "tool://invoice/arithmetic-check@1",
+      "tool://invoice/party-check@1",
+      "tool://invoice/commercial-match@1",
+      "tool://invoice/payment-gate@1",
+      "tool://invoice/finalize@1",
+      "tool://report/render-invoice-assurance@1",
+      "tool://workbench/record-invoice-assurance@1"
+    ],
+    "documents": {
+      "processingProfile": "document-profile://business-default@1",
+      "requirements": [
+        {
+          "key": "invoice-original",
+          "category": "INVOICE_ORIGINAL",
+          "displayName": "发票原件",
+          "description": "供应商交付的原始电子发票或纸票扫描件。",
+          "required": true,
+          "minCount": 1,
+          "maxCount": 5,
+          "classificationLabels": ["INVOICE_ORIGINAL", "INVOICE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "contract-order",
+          "category": "CONTRACT_ORDER",
+          "displayName": "合同与订单",
+          "description": "合同、补充协议、采购订单及变更单。",
+          "required": true,
+          "minCount": 1,
+          "maxCount": 20,
+          "classificationLabels": ["CONTRACT_ORDER", "CONTRACT", "PURCHASE_ORDER"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "receipt-acceptance",
+          "category": "RECEIPT_ACCEPTANCE",
+          "displayName": "收货与验收",
+          "description": "收货单、服务确认单、验收单或进度证明。",
+          "required": true,
+          "minCount": 1,
+          "maxCount": 20,
+          "classificationLabels": ["RECEIPT_ACCEPTANCE", "ACCEPTANCE", "RECEIPT"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "supplier-master",
+          "category": "SUPPLIER_MASTER",
+          "displayName": "供应商主数据",
+          "description": "供应商名称、税号、状态与批准收款账户。",
+          "required": true,
+          "minCount": 1,
+          "maxCount": 5,
+          "classificationLabels": ["SUPPLIER_MASTER", "VENDOR"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "ap-ledger",
+          "category": "AP_LEDGER",
+          "displayName": "应付台账",
+          "description": "应付发票台账、入账/付款/冲销记录。",
+          "required": true,
+          "minCount": 1,
+          "maxCount": 10,
+          "classificationLabels": ["AP_LEDGER", "PAYMENT", "LEDGER"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "budget-payment-policy",
+          "category": "BUDGET_PAYMENT_POLICY",
+          "displayName": "预算与付款政策",
+          "description": "预算、付款计划、预付款、质保金、扣款和审批规则。",
+          "required": true,
+          "minCount": 1,
+          "maxCount": 10,
+          "classificationLabels": ["BUDGET_PAYMENT_POLICY", "BUDGET", "POLICY"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "tax-account-export",
+          "category": "TAX_ACCOUNT_EXPORT",
+          "displayName": "税务数字账户导出",
+          "description": "授权税务数字账户导出或官方查验辅助资料。",
+          "required": false,
+          "minCount": 0,
+          "maxCount": 5,
+          "classificationLabels": ["TAX_ACCOUNT_EXPORT", "TAX"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "bank-change-evidence",
+          "category": "BANK_CHANGE_EVIDENCE",
+          "displayName": "银行账户变更证据",
+          "description": "供应商收款账户变更审批与确认证据。",
+          "required": false,
+          "minCount": 0,
+          "maxCount": 10,
+          "classificationLabels": ["BANK_CHANGE_EVIDENCE", "BANK"],
+          "extractionSchema": "schema://document/generic-text@1"
+        }
+      ]
+    },
+    "report": {"template": "report://invoice-assurance@1"},
+    "permissions": [
+      "case.read",
+      "case.assess",
+      "document.read",
+      "report.read",
+      "invoice.read",
+      "invoice.submit",
+      "invoice.verify",
+      "invoice.commercial-review",
+      "invoice.payment-review",
+      "invoice.tax-review",
+      "invoice.audit",
+      "approval.respond",
+      "business-object.read",
+      "finding.act"
+    ],
+    "events": {"namespace": "capability.invoice-assurance"},
+    "ui": {"viewDefinition": "view://invoice-assurance/case@1"}
+  }
+}

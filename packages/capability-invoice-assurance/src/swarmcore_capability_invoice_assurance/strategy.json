@@ -1,0 +1,323 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "SwarmStrategy",
+  "metadata": {"name": "invoice-assurance-assess-v1"},
+  "spec": {
+    "inputSchema": {"type": "object"},
+    "outputSchema": {"type": "object"},
+    "defaults": {
+      "timeout": "PT15M",
+      "retryPolicy": {
+        "maxAttempts": 3,
+        "initialInterval": "PT1S",
+        "maximumInterval": "PT1M",
+        "backoffCoefficient": 2
+      }
+    },
+    "budget": {
+      "maxDuration": "PT30M",
+      "maxTokens": 80000,
+      "maxCostUsd": 1.5,
+      "maxAgents": 3,
+      "maxParallelism": 3,
+      "onExhausted": "wait_for_budget_approval"
+    },
+    "agents": {
+      "fact-normalizer": {"ref": "agent://invoice/fact-normalizer@1"},
+      "commercial-match-analyst": {"ref": "agent://invoice/commercial-match-analyst@1"},
+      "evidence-risk-reviewer": {"ref": "agent://invoice/evidence-risk-reviewer@1"}
+    },
+    "graph": {
+      "entrypoint": "read-documents",
+      "nodes": {
+        "read-documents": {
+          "type": "tool",
+          "tool": "tool://document/read-versions@1",
+          "input": {
+            "evaluationId": "{{ input.evaluationId }}",
+            "documents": "{{ input.documents }}"
+          }
+        },
+        "coverage-check": {
+          "type": "tool",
+          "tool": "tool://document/coverage-check@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "requirements": [
+              {"key": "invoice-original", "category": "INVOICE_ORIGINAL", "required": true, "minCount": 1, "maxCount": 5},
+              {"key": "contract-order", "category": "CONTRACT_ORDER", "required": true, "minCount": 1, "maxCount": 20},
+              {"key": "receipt-acceptance", "category": "RECEIPT_ACCEPTANCE", "required": true, "minCount": 1, "maxCount": 20},
+              {"key": "supplier-master", "category": "SUPPLIER_MASTER", "required": true, "minCount": 1, "maxCount": 5},
+              {"key": "ap-ledger", "category": "AP_LEDGER", "required": true, "minCount": 1, "maxCount": 10},
+              {"key": "budget-payment-policy", "category": "BUDGET_PAYMENT_POLICY", "required": true, "minCount": 1, "maxCount": 10}
+            ]
+          }
+        },
+        "parse": {
+          "type": "tool",
+          "tool": "tool://invoice/parse@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "payload": "{{ input.payload }}",
+            "configuration": "{{ input.configuration }}"
+          }
+        },
+        "snapshot-read": {
+          "type": "tool",
+          "tool": "tool://business/snapshot-read@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "payload": "{{ input.payload }}",
+            "subjects": "{{ input.subjects }}",
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "asOf": "{{ input.payload.asOf }}",
+            "configuration": "{{ input.configuration }}"
+          }
+        },
+        "search-commercial": {
+          "type": "tool",
+          "tool": "tool://evidence/search@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "domain": "commercial",
+            "maxHits": 8
+          }
+        },
+        "official-verify": {
+          "type": "tool",
+          "tool": "tool://invoice/official-verify@1",
+          "dependsOn": ["parse"],
+          "input": {
+            "invoiceFactSet": "{{ tasks.parse.output.content.invoiceFactSet }}",
+            "verificationMode": "{{ input.payload.verificationMode }}",
+            "humanVerification": "{{ input.payload.humanVerification }}",
+            "configuration": "{{ input.configuration }}"
+          }
+        },
+        "normalize-facts": {
+          "type": "agent",
+          "agent": "fact-normalizer",
+          "dependsOn": ["parse", "coverage-check"],
+          "input": {
+            "_contextMode": "node_only",
+            "basePayload": "{{ input.payload }}",
+            "invoiceFactSet": "{{ tasks.parse.output.content.invoiceFactSet }}",
+            "parseQuality": "{{ tasks.parse.output.content.qualityFlags }}",
+            "coverage": "{{ tasks.coverage-check.output.content }}",
+            "fieldConfirmations": "{{ input.payload.fieldConfirmations }}"
+          }
+        },
+        "analyze-commercial-match": {
+          "type": "agent",
+          "agent": "commercial-match-analyst",
+          "dependsOn": ["snapshot-read", "search-commercial", "normalize-facts"],
+          "input": {
+            "_contextMode": "node_only",
+            "basePayload": "{{ input.payload }}",
+            "invoiceFactSet": "{{ tasks.normalize-facts.output.content.invoiceFactSet }}",
+            "businessSnapshot": "{{ tasks.snapshot-read.output.content }}",
+            "commercialEvidence": "{{ tasks.search-commercial.output.content }}"
+          }
+        },
+        "arithmetic-check": {
+          "type": "tool",
+          "tool": "tool://invoice/arithmetic-check@1",
+          "dependsOn": ["normalize-facts"],
+          "input": {
+            "invoiceFactSet": "{{ tasks.normalize-facts.output.content.invoiceFactSet }}",
+            "configuration": "{{ input.configuration }}"
+          }
+        },
+        "party-check": {
+          "type": "tool",
+          "tool": "tool://invoice/party-check@1",
+          "dependsOn": ["normalize-facts", "snapshot-read"],
+          "input": {
+            "invoiceFactSet": "{{ tasks.normalize-facts.output.content.invoiceFactSet }}",
+            "businessSnapshot": "{{ tasks.snapshot-read.output.content }}",
+            "configuration": "{{ input.configuration }}"
+          }
+        },
+        "deduplicate": {
+          "type": "tool",
+          "tool": "tool://invoice/deduplicate@1",
+          "dependsOn": ["normalize-facts", "snapshot-read"],
+          "input": {
+            "invoiceFactSet": "{{ tasks.normalize-facts.output.content.invoiceFactSet }}",
+            "businessSnapshot": "{{ tasks.snapshot-read.output.content }}",
+            "configuration": "{{ input.configuration }}"
+          }
+        },
+        "commercial-match": {
+          "type": "tool",
+          "tool": "tool://invoice/commercial-match@1",
+          "dependsOn": ["analyze-commercial-match", "snapshot-read", "normalize-facts"],
+          "input": {
+            "invoiceFactSet": "{{ tasks.normalize-facts.output.content.invoiceFactSet }}",
+            "businessSnapshot": "{{ tasks.snapshot-read.output.content }}",
+            "matchCandidates": "{{ tasks.analyze-commercial-match.output.content.matchCandidates }}",
+            "configuration": "{{ input.configuration }}"
+          }
+        },
+        "payment-gate": {
+          "type": "tool",
+          "tool": "tool://invoice/payment-gate@1",
+          "dependsOn": [
+            "arithmetic-check",
+            "party-check",
+            "deduplicate",
+            "commercial-match",
+            "official-verify"
+          ],
+          "input": {
+            "invoiceFactSet": "{{ tasks.normalize-facts.output.content.invoiceFactSet }}",
+            "verification": "{{ tasks.official-verify.output.content }}",
+            "ruleResults": {
+              "arithmetic": "{{ tasks.arithmetic-check.output.content }}",
+              "parties": "{{ tasks.party-check.output.content }}",
+              "duplication": "{{ tasks.deduplicate.output.content }}"
+            },
+            "matchResults": "{{ tasks.commercial-match.output.content }}",
+            "businessSnapshot": "{{ tasks.snapshot-read.output.content }}",
+            "configuration": "{{ input.configuration }}"
+          }
+        },
+        "evidence-risk-review": {
+          "type": "agent",
+          "agent": "evidence-risk-reviewer",
+          "dependsOn": [
+            "coverage-check",
+            "official-verify",
+            "arithmetic-check",
+            "party-check",
+            "deduplicate",
+            "commercial-match",
+            "payment-gate"
+          ],
+          "input": {
+            "_contextMode": "node_only",
+            "coverage": "{{ tasks.coverage-check.output.content }}",
+            "verification": "{{ tasks.official-verify.output.content }}",
+            "ruleResults": {
+              "arithmetic": "{{ tasks.arithmetic-check.output.content }}",
+              "parties": "{{ tasks.party-check.output.content }}",
+              "duplication": "{{ tasks.deduplicate.output.content }}"
+            },
+            "matchResults": "{{ tasks.commercial-match.output.content }}",
+            "gateResults": "{{ tasks.payment-gate.output.content }}",
+            "invoiceFactSet": "{{ tasks.normalize-facts.output.content.invoiceFactSet }}"
+          }
+        },
+        "review-router": {
+          "type": "router",
+          "dependsOn": ["evidence-risk-review"],
+          "routes": [
+            {"when": "tasks.evidence-risk-review.output.content.reviewRequired == true", "target": "manual-review"},
+            {"when": "tasks.coverage-check.output.content.reviewRequired == true", "target": "manual-review"},
+            {"when": "tasks.official-verify.output.content.status == \"PENDING_HUMAN\"", "target": "manual-review"},
+            {"when": "tasks.official-verify.output.content.status == \"FACE_MISMATCH\"", "target": "manual-review"},
+            {"when": "tasks.official-verify.output.content.status == \"NOT_FOUND\"", "target": "manual-review"},
+            {"when": "tasks.payment-gate.output.content.blocking == true", "target": "manual-review"},
+            {"when": "tasks.payment-gate.output.content.outcome == \"PAYMENT_BLOCKED\"", "target": "manual-review"},
+            {"when": "tasks.payment-gate.output.content.outcome == \"REVIEW_REQUIRED\"", "target": "manual-review"}
+          ],
+          "default": "auto-continue"
+        },
+        "manual-review": {
+          "type": "approval",
+          "dependsOn": ["review-router"],
+          "prompt": "发票一致性校验存在查验异常、资料不足、匹配歧义或付款阻断，请税务/采购/财务复核后继续。",
+          "inputSchema": {
+            "type": "object",
+            "required": ["approved"],
+            "properties": {
+              "approved": {"type": "boolean"},
+              "comment": {"type": "string"},
+              "scopedException": {"type": "object"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "auto-continue": {
+          "type": "join",
+          "strategy": "all",
+          "dependsOn": ["review-router"]
+        },
+        "finalize": {
+          "type": "tool",
+          "tool": "tool://invoice/finalize@1",
+          "dependsOn": [
+            "evidence-risk-review",
+            "payment-gate",
+            "commercial-match",
+            "manual-review",
+            "auto-continue"
+          ],
+          "input": {
+            "payload": "{{ input.payload }}",
+            "invoiceFactSet": "{{ tasks.normalize-facts.output.content.invoiceFactSet }}",
+            "verification": "{{ tasks.official-verify.output.content }}",
+            "businessSnapshotHash": "{{ tasks.snapshot-read.output.content.hash }}",
+            "ruleResults": {
+              "arithmetic": "{{ tasks.arithmetic-check.output.content }}",
+              "parties": "{{ tasks.party-check.output.content }}",
+              "duplication": "{{ tasks.deduplicate.output.content }}"
+            },
+            "matchResults": "{{ tasks.commercial-match.output.content }}",
+            "gateResults": "{{ tasks.payment-gate.output.content }}",
+            "coverage": "{{ tasks.coverage-check.output.content }}",
+            "evidenceReview": "{{ tasks.evidence-risk-review.output.content }}",
+            "approvals": {
+              "manualReview": "{{ tasks.manual-review.output.content }}"
+            },
+            "provenance": {
+              "documentContentHash": "{{ tasks.read-documents.output.content.contentHash }}",
+              "attachmentManifestHash": "{{ input.attachmentManifestHash }}",
+              "selectionManifestHash": "{{ input.selectionManifestHash }}",
+              "baselineHash": "{{ input.baselineHash }}",
+              "configurationHash": "{{ input.configurationHash }}",
+              "businessSnapshotHash": "{{ tasks.snapshot-read.output.content.hash }}",
+              "agents": [
+                "agent://invoice/fact-normalizer@1",
+                "agent://invoice/commercial-match-analyst@1",
+                "agent://invoice/evidence-risk-reviewer@1"
+              ],
+              "tools": [
+                "tool://invoice/parse@1",
+                "tool://invoice/official-verify@1",
+                "tool://business/snapshot-read@1",
+                "tool://invoice/arithmetic-check@1",
+                "tool://invoice/party-check@1",
+                "tool://invoice/deduplicate@1",
+                "tool://invoice/commercial-match@1",
+                "tool://invoice/payment-gate@1",
+                "tool://invoice/finalize@1"
+              ]
+            }
+          }
+        },
+        "report": {
+          "type": "tool",
+          "tool": "tool://report/render-invoice-assurance@1",
+          "dependsOn": ["finalize"],
+          "input": {"result": "{{ tasks.finalize.output.content }}"}
+        },
+        "record": {
+          "type": "tool",
+          "tool": "tool://workbench/record-invoice-assurance@1",
+          "dependsOn": ["finalize", "report"],
+          "input": {
+            "evaluationId": "{{ input.evaluationId }}",
+            "result": "{{ tasks.finalize.output.content }}",
+            "report": "{{ tasks.report.output.content }}"
+          }
+        }
+      },
+      "output": {"result": "{{ tasks.finalize.output.content }}"}
+    },
+    "$defs": {}
+  }
+}

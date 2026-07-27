@@ -1,0 +1,36 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "ViewDefinition",
+  "metadata": {"name": "invoice-assurance-case", "version": "1"},
+  "spec": {
+    "steps": [
+      {"key": "intake", "title": "建档与范围"},
+      {"key": "documents", "title": "资料绑定"},
+      {"key": "verification", "title": "查验配置"},
+      {"key": "review", "title": "确认并运行"}
+    ],
+    "defaultConfiguration": {
+      "currency": "CNY",
+      "timezone": "Asia/Shanghai",
+      "verificationMode": "HUMAN_ASSISTED",
+      "topK": 8,
+      "approval": {
+        "requireFieldConfirmation": true,
+        "requireOfficialVerification": true,
+        "requireHighRiskReview": true
+      }
+    },
+    "resultSections": [
+      "summary",
+      "verification",
+      "face",
+      "parties",
+      "commercial",
+      "duplication",
+      "payment",
+      "findings",
+      "evidence",
+      "report"
+    ]
+  }
+}

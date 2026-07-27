@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://invoice-assurance/result@1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "title",
+    "asOf",
+    "outcome",
+    "score",
+    "dimensions",
+    "invoiceFactSet",
+    "verification",
+    "businessSnapshotHash",
+    "ruleResults",
+    "matchResults",
+    "gateResults",
+    "findings",
+    "approvals",
+    "narrative",
+    "provenance",
+    "artifacts",
+    "qualityFlags",
+    "reviewRequired"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "schema://invoice-assurance/result@1"},
+    "title": {"type": "string", "minLength": 1},
+    "asOf": {"type": ["string", "null"]},
+    "outcome": {"enum": ["PAYMENT_READY", "REVIEW_REQUIRED", "PAYMENT_BLOCKED"]},
+    "score": {"type": "number", "minimum": 0, "maximum": 1},
+    "dimensions": {
+      "type": "object",
+      "required": [
+        "officialVerification",
+        "faceCompliance",
+        "parties",
+        "commercialMatch",
+        "fulfillment",
+        "duplication",
+        "paymentGates"
+      ],
+      "properties": {
+        "officialVerification": {"$ref": "#/$defs/dimension"},
+        "faceCompliance": {"$ref": "#/$defs/dimension"},
+        "parties": {"$ref": "#/$defs/dimension"},
+        "commercialMatch": {"$ref": "#/$defs/dimension"},
+        "fulfillment": {"$ref": "#/$defs/dimension"},
+        "duplication": {"$ref": "#/$defs/dimension"},
+        "paymentGates": {"$ref": "#/$defs/dimension"}
+      },
+      "additionalProperties": false
+    },
+    "invoiceFactSet": {"type": "object"},
+    "verification": {"type": "object"},
+    "businessSnapshotHash": {"type": ["string", "null"]},
+    "ruleResults": {"type": "array", "items": {"type": "object"}},
+    "matchResults": {"type": "array", "items": {"type": "object"}},
+    "gateResults": {"type": "array", "items": {"type": "object"}},
+    "findings": {"type": "array", "items": {"type": "object"}},
+    "approvals": {"type": "array", "items": {"type": "object"}},
+    "narrative": {"type": "object"},
+    "provenance": {
+      "type": "object",
+      "required": [
+        "documentContentHash",
+        "attachmentManifestHash",
+        "selectionManifestHash",
+        "baselineHash",
+        "configurationHash",
+        "agents"
+      ],
+      "properties": {
+        "documentContentHash": {"type": "string"},
+        "attachmentManifestHash": {"type": "string"},
+        "selectionManifestHash": {"type": "string"},
+        "baselineHash": {"type": "string"},
+        "configurationHash": {"type": "string"},
+        "businessSnapshotHash": {"type": "string"},
+        "agents": {"type": "array", "items": {"type": "string"}},
+        "tools": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "artifacts": {"type": "array", "items": {"type": "object"}},
+    "qualityFlags": {"type": "array", "items": {"type": "object"}},
+    "reviewRequired": {"type": "boolean"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "dimension": {
+      "type": "object",
+      "required": ["status", "metrics", "reasons", "evidenceRefs"],
+      "properties": {
+        "status": {"enum": ["OK", "WARN", "FAIL", "UNKNOWN", "NOT_APPLICABLE", "DATA_INSUFFICIENT", "CONFLICTED"]},
+        "metrics": {"type": "object"},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "evidenceRefs": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}

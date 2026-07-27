@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://invoice-assurance/case@1",
+  "type": "object",
+  "required": ["title", "asOf", "currency", "timezone", "verificationMode"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1},
+    "asOf": {"type": "string", "format": "date"},
+    "currency": {"type": "string", "minLength": 1, "default": "CNY"},
+    "timezone": {"type": "string", "minLength": 1, "default": "Asia/Shanghai"},
+    "verificationMode": {
+      "enum": ["AUTHORIZED_CONNECTOR", "HUMAN_ASSISTED"],
+      "default": "HUMAN_ASSISTED"
+    },
+    "supplierRef": {"type": "string", "minLength": 1},
+    "contractRef": {"type": "string", "minLength": 1},
+    "purchaseOrderRefs": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "notes": {"type": "string"}
+  },
+  "additionalProperties": true
+}

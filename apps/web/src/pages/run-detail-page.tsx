@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Background, Controls, type Edge, type Node, Position, ReactFlow } from "@xyflow/react";
-import { Ban, Check, CircleDollarSign, Clock3, ExternalLink, Hash, Pause, Play, RefreshCw, RotateCcw, X } from "lucide-react";
+import { Ban, CircleDollarSign, Clock3, ExternalLink, Hash, Pause, Play, RefreshCw, RotateCcw } from "lucide-react";
 import * as React from "react";
 import { useParams } from "react-router";
 import { api } from "@/api/client";
 import type { ApprovalRequest, CommandHandle, EvaluationSnapshot, ExternalInputRequest, PostEvaluationResult, RunEvent, TaskSnapshot } from "@/api/types";
-import { SchemaForm } from "@/components/operations/schema-form";
+import { HumanApprovalCard, HumanInputCard } from "@/components/operations/human-action-card";
 import { BackLink } from "@/components/ui/back-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,7 +47,7 @@ export function graph(tasks: TaskSnapshot[]): { nodes: Node[]; edges: Edge[]; he
 
 export function RunDetailPage() {
   const { runId = "" } = useParams();
-  const { tenantId, projectId } = useWorkspaceScope();
+  const { tenantId, projectId, workspacePath } = useWorkspaceScope();
   const queryClient = useQueryClient();
   const runQuery = useQuery({ queryKey: ["run", tenantId, projectId, runId], queryFn: () => api.getRun(tenantId, projectId, runId), refetchInterval: (query) => query.state.data?.allowedActions.length ? 3000 : false });
   const evaluationId = evaluationIdFromInput(runQuery.data?.input);
@@ -86,7 +86,7 @@ export function RunDetailPage() {
     {control.isError ? <div role="alert" className="rounded-xl border border-error-500 bg-error-50 p-4 text-sm text-error-600 dark:bg-error-500/15">命令未被受理，现有运行状态保持不变，请稍后重试。</div> : null}
     {lastCommand ? <CommandStatus command={commandQuery.data ?? lastCommand} loading={commandQuery.isFetching} /> : null}
     {stream?.connection === "STALE" ? <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning-300 bg-warning-50 p-4 text-sm text-warning-700 dark:bg-warning-500/10"><span>事件游标已过期。已加载最新快照，正在从新游标重新连接。</span><Button size="sm" variant="outline" onClick={() => { void historyQuery.refetch(); void runQuery.refetch(); }}>重新加载历史</Button></div> : null}
-    <HumanRequests approvals={approvalsQuery.data?.items ?? []} inputs={inputsQuery.data?.items ?? []} loading={approvalsQuery.isPending || inputsQuery.isPending} busy={control.isPending} onApprove={(id, value) => { if (window.confirm("批准此请求并继续执行吗？")) control.mutate(() => api.approve(tenantId, projectId, id, value)); }} onReject={(id) => { if (window.confirm("拒绝此审批吗？等待中的任务将失败。")) control.mutate(() => api.reject(tenantId, projectId, id, {})); }} onInput={(id, value) => control.mutate(() => api.provideInput(tenantId, projectId, id, value))} />
+    <HumanRequests workspacePath={workspacePath} approvals={approvalsQuery.data?.items ?? []} inputs={inputsQuery.data?.items ?? []} loading={approvalsQuery.isPending || inputsQuery.isPending} busy={control.isPending} onApprove={(id, value) => { if (window.confirm("批准此请求并继续执行吗？")) control.mutate(() => api.approve(tenantId, projectId, id, value)); }} onReject={(id) => { if (window.confirm("拒绝此审批吗？等待中的任务将失败。")) control.mutate(() => api.reject(tenantId, projectId, id, {})); }} onInput={(id, value) => control.mutate(() => api.provideInput(tenantId, projectId, id, value))} />
     {failedTasks.length ? <Card><CardHeader><CardTitle className="text-error-600">失败任务</CardTitle></CardHeader><CardContent><ul className="space-y-3">{failedTasks.map((task) => <li key={task.taskId} className="rounded-xl border border-error-200 p-3 dark:border-error-500/30"><div className="flex flex-wrap items-center justify-between gap-3"><p className="font-medium">{task.nodeKey}</p>{task.allowedActions?.includes("retry_task") ? <Button size="sm" loading={control.isPending} onClick={() => { if (window.confirm(`重试失败任务 ${task.nodeKey} 吗？`)) control.mutate(() => api.retryTask(tenantId, projectId, runId, task.taskId)); }}><RotateCcw />重试任务</Button> : null}</div><pre className="mt-2 whitespace-pre-wrap break-words text-xs text-error-600">{JSON.stringify(task.error ?? { message: "未记录结构化错误。" }, null, 2)}</pre></li>)}</ul></CardContent></Card> : null}
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={<Clock3 />} label="时长" value={formatDuration(run.startedAt, run.completedAt)} /><Metric icon={<Hash />} label="Token 用量" value={formatTokens(run.usage)} /><Metric icon={<CircleDollarSign />} label="费用" value={formatCost(run.usage)} /><Metric icon={<Hash />} label="计划" value={run.planHash.slice(0, 10)} mono /></div>
     <div className="grid gap-4 sm:grid-cols-2"><Metric icon={<Clock3 />} label="开始时间" value={formatTime(run.startedAt)} /><Metric icon={<Clock3 />} label="完成时间" value={formatTime(run.completedAt)} /></div>
@@ -133,11 +133,28 @@ export function CommandStatus({ command, loading }: { command: CommandHandle; lo
   return <div role="status" className={cn("flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border p-4 text-sm", tone)}><span className="min-w-0 break-words">命令 #{command.commandSeq} · {statusLabel(command.status)}{code}</span>{loading || pending ? <RefreshCw className="size-4 animate-spin" /> : null}</div>;
 }
 
-function HumanRequests({ approvals, inputs, loading, busy, onApprove, onReject, onInput }: { approvals: ApprovalRequest[]; inputs: ExternalInputRequest[]; loading: boolean; busy: boolean; onApprove: (id: string, value: Record<string, unknown>) => void; onReject: (id: string) => void; onInput: (id: string, value: Record<string, unknown>) => void }) {
+function HumanRequests({ approvals, inputs, loading, busy, onApprove, onReject, onInput, workspacePath }: { approvals: ApprovalRequest[]; inputs: ExternalInputRequest[]; loading: boolean; busy: boolean; onApprove: (id: string, value: Record<string, unknown>) => void; onReject: (id: string) => void; onInput: (id: string, value: Record<string, unknown>) => void; workspacePath: string }) {
   if (loading) return <Card><CardContent className="space-y-3 pt-5"><Skeleton className="h-24" /><Skeleton className="h-24" /></CardContent></Card>;
   if (!approvals.length && !inputs.length) return null;
   return <section aria-label="人工交互请求" className="grid min-w-0 gap-4 lg:grid-cols-2">
-    {approvals.map((request) => <Card key={request.approvalId}><CardHeader><div><CardTitle>需要审批</CardTitle><p className="mt-1 text-xs text-gray-500">{request.nodeKey}</p></div><StatusBadge status={request.status} /></CardHeader><CardContent><p className="mb-4 text-sm text-gray-700 dark:text-gray-300">{request.prompt}</p><SchemaForm schema={request.inputSchema} submitLabel="批准" busy={busy} icon={<Check />} onSubmit={(value) => onApprove(request.approvalId, value)} />{request.allowedActions.includes("reject") ? <Button className="mt-3 w-full sm:w-auto" variant="destructive" disabled={busy} onClick={() => onReject(request.approvalId)}><X />拒绝</Button> : null}</CardContent></Card>)}
-    {inputs.map((request) => <Card key={request.inputRequestId}><CardHeader><div><CardTitle>需要外部输入</CardTitle><p className="mt-1 text-xs text-gray-500">{request.nodeKey}</p></div><StatusBadge status={request.status} /></CardHeader><CardContent><p className="mb-4 text-sm text-gray-700 dark:text-gray-300">{request.prompt}</p><SchemaForm schema={request.inputSchema} submitLabel="提交输入" busy={busy} onSubmit={(value) => onInput(request.inputRequestId, value)} /></CardContent></Card>)}
+    {approvals.map((request) => (
+      <HumanApprovalCard
+        key={request.approvalId}
+        request={request}
+        runPath={`${workspacePath}/runs/${request.runId}`}
+        busy={busy}
+        onApprove={(value) => onApprove(request.approvalId, value)}
+        onReject={() => onReject(request.approvalId)}
+      />
+    ))}
+    {inputs.map((request) => (
+      <HumanInputCard
+        key={request.inputRequestId}
+        request={request}
+        runPath={`${workspacePath}/runs/${request.runId}`}
+        busy={busy}
+        onSubmit={(value) => onInput(request.inputRequestId, value)}
+      />
+    ))}
   </section>;
 }

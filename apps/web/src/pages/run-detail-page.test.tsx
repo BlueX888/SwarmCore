@@ -12,7 +12,7 @@ const schema = {
 
 describe("human control forms", () => {
   it("validates required external input fields", () => {
-    expect(validateSchemaValues(schema, {})).toBe("reason 为必填项。");
+    expect(validateSchemaValues(schema, {})).toBe("Reason 为必填项。");
     expect(validateSchemaValues(schema, { reason: "approved" })).toBeNull();
   });
 
@@ -20,7 +20,7 @@ describe("human control forms", () => {
     const submit = vi.fn();
     render(<SchemaForm schema={schema} submitLabel="批准" busy={false} onSubmit={submit} />);
     fireEvent.click(screen.getByRole("button", { name: "批准" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("reason 为必填项");
+    expect(screen.getByRole("alert")).toHaveTextContent("Reason 为必填项");
     fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "safe" } });
     fireEvent.click(screen.getByRole("button", { name: "批准" }));
     expect(submit).toHaveBeenCalledWith({ reason: "safe" });

@@ -1,0 +1,104 @@
+{
+  "executionConfig": {
+    "taskQueue": {
+      "name": "swarm-control",
+      "kind": "TASK_QUEUE_KIND_NORMAL"
+    },
+    "defaultWorkflowTaskTimeout": "10s"
+  },
+  "workflowExecutionInfo": {
+    "execution": {
+      "workflowId": "swarm:00000000-0000-0000-0000-000000000001:019fa6ea-1ba8-7a88-ba66-9a0b3fca6d50",
+      "runId": "019fa6ea-1d46-7dab-b40a-121ff51f7aac"
+    },
+    "type": {
+      "name": "SwarmRunWorkflow"
+    },
+    "startTime": "2026-07-28T04:09:48.614897360Z",
+    "status": "WORKFLOW_EXECUTION_STATUS_RUNNING",
+    "historyLength": "327",
+    "executionTime": "2026-07-28T04:09:48.614897360Z",
+    "memo": {},
+    "searchAttributes": {
+      "indexedFields": {
+        "BuildIds": {
+          "metadata": {
+            "encoding": "anNvbi9wbGFpbg==",
+            "type": "S2V5d29yZExpc3Q="
+          },
+          "data": "WyJ1bnZlcnNpb25lZCIsInVudmVyc2lvbmVkOjA4MThmMTZjNWM4N2JjMWIyMzAxNzNlZTlkYWRkNDQ5Il0="
+        },
+        "TemporalChangeVersion": {
+          "metadata": {
+            "encoding": "anNvbi9wbGFpbg==",
+            "type": "S2V5d29yZExpc3Q="
+          },
+          "data": "WyJpbml0aWFsLXJ1bi1ldmVudC1tZXRhZGF0YS12MSIsInRyYW5zaXRpdmUtZmFpbHVyZS1ibG9ja2luZy12MSJd"
+        }
+      }
+    },
+    "autoResetPoints": {
+      "points": [
+        {
+          "buildId": "0818f16c5c87bc1b230173ee9dadd449",
+          "runId": "019fa6ea-1d46-7dab-b40a-121ff51f7aac",
+          "firstWorkflowTaskCompletedId": "4",
+          "createTime": "2026-07-28T04:09:48.686892697Z",
+          "resettable": true
+        }
+      ]
+    },
+    "taskQueue": "swarm-control",
+    "stateTransitionCount": "238",
+    "historySizeBytes": "3920948",
+    "mostRecentWorkerVersionStamp": {
+      "buildId": "0818f16c5c87bc1b230173ee9dadd449"
+    },
+    "rootExecution": {
+      "workflowId": "swarm:00000000-0000-0000-0000-000000000001:019fa6ea-1ba8-7a88-ba66-9a0b3fca6d50",
+      "runId": "019fa6ea-1d46-7dab-b40a-121ff51f7aac"
+    },
+    "firstRunId": "019fa6ea-1d46-7dab-b40a-121ff51f7aac",
+    "priority": {}
+  },
+  "pendingActivities": [
+    {
+      "activityId": "49",
+      "activityType": {
+        "name": "execute_agent"
+      },
+      "state": "PENDING_ACTIVITY_STATE_STARTED",
+      "heartbeatDetails": [
+        {
+          "nodeKey": "clause-analysis",
+          "stage": "starting"
+        }
+      ],
+      "lastHeartbeatTime": "2026-07-28T04:11:50.626728038Z",
+      "lastStartedTime": "2026-07-28T04:11:50.602483337Z",
+      "attempt": 2,
+      "maximumAttempts": 3,
+      "scheduledTime": "2026-07-28T04:11:50.599689960Z",
+      "lastFailure": {
+        "message": "model returned no final answer",
+        "stackTrace": "  File \"/opt/swarmcore-venv/lib/python3.12/site-packages/temporalio/worker/_activity.py\", line 297, in _handle_start_activity_task\n    result = await self._execute_activity(start, running_activity, task_token)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/opt/swarmcore-venv/lib/python3.12/site-packages/temporalio/worker/_activity.py\", line 589, in _execute_activity\n    return await impl.execute_activity(input)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/opt/swarmcore-venv/lib/python3.12/site-packages/temporalio/contrib/opentelemetry.py\", line 295, in execute_activity\n    return await super().execute_activity(input)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/opt/swarmcore-venv/lib/python3.12/site-packages/temporalio/worker/_interceptor.py\", line 123, in execute_activity\n    return await self.next.execute_activity(input)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/opt/swarmcore-venv/lib/python3.12/site-packages/temporalio/worker/_activity.py\", line 784, in execute_activity\n    return await input.fn(*input.args)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/workspace/apps/worker-agent/src/swarmcore_worker_agent/activities.py\", line 69, in execute_agent\n    result = await self._adapter.execute(request)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/workspace/packages/adapter-agno/src/swarmcore_adapter_agno/adapter.py\", line 103, in execute\n    raise ValueError(\"model returned no final answer\")\n",
+        "applicationFailureInfo": {
+          "type": "ValueError"
+        }
+      },
+      "lastWorkerIdentity": "12@c7737e86c51b",
+      "lastAttemptCompleteTime": "2026-07-28T04:11:49.599684032Z",
+      "priority": {}
+    }
+  ],
+  "workflowExtendedInfo": {
+    "runExpirationTime": "0001-01-01T00:00:00Z",
+    "originalStartTime": "2026-07-28T04:09:48.614897360Z",
+    "requestIdInfos": {
+      "1ff01012-21d8-4f5e-8f14-c5ce6c9f3fad": {
+        "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
+        "eventId": "1"
+      }
+    }
+  }
+}

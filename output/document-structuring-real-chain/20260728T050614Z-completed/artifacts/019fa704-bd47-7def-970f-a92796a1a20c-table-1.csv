@@ -1,0 +1,20 @@
+﻿Buyer,
+Supplier,
+Call-Off Contract Ref.,
+Call-Off Contract title,
+Call-Off Contract description,
+Call-Off Contract period,
+Start date,E nter the contract start date and is valid for E nter the initial contract period in months.
+End date,Enter the day which is the last date of the initial Call-Off Contract Period.
+(Optional) Maximum Call-Off Contract Extension Period,Enter the maximum number of days that the Call-Off Contract period can be extended by (not to exceed 25% of the initial Call-Off Contract period).
+Latest Extension Period End Date,Enter the day which is the last date of the maximum Extension Period.
+Notice period (prior to the initial Call-Off Contract period) to trigger Call-Off Contract Extension,Set out the notice period before the end of the initial Call-Off Contract Period before which you will trigger a Call-Off Contract Extension if required.
+Call-Off Contract value,
+Charging method,Capped time and materials (CTM) Price per story Time and materials (T&M) Fixed price Other pricing method or a combination of pricing methods agreed by the Parties
+Capped time and materials (CTM),
+Price per story,
+Time and materials (T&M),
+Fixed price,
+Other pricing method or a combination of pricing methods agreed by the Parties,
+Notice period for termination for convenience,
+Initial SOW package,

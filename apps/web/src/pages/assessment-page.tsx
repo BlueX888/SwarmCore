@@ -1,17 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
-import { Activity, AlertTriangle, FileText, Link2, LoaderCircle } from "lucide-react";
+import { Activity, AlertTriangle, Download, FileText, Link2, LoaderCircle } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { api } from "@/api/client";
-import type { PostEvaluationResult } from "@/api/types";
+import type { PostEvaluationResult, ReportSnapshot } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { BackLink } from "@/components/ui/back-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  asSwarmCalibration,
+  SwarmCalibrationResultView,
+} from "@/components/calibration/swarm-calibration-result";
+import {
+  asContractPerformance,
+  ContractPerformanceResultView,
+} from "@/components/contract/contract-performance-result";
+import {
   asInvoiceAssurance,
   InvoiceAssuranceResultView,
 } from "@/components/invoice/invoice-assurance-result";
+import {
+  asProcurementSupplierRisk,
+  ProcurementSupplierRiskResultView,
+} from "@/components/procurement/procurement-supplier-risk-result";
+import { SupplierRiskOperations } from "@/components/procurement/supplier-risk-operations";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 
 const TERMINAL = new Set(["SUCCEEDED", "FAILED", "COMPLETED", "CANCELLED", "REJECTED"]);
@@ -71,9 +84,14 @@ export function AssessmentPage() {
   }
 
   const detail = assessment.data;
-  const invoiceResult = asInvoiceAssurance(detail.result);
-  const deviationResult = invoiceResult ? null : asDeviationAnalysis(detail.result);
-  const result = invoiceResult || deviationResult ? null : asPostEvaluation(detail.result);
+  const calibrationResult = asSwarmCalibration(detail.result);
+  const procurementSupplierRiskResult = calibrationResult
+    ? null
+    : asProcurementSupplierRisk(detail.result);
+  const contractPerformanceResult = calibrationResult || procurementSupplierRiskResult ? null : asContractPerformance(detail.result);
+  const invoiceResult = contractPerformanceResult ? null : asInvoiceAssurance(detail.result);
+  const deviationResult = invoiceResult || contractPerformanceResult ? null : asDeviationAnalysis(detail.result);
+  const result = invoiceResult || deviationResult || contractPerformanceResult || procurementSupplierRiskResult || calibrationResult ? null : asPostEvaluation(detail.result);
   const inProgress = !TERMINAL.has(detail.status) && !TERMINAL.has(run.data?.status ?? "");
   const syncStatus = run.data?.status ?? detail.status;
   const snapshotItems = (snapshots.data?.items ?? []).map((item, index) => ({
@@ -122,7 +140,7 @@ export function AssessmentPage() {
       <Metric label="完成时间" value={run.data?.completedAt ? formatTime(run.data.completedAt) : inProgress ? "进行中" : "—"} />
     </section>
 
-    {invoiceResult ? <InvoiceAssuranceResultView result={invoiceResult} /> : deviationResult ? <DeviationAnalysisResult result={deviationResult} /> : result ? <div className="space-y-4">
+    {calibrationResult ? <SwarmCalibrationResultView result={calibrationResult} /> : procurementSupplierRiskResult ? <ProcurementSupplierRiskResultView result={procurementSupplierRiskResult} /> : contractPerformanceResult ? <ContractPerformanceResultView result={contractPerformanceResult} /> : invoiceResult ? <InvoiceAssuranceResultView result={invoiceResult} /> : deviationResult ? <DeviationAnalysisResult result={deviationResult} /> : result ? <div className="space-y-4">
       {result.readabilityGate || result.reportQuality ? <Card><CardContent className="space-y-4 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -162,6 +180,12 @@ export function AssessmentPage() {
       </div>
     </CardContent></Card></div> : detail.result ? <Card><CardContent className="p-5"><h2 className="font-semibold">综合结论</h2><pre className="mt-3 overflow-auto rounded-xl bg-gray-950 p-4 text-xs text-gray-100">{JSON.stringify(detail.result, null, 2)}</pre></CardContent></Card> : null}
 
+    {procurementSupplierRiskResult?.monitorId ? <SupplierRiskOperations
+      tenantId={tenantId}
+      projectId={projectId}
+      monitorId={procurementSupplierRiskResult.monitorId}
+    /> : null}
+
     <div className="grid gap-4 xl:grid-cols-2">
       <Card><CardContent className="space-y-4 p-5">
         <h2 className="font-semibold text-gray-900 dark:text-white">Findings</h2>
@@ -175,7 +199,18 @@ export function AssessmentPage() {
         <h2 className="font-semibold text-gray-900 dark:text-white">Reports</h2>
         {reports.isPending ? <Skeleton className="h-32" /> : reports.data?.items.length ? <ul className="space-y-3">{reports.data.items.map((report) => <li key={report.reportId} className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 p-3 dark:border-gray-800">
           <div className="flex items-center gap-2"><FileText className="size-4 text-brand-600" /><div><p className="text-sm font-medium">{report.format}</p><p className="text-xs text-gray-500">{formatTime(report.createdAt)}</p></div></div>
-          <Badge color="neutral">{report.templateVersion}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge color="neutral">{report.templateVersion}</Badge>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!report.content}
+              onClick={() => downloadReport(report)}
+              aria-label={`下载 ${report.format}`}
+            >
+              <Download />下载
+            </Button>
+          </div>
         </li>)}</ul> : <p className="text-sm text-gray-500">暂无报告。</p>}
       </CardContent></Card>
     </div>
@@ -190,6 +225,29 @@ export function AssessmentPage() {
       <pre className="overflow-auto rounded-xl bg-gray-950 p-4 text-xs text-gray-100">{JSON.stringify(detail.casePayload, null, 2)}</pre>
     </CardContent></Card> : null}
   </div>;
+}
+
+function downloadReport(report: ReportSnapshot) {
+  if (!report.content) return;
+  const format = report.format.toUpperCase();
+  let blob: Blob;
+  if (format === "PDF") {
+    const encoded = report.content.contentBase64;
+    if (typeof encoded !== "string") return;
+    const binary = atob(encoded);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    blob = new Blob([bytes], { type: "application/pdf" });
+  } else {
+    blob = new Blob([JSON.stringify(report.content, null, 2)], {
+      type: "application/json;charset=utf-8",
+    });
+  }
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `assessment-${report.evaluationId}.${format === "PDF" ? "pdf" : "json"}`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 type DeviationDimension = {

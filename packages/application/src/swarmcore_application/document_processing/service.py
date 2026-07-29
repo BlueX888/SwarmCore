@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -17,8 +17,10 @@ from swarmcore_persistence.models import (
     BlobObject,
     BusinessDocument,
     BusinessDocumentVersion,
+    DocumentProcessingEvent,
     DocumentProcessingResult,
     DocumentProcessingRun,
+    IdempotencyKey,
     OutboxEvent,
     UploadBatch,
 )
@@ -37,6 +39,7 @@ from .contracts import (
     resolve_profile,
 )
 from .parsers import ParserRegistry
+from .structuring import DocumentChunker, DocumentQualityChecker
 
 
 class DocumentProcessingError(ValueError):
@@ -302,6 +305,8 @@ class DocumentProcessingService:
         self._classifier = LabelCandidateClassifier()
         self._extractor = SchemaDrivenExtractor()
         self._ocr = build_ocr_adapter()
+        self._chunker = DocumentChunker()
+        self._quality = DocumentQualityChecker()
         self._storage_root = storage_root or Path(
             __import__("os").environ.get("SWARMCORE_ARTIFACT_ROOT", ".tmp/artifacts")
         )
@@ -338,16 +343,72 @@ class DocumentProcessingService:
             status="PENDING",
             current_stage="PENDING",
             attempt=int(latest_attempt or 0) + 1,
+            next_event_seq=1,
             provenance={
                 "actor": actor,
                 "documentId": str(document.id),
                 "category": document.category,
+                "candidateLabels": candidate_labels
+                or [{"label": document.category, "displayName": document.category}],
+                "extractionSchemaRef": extraction_schema_ref,
             },
         )
         session.add(run)
         version.processing_status = "PROCESSING"
         document.status = "PROCESSING"
         await session.flush()
+        await self._record_event(
+            session,
+            run=run,
+            event_type="document.processing.started",
+            stage="PENDING",
+            actor=actor,
+            payload={"profileRef": profile.ref, "attempt": run.attempt},
+        )
+        if profile.ref == "document-profile://business-structuring@1":
+            event_id = uuid7()
+            run.provenance = {
+                **run.provenance,
+                "executionMode": "TEMPORAL",
+                "temporalWorkflowId": f"document-processing/{run.id}",
+            }
+            session.add(
+                OutboxEvent(
+                    id=event_id,
+                    tenant_id=tenant_id,
+                    aggregate_id=document.id,
+                    destination="document-temporal",
+                    partition_key=str(run.id),
+                    source_id=run.id,
+                    type="document.processing.requested",
+                    payload={
+                        "tenantId": str(tenant_id),
+                        "projectId": str(project_id),
+                        "documentId": str(document.id),
+                        "documentVersionId": str(version.id),
+                        "processingRunId": str(run.id),
+                    },
+                )
+            )
+            await self._audit.append(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                actor_id=actor,
+                action="document.processing.requested",
+                resource_type="document_processing_run",
+                resource_id=str(run.id),
+                metadata={"profileRef": profile.ref, "executionMode": "TEMPORAL"},
+            )
+            await self._record_event(
+                session,
+                run=run,
+                event_type="document.processing.requested",
+                stage="PENDING",
+                actor=actor,
+                payload={"temporalWorkflowId": run.provenance["temporalWorkflowId"]},
+            )
+            return run
         await self._execute_run(
             session,
             tenant_id=tenant_id,
@@ -364,6 +425,65 @@ class DocumentProcessingService:
         )
         return run
 
+    async def execute_pending_run(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        processing_run_id: UUID,
+    ) -> DocumentProcessingRun:
+        run = await self.get_run(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            processing_run_id=processing_run_id,
+        )
+        if run.status in {"READY", "REVIEW_REQUIRED", "FAILED", "CANCELLED"}:
+            return run
+        version = await session.scalar(
+            select(BusinessDocumentVersion).where(
+                BusinessDocumentVersion.id == run.business_document_version_id,
+                BusinessDocumentVersion.tenant_id == tenant_id,
+                BusinessDocumentVersion.project_id == project_id,
+            )
+        )
+        if version is None:
+            raise LookupError("DOCUMENT_VERSION_NOT_FOUND")
+        document = await session.scalar(
+            select(BusinessDocument).where(
+                BusinessDocument.id == version.business_document_id,
+                BusinessDocument.tenant_id == tenant_id,
+                BusinessDocument.project_id == project_id,
+            )
+        )
+        if document is None:
+            raise LookupError("DOCUMENT_NOT_FOUND")
+        labels = [
+            dict(value)
+            for value in run.provenance.get("candidateLabels") or []
+            if isinstance(value, dict)
+        ]
+        await self._execute_run(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            document=document,
+            version=version,
+            run=run,
+            profile_ref=run.profile_ref,
+            candidate_labels=labels
+            or [{"label": document.category, "displayName": document.category}],
+            extraction_schema_ref=(
+                str(run.provenance["extractionSchemaRef"])
+                if run.provenance.get("extractionSchemaRef")
+                else None
+            ),
+            actor=str(run.provenance.get("actor") or "system"),
+            blob_content=None,
+        )
+        return run
+
     async def reprocess(
         self,
         session: AsyncSession,
@@ -372,6 +492,7 @@ class DocumentProcessingService:
         project_id: UUID,
         document_id: UUID,
         actor: str,
+        idempotency_key: str,
         profile_ref: str | None = None,
         candidate_labels: list[dict[str, str]] | None = None,
         extraction_schema_ref: str | None = None,
@@ -396,7 +517,38 @@ class DocumentProcessingService:
         )
         if version is None:
             raise LookupError("DOCUMENT_VERSION_NOT_FOUND")
-        return await self.start_for_version(
+        request_hash = canonical_hash(
+            {
+                "documentId": str(document_id),
+                "documentVersionId": str(version.id),
+                "profileRef": profile_ref,
+                "candidateLabels": candidate_labels or [],
+                "extractionSchemaRef": extraction_schema_ref,
+            }
+        )
+        existing_key = await session.get(
+            IdempotencyKey,
+            {
+                "tenant_id": tenant_id,
+                "project_id": project_id,
+                "operation": "document.processing.reprocess",
+                "key": idempotency_key,
+            },
+        )
+        if existing_key is not None:
+            if existing_key.request_hash != request_hash:
+                raise DocumentProcessingError("IDEMPOTENCY_KEY_REUSED")
+            existing_run = await session.get(
+                DocumentProcessingRun, existing_key.response_ref
+            )
+            if (
+                existing_run is None
+                or existing_run.tenant_id != tenant_id
+                or existing_run.project_id != project_id
+            ):
+                raise RuntimeError("document reprocess idempotency record is invalid")
+            return existing_run
+        run = await self.start_for_version(
             session,
             tenant_id=tenant_id,
             project_id=project_id,
@@ -409,6 +561,133 @@ class DocumentProcessingService:
             actor=actor,
             blob_content=blob_content,
         )
+        session.add(
+            IdempotencyKey(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                operation="document.processing.reprocess",
+                key=idempotency_key,
+                request_hash=request_hash,
+                response_ref=run.id,
+                expires_at=datetime.now(UTC) + timedelta(days=30),
+            )
+        )
+        await session.flush()
+        return run
+
+    async def cancel(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        document_id: UUID,
+        actor: str,
+        idempotency_key: str,
+    ) -> DocumentProcessingRun:
+        document = await session.scalar(
+            select(BusinessDocument).where(
+                BusinessDocument.id == document_id,
+                BusinessDocument.tenant_id == tenant_id,
+                BusinessDocument.project_id == project_id,
+            )
+        )
+        if document is None:
+            raise LookupError("DOCUMENT_NOT_FOUND")
+        version = await session.scalar(
+            select(BusinessDocumentVersion).where(
+                BusinessDocumentVersion.business_document_id == document.id,
+                BusinessDocumentVersion.version == document.current_version,
+                BusinessDocumentVersion.tenant_id == tenant_id,
+                BusinessDocumentVersion.project_id == project_id,
+            )
+        )
+        if version is None:
+            raise LookupError("DOCUMENT_VERSION_NOT_FOUND")
+        run = await session.scalar(
+            select(DocumentProcessingRun)
+            .where(
+                DocumentProcessingRun.business_document_version_id == version.id,
+                DocumentProcessingRun.tenant_id == tenant_id,
+                DocumentProcessingRun.project_id == project_id,
+            )
+            .order_by(DocumentProcessingRun.attempt.desc())
+            .limit(1)
+            .with_for_update()
+        )
+        if run is None:
+            raise LookupError("PROCESSING_RUN_NOT_FOUND")
+        request_hash = canonical_hash(
+            {"documentId": str(document.id), "processingRunId": str(run.id)}
+        )
+        existing_key = await session.get(
+            IdempotencyKey,
+            {
+                "tenant_id": tenant_id,
+                "project_id": project_id,
+                "operation": "document.processing.cancel",
+                "key": idempotency_key,
+            },
+        )
+        if existing_key is not None:
+            if existing_key.request_hash != request_hash:
+                raise DocumentProcessingError("IDEMPOTENCY_KEY_REUSED")
+            return run
+        if run.status in {"READY", "FAILED"}:
+            raise DocumentProcessingError("PROCESSING_ALREADY_TERMINAL")
+        now = datetime.now(UTC)
+        run.status = "CANCELLED"
+        run.current_stage = "CANCELLED"
+        run.completed_at = now
+        version.processing_status = "CANCELLED"
+        document.status = "AVAILABLE"
+        await self._record_event(
+            session,
+            run=run,
+            event_type="document.processing.cancelled",
+            stage="CANCELLED",
+            actor=actor,
+            payload={"documentId": str(document.id)},
+        )
+        event_id = uuid7()
+        session.add_all(
+            [
+                IdempotencyKey(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    operation="document.processing.cancel",
+                    key=idempotency_key,
+                    request_hash=request_hash,
+                    response_ref=run.id,
+                    expires_at=now + timedelta(days=30),
+                ),
+                OutboxEvent(
+                    id=event_id,
+                    tenant_id=tenant_id,
+                    aggregate_id=run.id,
+                    destination="document-temporal",
+                    partition_key=str(run.id),
+                    source_id=event_id,
+                    type="document.processing.cancel.requested",
+                    payload={
+                        "tenantId": str(tenant_id),
+                        "projectId": str(project_id),
+                        "processingRunId": str(run.id),
+                    },
+                ),
+            ]
+        )
+        await self._audit.append(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            actor_id=actor,
+            action="document.processing.cancelled",
+            resource_type="document_processing_run",
+            resource_id=str(run.id),
+            metadata={"documentId": str(document.id)},
+        )
+        return run
 
     async def get_run(
         self,
@@ -470,6 +749,40 @@ class DocumentProcessingService:
             .limit(1)
         )
         return result if isinstance(result, DocumentProcessingResult) else None
+
+    async def list_events(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        version_id: UUID,
+        after: int = 0,
+        limit: int = 200,
+    ) -> list[DocumentProcessingEvent]:
+        run = await self.latest_run_for_version(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            version_id=version_id,
+        )
+        if run is None:
+            return []
+        return list(
+            (
+                await session.scalars(
+                    select(DocumentProcessingEvent)
+                    .where(
+                        DocumentProcessingEvent.processing_run_id == run.id,
+                        DocumentProcessingEvent.tenant_id == tenant_id,
+                        DocumentProcessingEvent.project_id == project_id,
+                        DocumentProcessingEvent.event_seq > after,
+                    )
+                    .order_by(DocumentProcessingEvent.event_seq)
+                    .limit(min(500, max(1, limit)))
+                )
+            ).all()
+        )
 
     async def _execute_run(
         self,
@@ -568,7 +881,39 @@ class DocumentProcessingService:
             content = self._read_blob_bytes(blob)
         if hashlib.sha256(content).hexdigest() != version.sha256:
             raise DocumentProcessingError("DOCUMENT_HASH_MISMATCH")
+        await self._record_event(
+            session,
+            run=run,
+            event_type="document.scan.completed",
+            stage="SCANNING",
+            actor=actor,
+            payload={"scanStatus": blob.scan_status, "sizeBytes": len(content)},
+            input_hash=version.sha256,
+            tool_ref="tool://document/security-scan@1",
+        )
+        maximum_bytes = int(
+            profile.parser_policy.get("maxFileBytes", 200 * 1024 * 1024)
+        )
+        if len(content) > maximum_bytes:
+            raise DocumentProcessingError(
+                "DOCUMENT_SIZE_LIMIT_EXCEEDED",
+                f"size={len(content)};limit={maximum_bytes}",
+            )
         detected = _detect_media_type(content, version.filename, version.media_type)
+        await self._record_event(
+            session,
+            run=run,
+            event_type="document.type.detected",
+            stage="SCANNING",
+            actor=actor,
+            payload={
+                "declaredMediaType": version.media_type,
+                "detectedMediaType": detected,
+                "mismatch": detected != version.media_type,
+            },
+            input_hash=version.sha256,
+            tool_ref="tool://document/detect-type@1",
+        )
         if detected != version.media_type and not _compatible_media(
             detected, version.media_type
         ):
@@ -580,11 +925,90 @@ class DocumentProcessingService:
         await session.flush()
         parser_ref, parsed = self._parsers.parse(
             filename=version.filename,
-            media_type=version.media_type,
+            media_type=detected,
             content=content,
         )
         run.parser_ref = parser_ref
+        await self._record_event(
+            session,
+            run=run,
+            event_type="document.parse.completed",
+            stage="PARSING",
+            actor=actor,
+            payload={
+                "parserRef": parser_ref,
+                "pageCount": len(parsed.pages),
+                "tableCount": len(parsed.tables),
+                "sheetCount": len(parsed.sheets),
+            },
+            input_hash=version.sha256,
+            output_hash=canonical_hash(
+                {
+                    "pages": len(parsed.pages),
+                    "tables": len(parsed.tables),
+                    "sheets": len(parsed.sheets),
+                    "textExcerpt": parsed.text_excerpt,
+                }
+            ),
+            tool_ref="tool://document/parse-native@2",
+        )
         warnings.extend(parsed.warnings)
+        page_count = max(
+            len(parsed.pages),
+            int(parsed.embedded_metadata.get("pageCount") or 0),
+        )
+        maximum_pages = int(profile.parser_policy.get("maxPageCount", 500))
+        if page_count > maximum_pages:
+            raise DocumentProcessingError(
+                "DOCUMENT_PAGE_LIMIT_EXCEEDED",
+                f"pages={page_count};limit={maximum_pages}",
+            )
+        page_batch_size = max(
+            1, int(profile.parser_policy.get("pageBatchSize", 10))
+        )
+        page_batches = [
+            list(range(start, min(page_count + 1, start + page_batch_size)))
+            for start in range(1, page_count + 1, page_batch_size)
+        ]
+        selected_ocr_pages = {
+            int(value)
+            for value in parsed.layout.get("ocrPages") or []
+            if isinstance(value, int | str) and str(value).isdigit()
+        }
+        ocr_page_batches = [
+            [page for page in batch if page in selected_ocr_pages]
+            for batch in page_batches
+        ]
+        ocr_page_batches = [batch for batch in ocr_page_batches if batch]
+        large_document = (
+            page_count
+            >= int(profile.parser_policy.get("largeFilePageThreshold", 50))
+            or len(content)
+            >= int(
+                profile.parser_policy.get(
+                    "largeFileByteThreshold", 25 * 1024 * 1024
+                )
+            )
+            or int(parsed.embedded_metadata.get("rowCount") or 0)
+            >= int(
+                profile.parser_policy.get(
+                    "largeSpreadsheetRowThreshold", 100_000
+                )
+            )
+        )
+        parsed = parsed.model_copy(
+            update={
+                "layout": {
+                    **parsed.layout,
+                    "detectedMediaType": detected,
+                    "largeDocument": large_document,
+                    "pageBatchSize": page_batch_size,
+                    "pageBatches": page_batches,
+                }
+            }
+        )
+        if large_document:
+            warnings.append("LARGE_DOCUMENT_SEGMENTED")
 
         if parsed.needs_ocr:
             run.status = "OCR_PROCESSING"
@@ -593,12 +1017,32 @@ class DocumentProcessingService:
             if not self._ocr.available:
                 quality_flags.append("OCR_NOT_CONFIGURED")
                 warnings.append("当前环境未配置 OCR")
+                parsed = parsed.model_copy(
+                    update={"chunks": self._chunker.chunk(parsed)}
+                )
+                compact, content_ref = await self._prepare_persisted_content(
+                    session,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    version=version,
+                    parsed=parsed,
+                )
                 envelope = ProcessingResultEnvelope(
                     status="REVIEW_REQUIRED",
                     documentType=None,
-                    content=parsed,
+                    content=compact,
                     extractions=[],
                     evidence=[],
+                    artifacts=(
+                        [
+                            {
+                                "kind": "STRUCTURED_CONTENT",
+                                "artifactRef": content_ref,
+                            }
+                        ]
+                        if content_ref
+                        else []
+                    ),
                     qualityFlags=quality_flags,
                     warnings=warnings,
                     provenance={
@@ -607,6 +1051,7 @@ class DocumentProcessingService:
                         "parserRef": parser_ref,
                         "ocr": {"available": False, "provider": self._ocr.name},
                     },
+                    contentArtifactRef=content_ref,
                 )
                 await self._persist_result(
                     session,
@@ -620,18 +1065,104 @@ class DocumentProcessingService:
                     status="REVIEW_REQUIRED",
                 )
                 return
-            ocr_result = self._ocr.recognize(
-                media_type=version.media_type, content=content
+            ocr_result = self._ocr_document(
+                media_type=detected,
+                content=content,
+                page_batches=ocr_page_batches or page_batches,
             )
             ocr_text = str(ocr_result.get("text") or "")
+            ocr_pages = [
+                dict(item)
+                for item in ocr_result.get("pages") or []
+                if isinstance(item, dict)
+            ]
+            ocr_paragraphs = [
+                {
+                    "index": index,
+                    "text": str(page.get("text") or ""),
+                    "page": page.get("page", index),
+                    "sourceKind": "OCR",
+                    "bbox": page.get("bbox"),
+                }
+                for index, page in enumerate(ocr_pages, start=1)
+                if str(page.get("text") or "").strip()
+            ]
+            ocr_tables = [
+                self._normalized_ocr_table(item, index)
+                for index, item in enumerate(
+                    (
+                        table
+                        for table in ocr_result.get("tables") or []
+                        if isinstance(table, dict)
+                    ),
+                    start=1,
+                )
+            ]
+            blocks = [
+                {**dict(item), "sourceKind": "OCR"}
+                for item in ocr_result.get("blocks") or []
+                if isinstance(item, dict)
+            ]
+            merged_pages = {
+                int(page.get("page") or index): dict(page)
+                for index, page in enumerate(parsed.pages, start=1)
+            }
+            for page in ocr_pages:
+                page_number = int(page.get("page") or 0)
+                if page_number > 0:
+                    merged_pages[page_number] = {
+                        **page,
+                        "page": page_number,
+                        "sourceKind": "OCR",
+                        "routeReason": "NATIVE_TEXT_INSUFFICIENT",
+                    }
+            native_paragraphs = [
+                dict(item)
+                for item in parsed.paragraphs
+                if int(item.get("page") or 0) not in selected_ocr_pages
+            ]
+            merged_text = "\n\n".join(
+                str(page.get("text") or "")
+                for _, page in sorted(merged_pages.items())
+            ).strip()
             parsed = parsed.model_copy(
                 update={
-                    "pages": ocr_result.get("pages") or parsed.pages,
-                    "text_excerpt": ocr_text[:4000],
+                    "pages": [
+                        page for _, page in sorted(merged_pages.items())
+                    ],
+                    "paragraphs": [*native_paragraphs, *ocr_paragraphs],
+                    "tables": [*parsed.tables, *ocr_tables],
+                    "layout": {
+                        **parsed.layout,
+                        "blocks": blocks,
+                        "ocrProvider": f"ocr://{self._ocr.name}@{self._ocr.version}",
+                        "ocrPageBatches": ocr_page_batches or page_batches,
+                    },
+                    "text_excerpt": (merged_text or ocr_text)[:4000],
                     "needs_ocr": False,
                     "warnings": [*parsed.warnings, "OCR_APPLIED"],
                 }
             )
+            await self._record_event(
+                session,
+                run=run,
+                event_type="document.ocr.completed",
+                stage="OCR_PROCESSING",
+                actor=actor,
+                payload={
+                    "provider": self._ocr.name,
+                    "version": self._ocr.version,
+                    "pageBatches": ocr_page_batches or page_batches,
+                    "blockCount": len(blocks),
+                    "tableCount": len(ocr_tables),
+                },
+                input_hash=version.sha256,
+                output_hash=canonical_hash(ocr_result),
+                tool_ref="tool://document/ocr-layout@1",
+            )
+
+        chunks = self._chunker.chunk(parsed)
+        parsed = parsed.model_copy(update={"chunks": chunks})
 
         run.status = "CLASSIFYING"
         run.current_stage = "CLASSIFYING"
@@ -644,6 +1175,21 @@ class DocumentProcessingService:
             profile=profile,
         )
         run.classifier_ref = self._classifier.ref
+        await self._record_event(
+            session,
+            run=run,
+            event_type="document.classification.completed",
+            stage="CLASSIFYING",
+            actor=actor,
+            payload={
+                "classifierRef": self._classifier.ref,
+                "label": classification.label,
+                "confidence": classification.confidence,
+            },
+            output_hash=canonical_hash(
+                classification.model_dump(mode="json", by_alias=True)
+            ),
+        )
         classification_threshold = float(
             profile.quality_thresholds.get("classification", 0.7)
         )
@@ -666,34 +1212,72 @@ class DocumentProcessingService:
             )
             extractor_refs = [self._extractor.ref]
         run.extractor_refs = extractor_refs
+        await self._record_event(
+            session,
+            run=run,
+            event_type="document.extraction.completed",
+            stage="EXTRACTING",
+            actor=actor,
+            payload={
+                "extractorRefs": extractor_refs,
+                "fieldCount": len(extracted),
+            },
+            output_hash=canonical_hash(
+                [
+                    value.model_dump(mode="json", by_alias=True)
+                    for value in extracted
+                ]
+            ),
+        )
 
-        content_ref = None
-        if _content_too_large(parsed):
-            content_ref = await self._store_content_artifact(
-                session,
-                tenant_id=tenant_id,
-                project_id=project_id,
-                version=version,
-                parsed=parsed,
-            )
-            compact = parsed.model_copy(
-                update={
-                    "paragraphs": parsed.paragraphs[:20],
-                    "pages": [
-                        {
-                            "page": page.get("page", 1),
-                            "text": str(page.get("text", ""))[:500],
-                        }
-                        for page in parsed.pages[:5]
-                    ],
-                    "sheets": parsed.sheets[:3],
-                }
-            )
-        else:
-            compact = parsed
+        run.status = "QUALITY_CHECK"
+        run.current_stage = "QUALITY_CHECK"
+        await session.flush()
+        quality = self._quality.check(
+            content=parsed,
+            classification=classification,
+            extractions=extracted,
+            classification_threshold=classification_threshold,
+            extraction_threshold=float(
+                profile.quality_thresholds.get("extraction", 0.85)
+            ),
+            critical_extraction_threshold=float(
+                profile.quality_thresholds.get("criticalExtraction", 0.95)
+            ),
+            ocr_threshold=float(profile.quality_thresholds.get("ocr", 0.90)),
+        )
+        for flag in quality["flags"]:
+            if flag not in quality_flags:
+                quality_flags.append(flag)
+        for field in extracted:
+            for flag in field.quality_flags:
+                if flag not in quality_flags:
+                    quality_flags.append(flag)
+        await self._record_event(
+            session,
+            run=run,
+            event_type="document.quality.checked",
+            stage="QUALITY_CHECK",
+            actor=actor,
+            payload={
+                "qualityRef": self._quality.ref,
+                "passed": quality["passed"],
+                "flags": quality["flags"],
+            },
+            output_hash=canonical_hash(quality),
+            tool_ref="tool://document/quality-check@1",
+        )
+
+        compact, content_ref = await self._prepare_persisted_content(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            version=version,
+            parsed=parsed,
+        )
 
         needs_field_review = any(
-            field.review_status == "PENDING" for field in extracted
+            field.review_status in {"PENDING", "UNCONFIRMED"} for field in extracted
         )
         status = (
             "REVIEW_REQUIRED"
@@ -711,15 +1295,48 @@ class DocumentProcessingService:
             documentType=classification,
             content=compact,
             extractions=extracted,
-            evidence=[*classification.evidence],
+            evidence=[
+                *classification.evidence,
+                *[
+                    evidence
+                    for field in extracted
+                    for evidence in field.evidence_refs
+                ],
+            ],
+            organization={
+                "suggestedName": self._suggested_document_name(
+                    version.filename, classification, extracted
+                ),
+                "category": classification.confirmed_label or classification.label,
+                "tags": self._suggested_tags(classification, extracted),
+            },
+            quality=quality,
+            artifacts=(
+                [
+                    {
+                        "kind": "STRUCTURED_CONTENT",
+                        "artifactRef": content_ref,
+                    }
+                ]
+                if content_ref
+                else []
+            ),
             qualityFlags=quality_flags,
             warnings=warnings,
             provenance={
                 "processingRunId": str(run.id),
                 "profileRef": profile.ref,
                 "parserRef": parser_ref,
+                "detectedMediaType": detected,
                 "classifierRef": self._classifier.ref,
                 "extractorRefs": extractor_refs,
+                "chunkerRef": self._chunker.ref,
+                "qualityRef": self._quality.ref,
+                "processingPlan": {
+                    "largeDocument": large_document,
+                    "pageBatchSize": page_batch_size,
+                    "pageBatches": page_batches,
+                },
                 "attempt": run.attempt,
             },
             contentArtifactRef=content_ref,
@@ -735,6 +1352,104 @@ class DocumentProcessingService:
             actor=actor,
             status=status,
         )
+
+    def _ocr_document(
+        self,
+        *,
+        media_type: str,
+        content: bytes,
+        page_batches: list[list[int]],
+    ) -> dict[str, Any]:
+        batches = page_batches or [[]]
+        combined_pages: list[dict[str, Any]] = []
+        combined_tables: list[dict[str, Any]] = []
+        combined_blocks: list[dict[str, Any]] = []
+        for batch in batches:
+            value = self._ocr.recognize(
+                media_type=media_type,
+                content=content,
+                pages=batch or None,
+            )
+            combined_pages.extend(
+                dict(item)
+                for item in value.get("pages") or []
+                if isinstance(item, dict)
+            )
+            combined_tables.extend(
+                dict(item)
+                for item in value.get("tables") or []
+                if isinstance(item, dict)
+            )
+            combined_blocks.extend(
+                dict(item)
+                for item in value.get("blocks") or []
+                if isinstance(item, dict)
+            )
+        combined_pages.sort(key=lambda item: int(item.get("page") or 0))
+        unique_pages = {
+            int(item.get("page") or index): item
+            for index, item in enumerate(combined_pages, start=1)
+        }
+        combined_pages = [
+            value for _, value in sorted(unique_pages.items())
+        ]
+        return {
+            "text": "\n\n".join(
+                str(item.get("text") or "") for item in combined_pages
+            ).strip(),
+            "pages": combined_pages,
+            "tables": combined_tables,
+            "blocks": combined_blocks,
+        }
+
+    def _normalized_ocr_table(
+        self, table: dict[str, Any], ordinal: int
+    ) -> dict[str, Any]:
+        rows = [
+            [str(value) for value in row]
+            for row in table.get("rows") or table.get("cells") or []
+            if isinstance(row, list)
+        ]
+        width = max((len(row) for row in rows), default=0)
+        normalized = [row + [""] * (width - len(row)) for row in rows]
+        return {
+            **table,
+            "tableId": str(table.get("tableId") or f"ocr-table-{ordinal}"),
+            "name": str(table.get("name") or f"OCR Table {ordinal}"),
+            "columns": normalized[0] if normalized else [],
+            "rows": normalized,
+            "rowCount": len(normalized),
+            "columnCount": width,
+            "sourceKind": "OCR",
+            "evidenceRefs": list(table.get("evidenceRefs") or []),
+        }
+
+    def _suggested_document_name(
+        self,
+        filename: str,
+        classification: Any,
+        extracted: list[Any],
+    ) -> str:
+        title = next(
+            (
+                str(field.machine_value).strip()
+                for field in extracted
+                if field.field_path == "document.title" and field.machine_value
+            ),
+            "",
+        )
+        if title:
+            return title[:200]
+        label = str(classification.display_name or classification.label).strip()
+        return f"{label}-{filename}"[:200] if label else filename[:200]
+
+    def _suggested_tags(
+        self, classification: Any, extracted: list[Any]
+    ) -> list[str]:
+        tags = [str(classification.label)]
+        if any(field.review_status == "PENDING" for field in extracted):
+            tags.append("REVIEW_REQUIRED")
+        return list(dict.fromkeys(tag for tag in tags if tag))
 
     async def _persist_result(
         self,
@@ -774,6 +1489,20 @@ class DocumentProcessingService:
         version.processing_status = status
         document.status = "AVAILABLE" if status == "READY" else status
         await session.flush()
+        await self._record_event(
+            session,
+            run=run,
+            event_type="document.result.published",
+            stage=status,
+            actor=actor,
+            payload={
+                "resultId": str(result.id),
+                "resultVersion": result.result_version,
+                "status": status,
+            },
+            output_hash=canonical_hash(result.result),
+            tool_ref="tool://document/result-persist@1",
+        )
         event_id = uuid7()
         session.add(
             OutboxEvent(
@@ -833,6 +1562,46 @@ class DocumentProcessingService:
             resource_id=str(run.id),
             metadata={"errorCode": code, "detail": detail[:500]},
         )
+        await self._record_event(
+            session,
+            run=run,
+            event_type="document.processing.failed",
+            stage="FAILED",
+            actor=actor,
+            payload={"errorCode": code, "detail": detail[:500]},
+        )
+
+    async def _record_event(
+        self,
+        session: AsyncSession,
+        *,
+        run: DocumentProcessingRun,
+        event_type: str,
+        stage: str,
+        actor: str,
+        payload: dict[str, Any],
+        input_hash: str | None = None,
+        output_hash: str | None = None,
+        tool_ref: str | None = None,
+    ) -> DocumentProcessingEvent:
+        event = DocumentProcessingEvent(
+            tenant_id=run.tenant_id,
+            project_id=run.project_id,
+            processing_run_id=run.id,
+            business_document_version_id=run.business_document_version_id,
+            event_seq=int(run.next_event_seq or 1),
+            type=event_type,
+            stage=stage,
+            payload=_sanitize_jsonable(payload),
+            input_hash=input_hash,
+            output_hash=output_hash,
+            tool_ref=tool_ref,
+            actor_id=actor,
+        )
+        run.next_event_seq = int(run.next_event_seq or 1) + 1
+        session.add(event)
+        await session.flush()
+        return event
 
     def _read_blob_bytes(self, blob: BlobObject) -> bytes:
         root = self._storage_root
@@ -840,6 +1609,53 @@ class DocumentProcessingService:
         if not path.is_file():
             raise DocumentProcessingError("BLOB_CONTENT_UNAVAILABLE", str(path))
         return path.read_bytes()
+
+    async def _prepare_persisted_content(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        version: BusinessDocumentVersion,
+        parsed: Any,
+    ) -> tuple[Any, str | None]:
+        if not _content_too_large(parsed):
+            return parsed, None
+        content_ref = await self._store_content_artifact(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            version=version,
+            parsed=parsed,
+        )
+        compact = parsed.model_copy(
+            update={
+                "paragraphs": parsed.paragraphs[:20],
+                "pages": [
+                    {
+                        "page": page.get("page", 1),
+                        "text": str(page.get("text", ""))[:500],
+                    }
+                    for page in parsed.pages[:5]
+                ],
+                "sheets": parsed.sheets[:3],
+                "tables": [
+                    {
+                        **table,
+                        "rows": list(table.get("rows") or [])[:20],
+                    }
+                    for table in parsed.tables[:10]
+                ],
+                "chunks": [
+                    {
+                        **chunk,
+                        "text": str(chunk.get("text") or "")[:500],
+                    }
+                    for chunk in parsed.chunks[:10]
+                ],
+            }
+        )
+        return compact, content_ref
 
     async def _store_content_artifact(
         self,
@@ -1011,6 +1827,164 @@ class DocumentReviewService:
             action="document.fields.confirmed",
         )
 
+    async def publish(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        document_id: UUID,
+        actor: str,
+        idempotency_key: str,
+    ) -> DocumentProcessingResult:
+        document = await session.scalar(
+            select(BusinessDocument).where(
+                BusinessDocument.id == document_id,
+                BusinessDocument.tenant_id == tenant_id,
+                BusinessDocument.project_id == project_id,
+            )
+        )
+        if document is None:
+            raise LookupError("DOCUMENT_NOT_FOUND")
+        version = await session.scalar(
+            select(BusinessDocumentVersion).where(
+                BusinessDocumentVersion.business_document_id == document.id,
+                BusinessDocumentVersion.version == document.current_version,
+                BusinessDocumentVersion.tenant_id == tenant_id,
+                BusinessDocumentVersion.project_id == project_id,
+            )
+        )
+        if version is None:
+            raise LookupError("DOCUMENT_VERSION_NOT_FOUND")
+        latest = await self._processing.latest_result(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            version_id=version.id,
+            result_type="STRUCTURED_PACKAGE",
+        )
+        if latest is None:
+            raise LookupError("STRUCTURED_PACKAGE_NOT_FOUND")
+        request_hash = canonical_hash(
+            {
+                "documentId": str(document_id),
+                "resultId": str(latest.id),
+                "resultVersion": latest.result_version,
+            }
+        )
+        existing_key = await session.get(
+            IdempotencyKey,
+            {
+                "tenant_id": tenant_id,
+                "project_id": project_id,
+                "operation": "document.structured.publish",
+                "key": idempotency_key,
+            },
+        )
+        if existing_key is not None:
+            if existing_key.request_hash != request_hash:
+                raise DocumentProcessingError("IDEMPOTENCY_KEY_REUSED")
+            existing_result = await session.get(
+                DocumentProcessingResult, existing_key.response_ref
+            )
+            if existing_result is None:
+                raise RuntimeError("document publish idempotency record is invalid")
+            return existing_result
+        if latest.status not in {"READY", "CONFIRMED"}:
+            raise DocumentProcessingError("STRUCTURED_PACKAGE_REVIEW_REQUIRED")
+        now = datetime.now(UTC)
+        payload = {
+            **dict(latest.result),
+            "publication": {
+                "publishedAt": now.isoformat(),
+                "publishedBy": actor,
+                "sourceResultId": str(latest.id),
+                "sourceResultVersion": latest.result_version,
+            },
+        }
+        published = DocumentProcessingResult(
+            tenant_id=tenant_id,
+            project_id=project_id,
+            business_document_version_id=version.id,
+            result_type="STRUCTURED_PACKAGE",
+            result_version=latest.result_version + 1,
+            status="READY",
+            schema_ref=latest.schema_ref,
+            producer_ref=latest.producer_ref,
+            result=payload,
+            evidence=list(latest.evidence or []),
+            confirmed_by=actor,
+            confirmed_at=now,
+        )
+        session.add(published)
+        await session.flush()
+        document.status = "AVAILABLE"
+        version.processing_status = "READY"
+        session.add(
+            IdempotencyKey(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                operation="document.structured.publish",
+                key=idempotency_key,
+                request_hash=request_hash,
+                response_ref=published.id,
+                expires_at=now + timedelta(days=30),
+            )
+        )
+        event_id = uuid7()
+        session.add(
+            OutboxEvent(
+                id=event_id,
+                tenant_id=tenant_id,
+                aggregate_id=document.id,
+                destination="nats",
+                partition_key=str(document.id),
+                source_id=event_id,
+                type="document.result.published",
+                payload={
+                    "documentId": str(document.id),
+                    "documentVersionId": str(version.id),
+                    "resultId": str(published.id),
+                    "resultVersion": published.result_version,
+                },
+            )
+        )
+        run = await self._processing.latest_run_for_version(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            version_id=version.id,
+        )
+        if run is not None:
+            await self._processing._record_event(
+                session,
+                run=run,
+                event_type="document.result.published",
+                stage="READY",
+                actor=actor,
+                payload={
+                    "resultId": str(published.id),
+                    "resultVersion": published.result_version,
+                },
+                input_hash=canonical_hash(latest.result),
+                output_hash=canonical_hash(payload),
+                tool_ref="tool://document/publish@1",
+            )
+        await self._audit.append(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            actor_id=actor,
+            action="document.result.published",
+            resource_type="document_processing_result",
+            resource_id=str(published.id),
+            metadata={
+                "documentId": str(document.id),
+                "resultVersion": published.result_version,
+            },
+        )
+        return published
+
     async def _load_current(
         self,
         session: AsyncSession,
@@ -1091,6 +2065,48 @@ class DocumentReviewService:
                 "status": status,
             },
         )
+        run = await self._processing.latest_run_for_version(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            version_id=version.id,
+        )
+        if run is not None:
+            await self._processing._record_event(
+                session,
+                run=run,
+                event_type="document.review.decided",
+                stage=status,
+                actor=actor,
+                payload={
+                    "action": action,
+                    "resultId": str(result.id),
+                    "resultVersion": result.result_version,
+                    "status": status,
+                },
+                input_hash=canonical_hash(previous.result),
+                output_hash=canonical_hash(payload),
+                tool_ref="tool://document/review@1",
+            )
+        event_id = uuid7()
+        session.add(
+            OutboxEvent(
+                id=event_id,
+                tenant_id=tenant_id,
+                aggregate_id=document.id,
+                destination="nats",
+                partition_key=str(document.id),
+                source_id=event_id,
+                type="document.review.decided",
+                payload={
+                    "documentId": str(document.id),
+                    "documentVersionId": str(version.id),
+                    "resultId": str(result.id),
+                    "resultVersion": result.result_version,
+                    "status": status,
+                },
+            )
+        )
         return result
 
 
@@ -1109,22 +2125,64 @@ def _detect_media_type(content: bytes, filename: str, declared: str) -> str:
     lower = filename.lower()
     if content.startswith(b"%PDF"):
         return "application/pdf"
-    if content.startswith(b"PK") and lower.endswith(".docx"):
-        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    if content.startswith(b"PK") and lower.endswith(".xlsx"):
-        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    if content.startswith(b"PK"):
+        try:
+            import io
+            import zipfile
+
+            with zipfile.ZipFile(io.BytesIO(content)) as archive:
+                names = set(archive.namelist())
+                if "mimetype" in names:
+                    package_type = (
+                        archive.read("mimetype")
+                        .decode("ascii", errors="replace")
+                        .strip()
+                    )
+                    if package_type.startswith(
+                        "application/vnd.oasis.opendocument."
+                    ):
+                        return package_type
+                if "word/document.xml" in names:
+                    return (
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    )
+                if "xl/workbook.xml" in names or any(
+                    name.startswith("xl/worksheets/") for name in names
+                ):
+                    return (
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet"
+                    )
+                if "ppt/presentation.xml" in names or any(
+                    name.startswith("ppt/slides/") for name in names
+                ):
+                    return (
+                        "application/vnd.openxmlformats-officedocument."
+                        "presentationml.presentation"
+                    )
+        except (OSError, zipfile.BadZipFile):
+            pass
     if content[:8] == b"\x89PNG\r\n\x1a\n":
         return "image/png"
     if content[:2] == b"\xff\xd8":
         return "image/jpeg"
+    if content[:4] in {b"II*\x00", b"MM\x00*"}:
+        return "image/tiff"
     if lower.endswith(".md"):
         return "text/markdown"
     if lower.endswith(".txt"):
         return "text/plain"
+    if lower.endswith(".csv"):
+        return "text/csv"
+    if lower.endswith(".json"):
+        return "application/json"
     return declared
 
 
 def _compatible_media(detected: str, declared: str) -> bool:
+    if declared in {"", "application/octet-stream", "binary/octet-stream"}:
+        return True
     aliases = {
         "image/jpg": "image/jpeg",
         "text/x-markdown": "text/markdown",
@@ -1133,5 +2191,10 @@ def _compatible_media(detected: str, declared: str) -> bool:
 
 
 def _content_too_large(parsed: Any) -> bool:
-    size = len(json.dumps(parsed.model_dump(mode="json", by_alias=True)))
-    return size > 24_000
+    size = len(
+        json.dumps(
+            parsed.model_dump(mode="json", by_alias=True),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+    return size > 256 * 1024

@@ -1,5 +1,11 @@
 from swarmcore_application import CapabilityCatalogService
-from swarmcore_model_gateway.main import Settings as ModelGatewaySettings
+from swarmcore_model_gateway.main import (
+    ModelProviderConfigurationBody,
+    _tested_provider_matches,
+)
+from swarmcore_model_gateway.main import (
+    Settings as ModelGatewaySettings,
+)
 from swarmcore_registry import builtin_registry
 from swarmcore_worker_agent.main import Settings as AgentWorkerSettings
 
@@ -9,6 +15,10 @@ SUPPORTED_MODELS = {
     "model://kimi-k2.5": "kimi-k2.5",
     "model://kimi-k2.7-code": "kimi-k2.7-code",
 }
+
+
+def test_agent_worker_default_output_budget_supports_large_structured_results() -> None:
+    assert AgentWorkerSettings(_env_file=None).agent_model_max_output_tokens == 16384
 
 
 def test_supported_models_are_available_and_routed_consistently() -> None:
@@ -70,3 +80,25 @@ def test_registered_agent_definitions_are_available_for_safe_customization() -> 
         assert agents[reference].model == "model://general@1"
         assert agents[reference].tools == ["tool://document/read@1"]
         assert agents[reference].input_schema["required"] == ["documentText"]
+
+
+def test_connectivity_result_only_verifies_the_matching_saved_provider() -> None:
+    body = ModelProviderConfigurationBody(
+        logicalModel="model://general",
+        providerUrl="https://api.example.com/v1",
+        modelName="provider-model",
+    )
+    assert _tested_provider_matches(
+        provider_url="https://api.example.com/v1/",
+        model_name="provider-model",
+        saved_api_key="saved-key",
+        body=body,
+        tested_api_key="saved-key",
+    )
+    assert not _tested_provider_matches(
+        provider_url="https://api.example.com/v1",
+        model_name="provider-model",
+        saved_api_key="saved-key",
+        body=body,
+        tested_api_key="different-key",
+    )

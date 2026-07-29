@@ -132,7 +132,7 @@ flowchart TB
 
 能力中心目录对 Model 额外收窄：Registry 可声明系统内置逻辑模型，但只有当前部署在 `SWARMCORE_MODEL_ROUTES`（Model Gateway）中登记了路由的模型才会作为系统模型出现在能力中心列表。无路由的系统模型不作为“未就绪卡片”展示，仍参与 Agent 依赖就绪计算（`DEPENDENCY_NOT_READY`）。Gateway 不可达时不按“无路由”隐藏，而是保留条目并标记健康检查失败。
 
-项目也可在能力中心通过三要素（API URL、ModelName、API Key）直接创建项目级模型能力，引用形如 `model://project/{uuid}@{revision}`。这类模型不进入全局 Registry / `SWARMCORE_MODEL_ROUTES`，凭证仍写入 Vault；Model Gateway 在存在项目运行时 Provider 配置时允许调用。能力目录与智能体/策略模型选择器会合并展示项目模型。模型详情页只负责连通与保存配置，不提供运行输入、预设、加入画布或立即运行。
+项目也可在能力中心通过三要素（API URL、ModelName、API Key）直接创建项目级模型能力，引用形如 `model://project/{uuid}@{revision}`。这类模型不进入全局 Registry / `SWARMCORE_MODEL_ROUTES`，凭证仍写入 Vault；Model Gateway 在存在项目运行时 Provider 配置时允许调用。能力目录与智能体/策略模型选择器会合并展示项目模型。模型详情页只负责连通与保存配置，不提供运行输入、预设、加入画布或立即运行。保存模型配置后，Web 自动发起一次真实模型调用；检测成功且被检测的 URL、ModelName 和 API Key 与已保存配置一致时，记录项目级连接验证并立即标记可用，据此覆盖不适用于该 Provider 的通用 `/health` / `/models` 探测结果；保存配置变更会清除旧验证。项目范围内的配置页可通过专用 `no-store` 接口按需读取已保存的 API Key，以支持再次打开后由用户主动显示；密钥不得进入普通配置 JSON、URL、日志或浏览器持久化存储。
 
 `ProjectConfiguration` 继续使用 `project_configurations` 表和旧 API。Tool 的用户层配置称为 Capability Preset，只保存能力引用和可复用参数，不保存 Secret。Agent 配置则投影为项目级、版本化的 `agent://project/{configurationId}@{revision}` 能力，参与 Readiness、能力中心直接运行和画布编排；执行时仍由 Agent Worker 通过 Agno Adapter 按任务创建运行实例，不把 SDK 对象作为持久状态。能力中心的直接运行和 REST/MCP 均复用同一应用服务，不建立旁路。
 
@@ -257,7 +257,7 @@ AI 结果统一包含 `data`、`evidence`、`confidence`、`qualityFlags`、`sch
 | 偏差分析 | 时间/内容/成本计算 Tool 加根因解释 Agent |
 | 报告生成 | 结构化结果聚合、版本化模板和 AI 叙述，JSON 为事实 |
 | 调度校准 | Runtime 决策加质量监督 Agent 建议 |
-| 招采与供应商风险 | `procurement-consistency`、`supplier-risk` Pack，共享用户上传资料与已确认业务事实 |
+| 招采与供应商风险 | `procurement-supplier-risk` Pack；共享冻结文档与业务事实，确定性条款/风控/绩效规则，监控快照、预警和工单复用统一应用服务 |
 
 ### 6.5 合同七维后评价能力包
 
@@ -275,8 +275,11 @@ Workbench/Case 应用服务创建业务对象或工作项并发起评价，提�
 第二套执行逻辑。
 
 `agent://contract/post-evaluation-analyst@1` 只消费已冻结的文档描述符与已有结构化处理结果，再进入
-确定性七维评分与 PDF 生成。当前仅完成资料绑定与读取骨架；PDF、Word、Excel 解析、OCR、字段抽取和
-人工确认的真实执行能力仍是后续工作，不标记为 IMPLEMENTED 或 VERIFIED。
+确定性七维评分与 PDF 生成。共享 Document Intelligence 已由
+`document-structuring@1.0.0` 补齐 ODF/OOXML/PDF/文本/图像解析、逐页 OCR 路由、表格与切片、
+Schema 抽取候选、质量门、人工确认和 Artifact 发布。大文件使用独立 Temporal Workflow，
+页组结果写 Artifact，运行历史只保留引用、哈希和计数。真实 OCR/NLP Provider 的生产资格仍以
+开发计划 DS-E1 的开放项为准，未通过资格时不得回退到 Fake 结果。
 模型调用继续经过 Model Gateway；本地真实 Agent 可通过 LiteLLM
 代理，或使用 `SWARMCORE_MODEL_PROVIDER_URL` 和 `SWARMCORE_MODEL_PROVIDER_API_KEY` 直连
 OpenAI 兼容 Provider。生产环境禁止直配 Provider 凭据，仍必须通过 Secret Manager 完成资格验证。
@@ -367,6 +370,66 @@ P1 的企业公示状态增强检查只消费授权连接器或人工提交的�
 单批最多 100 项且并行度配置限制为 1–10；批次及条目按 tenant/project 持久化并启用 RLS。
 P2 趋势读取同一项目的历史发票 Evaluation，按日、周或月聚合总体结论及
 `FAIL/WARN/UNKNOWN` 规则命中。REST 与 MCP 均复用该应用服务。
+
+### 6.8 合同履约计划与采集能力包
+
+`contract-performance@1.0.17` 复用 BusinessObject/Case、业务资料库、Temporal、
+Model/Tool Gateway、Approval、Finding、Artifact、Audit 和 Outbox。合同是唯一 `PRIMARY`
+Subject；组合合同不在当前边界。初始化与增量采集分别由
+`strategy://contract-performance/initialize@13` 和
+`strategy://contract-performance/collect@10` 编排，只有计划提取和执行证据候选关联使用
+窄职责 Agent。日期金额规范化、批准变更应用、依赖拓扑、甘特、证据交叉键、SLA、里程碑、
+付款门禁、提醒和最终哈希全部由确定性 Tool 计算。上下文检索从冻结全文 Artifact 取 Top-K
+窗口并保留匹配页证据；Agent 不直接调用检索 Tool，避免无界工具循环。
+
+专用持久化模型保存 Case、不可变计划版本、执行证据及链接、结果快照和逐源游标，并通过
+`0017_contract_performance` 启用 tenant/project RLS。失败源游标不推进；重复源记录按
+`sourceRef/sourceRecordId/contentHash` 去重；同一幂等键不能提交不同采集请求。已批准变更创建
+当前基准但不覆盖原始基准，未批准或未生效变更只形成风险。付款证据早于验收、累计金额超过上限、
+SLA 不达标、多候选或无稳定合同交叉键均进入人工复核，不能由 Agent 输出最终验收或付款结论。
+
+REST 提供 Case 创建、计划初始化/发布、增量采集、计划、甘特、证据账和快照读取；MCP 提供
+初始化、采集、计划和快照四个 Tool，二者调用同一个 `ContractPerformanceService`。结果页、
+JSON 和 CJK PDF 以 `schema://contract-performance/result@1` 及 `resultHash` 为共同事实源。
+页面展示原始/当前/实际三层日期、证据收件箱、付款门禁、变更历史和追溯哈希。当前实现状态及
+未完成的真实数据/生产资格门禁以开发计划为准。
+
+### 6.9 智能体调度校准能力包
+
+`swarm-calibration@1.0.4` 以真实 GitHub Issue 为业务输入，通过 Activity 获取 Issue、评论、
+时间线、关联 Pull Request、changed files 和合并提交，冻结 URL、ETag、获取时间、响应哈希及
+40 位 commit SHA。调度、主诊断、备用诊断和质量监督四个窄职责 Agent 只提供结构化建议；
+Runtime 负责实际路由、重试和主失败后的备用切换，确定性 Tool 负责质量评分与最终状态。
+
+质量阈值为 85；Schema、来源、证据、一致性、沙箱和验收标准共六维评分。沙箱未通过时总分
+封顶 79，首次未达标自动修订一次，仍未达标进入人工复核。仓库测试在禁网、只读、去权、
+资源受限且 digest 固定的专用 Docker 镜像中执行。REST
+`POST /v1/projects/{projectId}/swarm-calibration:run` 与 MCP `run_swarm_calibration`
+复用 `BusinessWorkService`。`0018_swarm_calibration` 保存租户隔离的不可变证据、路由、
+质量和备用切换记录；Assessment 展示结果、过程、依据及哈希。完整设计与验收边界见
+`docs/swarmcore-swarm-calibration-design.md`。
+
+### 6.10 招采一致性与供应商风控能力包
+
+`procurement-supplier-risk@1.0.4`（策略 `strategy://procurement-supplier-risk/assess@5`）
+复用 BusinessObject/Case、业务资料库、Assessment、
+Temporal 和统一 Gateway。条款 Agent 只从冻结的招标、投标、中标和合同资料提出语义候选，
+确定性 Tool 建立四方条款血缘并分级；供应商风险只接受信用代码精确匹配或已确认内部主数据
+参与计分和硬门禁，名称命中只能进入人工复核。绩效计算要求至少 3 个订单且可用指标权重不少于
+60%。
+
+内置 `CCGP_SERIOUS_ILLEGAL` Adapter 实时查询中国政府采购网；其他商业或授权来源使用
+HTTPS allowlist 和 Vault `secretRef`。监控刷新仍创建标准 Case Assessment；Recorder 在同一事务
+写入不可变风险快照、预警、Finding、Report、Audit 和 Outbox。预警通过受控状态机生成并处置
+风控工单，动作历史不可变。REST 与 MCP 复用 `ProcurementSupplierRiskService`，Web Assessment
+展示条款、真实来源、绩效、风险、历史和工单，不建立独立业务逻辑。完整设计和验收边界见
+`docs/swarmcore-procurement-supplier-risk-design.md`。
+
+2026-07-28 的真实链 Run `019fa6f0-f69f-701d-bff4-1eec4a9da397` 已通过正式 REST、
+Artifact Gateway、PostgreSQL、Temporal、外部 DeepSeek 模型和 Agent/Tool Worker 完成：
+结果 `BLOCK`，命中精确信用代码对应的有效政府采购禁入，11 个 Tool effect 成功，JSON/PDF、
+快照、预警、工单和审计记录均已落库。公开资料未包含完整投标原件、已签合同和企业 ERP
+绩效，系统分别标注证据限制并输出 `INSUFFICIENT_DATA`，未生成替代事实。
 
 ## 7. 公共契约
 

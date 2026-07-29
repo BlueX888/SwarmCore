@@ -43,9 +43,17 @@ from swarmcore_application.project_models import (
     project_model_logical_id,
 )
 from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2, MANIFEST_V2_1
+from swarmcore_capability_contract_performance import MANIFEST as CONTRACT_PERFORMANCE_MANIFEST
 from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
 from swarmcore_capability_deviation_analysis import MANIFEST as DEVIATION_ANALYSIS_MANIFEST
+from swarmcore_capability_document_structuring import (
+    MANIFEST as DOCUMENT_STRUCTURING_MANIFEST,
+)
 from swarmcore_capability_invoice_assurance import MANIFEST as INVOICE_ASSURANCE_MANIFEST
+from swarmcore_capability_procurement_supplier_risk import (
+    MANIFEST as PROCUREMENT_SUPPLIER_RISK_MANIFEST,
+)
+from swarmcore_capability_swarm_calibration import MANIFEST as SWARM_CALIBRATION_MANIFEST
 from swarmcore_domain import CapabilitySummary
 from swarmcore_governance import (
     ArtifactCapabilityIssuer,
@@ -102,6 +110,7 @@ from .schemas import (
     ExternalInputListResponse,
     ExternalInputSnapshot,
     HumanResponseRequest,
+    ModelProviderApiKeySnapshot,
     ModelProviderConfigurationRequest,
     ModelProviderConfigurationSnapshot,
     ModelProviderTestResult,
@@ -138,8 +147,12 @@ capabilities = CapabilityCatalogService(
         MANIFEST_V2,
         MANIFEST_V2_1,
         POST_EVALUATION_MANIFEST,
+        CONTRACT_PERFORMANCE_MANIFEST,
+        PROCUREMENT_SUPPLIER_RISK_MANIFEST,
         DEVIATION_ANALYSIS_MANIFEST,
+        DOCUMENT_STRUCTURING_MANIFEST,
         INVOICE_ASSURANCE_MANIFEST,
+        SWARM_CALIBRATION_MANIFEST,
     )
 )
 project_configurations = ProjectConfigurationService()
@@ -207,8 +220,7 @@ async def get_capabilities(request: Request, scope: Scope) -> CapabilityCatalog:
             environments=["development", "production"],
         )
         for row in rows
-        if is_runtime_provider_name(row.name)
-        and str(row.source_ref).startswith("model://project/")
+        if is_runtime_provider_name(row.name) and str(row.source_ref).startswith("model://project/")
     ]
     if not project_models:
         return catalog
@@ -275,6 +287,26 @@ async def put_model_provider_configuration(
         f"/internal/v1/projects/{scope.project_id}/model-provider",
         method="PUT",
         body=body.model_dump(mode="json", by_alias=True, exclude_none=True),
+    )
+
+
+@router.post(
+    "/projects/{project_id}/model-provider:key",
+    response_model=ModelProviderApiKeySnapshot,
+)
+async def reveal_model_provider_api_key(
+    request: Request,
+    response: Response,
+    scope: Scope,
+    logical_model: str = Query(alias="logicalModel"),
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await _model_gateway_request(
+        request,
+        scope,
+        f"/internal/v1/projects/{scope.project_id}/model-provider:key?"
+        f"{urlencode({'logical_model': logical_model})}",
+        method="POST",
     )
 
 
@@ -657,9 +689,7 @@ async def get_strategy_delete_impact(
         strategyId=impact.strategy_id,
         deletable=impact.deletable,
         blockers=[
-            StrategyDeleteBlockerSnapshot(
-                code=item.code, count=item.count, message=item.message
-            )
+            StrategyDeleteBlockerSnapshot(code=item.code, count=item.count, message=item.message)
             for item in impact.blockers
         ],
     )
@@ -670,9 +700,7 @@ async def get_strategy_delete_impact(
     status_code=204,
     response_class=Response,
 )
-async def delete_strategy(
-    strategy_id: UUID, scope: Scope, session: Session
-) -> Response:
+async def delete_strategy(strategy_id: UUID, scope: Scope, session: Session) -> Response:
     await strategies.delete(
         session,
         tenant_id=scope.tenant_id,
@@ -1076,7 +1104,7 @@ async def provide_input(
         actor=scope.actor_id,
     )
     if request.handler_command_id not in {None, handle.command_id}:
-        raise HTTPException(status_code=409, detail="input request already has a pending command")
+        raise HTTPException(status_code=409, detail="该输入请求已有待执行命令，请稍候刷新查看结果")
     request.handler_command_id = handle.command_id
     request.handled_by = scope.actor_id
     return handle
@@ -1583,7 +1611,7 @@ async def _handle_approval(
     )
     if request.handler_command_id not in {None, handle.command_id}:
         raise HTTPException(
-            status_code=409, detail="approval request already has a pending command"
+            status_code=409, detail="该审批已有待执行命令，请稍候刷新查看结果"
         )
     request.handler_command_id = handle.command_id
     request.handled_by = actor

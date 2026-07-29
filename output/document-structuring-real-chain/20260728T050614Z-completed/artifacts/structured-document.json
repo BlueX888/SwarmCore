@@ -1,0 +1,2045 @@
+{
+  "artifacts": [
+    {
+      "artifactId": "019fa71c-ad86-7ebf-854f-5b9f07488e1c",
+      "downloadRef": "artifact://019fa71c-ad86-7ebf-854f-5b9f07488e1c",
+      "filename": "structured-document.json"
+    },
+    {
+      "artifactId": "019fa71c-ad86-7c84-a863-f629f6b43fd4",
+      "downloadRef": "artifact://019fa71c-ad86-7c84-a863-f629f6b43fd4",
+      "filename": "content.md"
+    },
+    {
+      "artifactId": "019fa71c-ad86-7418-8bba-1acc22c49087",
+      "downloadRef": "artifact://019fa71c-ad86-7418-8bba-1acc22c49087",
+      "filename": "evidence-manifest.json"
+    },
+    {
+      "artifactId": "019fa71c-ad86-7789-9dba-6baa2050fb6b",
+      "downloadRef": "artifact://019fa71c-ad86-7789-9dba-6baa2050fb6b",
+      "filename": "review-log.json"
+    },
+    {
+      "artifactId": "019fa71c-ad86-7c2b-83ee-9aed9333fa0f",
+      "downloadRef": "artifact://019fa71c-ad86-7c2b-83ee-9aed9333fa0f",
+      "filename": "tables/019fa704-bd47-7def-970f-a92796a1a20c-table-1.csv"
+    },
+    {
+      "artifactId": "019fa71c-ad86-7121-a7f8-53524939155b",
+      "downloadRef": "artifact://019fa71c-ad86-7121-a7f8-53524939155b",
+      "filename": "tables/019fa704-bd47-7def-970f-a92796a1a20c-table-2.csv"
+    },
+    {
+      "artifactId": "019fa71c-ad86-7f9a-b70d-910d0b506f80",
+      "downloadRef": "artifact://019fa71c-ad86-7f9a-b70d-910d0b506f80",
+      "filename": "tables/019fa704-bd47-7def-970f-a92796a1a20c-table-3.csv"
+    },
+    {
+      "artifactId": "019fa71c-ad86-79ba-9016-0a397b36c7bf",
+      "downloadRef": "artifact://019fa71c-ad86-79ba-9016-0a397b36c7bf",
+      "filename": "tables/019fa704-bd47-7def-970f-a92796a1a20c-table-4.csv"
+    },
+    {
+      "artifactId": "019fa71c-ad86-7758-a71f-6a176cd5f5e5",
+      "downloadRef": "artifact://019fa71c-ad86-7758-a71f-6a176cd5f5e5",
+      "filename": "tables/019fa704-bd47-7def-970f-a92796a1a20c-table-5.csv"
+    },
+    {
+      "artifactId": "019fa71c-ad86-722d-bace-4eb694af514c",
+      "downloadRef": "artifact://019fa71c-ad86-722d-bace-4eb694af514c",
+      "filename": "tables/019fa704-bd47-7def-970f-a92796a1a20c-table-6.csv"
+    },
+    {
+      "artifactId": "019fa71c-ad86-710e-b0a4-ec9c2e571350",
+      "downloadRef": "artifact://019fa71c-ad86-710e-b0a4-ec9c2e571350",
+      "filename": "tables/019fa704-bd47-7def-970f-a92796a1a20c-table-7.csv"
+    },
+    {
+      "artifactId": "019fa71c-ad86-7ac5-94df-34823eb2fee6",
+      "downloadRef": "artifact://019fa71c-ad86-7ac5-94df-34823eb2fee6",
+      "filename": "tables/019fa704-bd47-7def-970f-a92796a1a20c-table-8.csv"
+    },
+    {
+      "artifactId": "019fa71c-ad86-7311-ade9-eb1e1d63f8e6",
+      "downloadRef": "artifact://019fa71c-ad86-7311-ade9-eb1e1d63f8e6",
+      "filename": "tables/019fa704-bd47-7def-970f-a92796a1a20c-table-9.csv"
+    },
+    {
+      "artifactId": "019fa71c-ad86-70a9-b962-60939a59fdf2",
+      "downloadRef": "artifact://019fa71c-ad86-70a9-b962-60939a59fdf2",
+      "filename": "tables/019fa704-bd47-7def-970f-a92796a1a20c-table-10.csv"
+    }
+  ],
+  "contentHash": "b16859961579e895042194437a3cc5348afcdabe35817fdfdd8bddfca607ba43",
+  "crossFormatConsistency": {
+    "checkedFields": [
+      "document.title",
+      "contract.reference"
+    ],
+    "conflicts": [],
+    "status": "CONSISTENT",
+    "values": {
+      "contract.reference": {
+        "rm1043.6": [
+          "019fa704-bd47-7def-970f-a92796a1a20c"
+        ]
+      },
+      "document.title": {
+        "digital outcomes and specialists 4 framework agreement call-off contract": [
+          "019fa704-bd47-7def-970f-a92796a1a20c"
+        ]
+      }
+    }
+  },
+  "documents": [
+    {
+      "chunks": [
+        {
+          "chunkId": "12bdf0cb3dd4d759c0760111ae90cc14",
+          "contentHash": "a6f2e835a9b4fe1489ec471c1c1c2534dc360a52495d4f6500921f8d7025a414",
+          "evidenceRefs": [
+            {
+              "sourceKind": "NATIVE",
+              "text": "Digital Outcomes and Specialists 4 Framework Agreement"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "Call-Off Contract"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "This Call-Off Contract for the Digital Outcomes and Specialists 4 Framework Agreement (RM1043.6) includes"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "Table of Contents"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "Part A - Order Form 4"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "Principle contact details 6"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "Data Protection Officers 6"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "Part B – Terms and conditions 10"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "1. Call-Off Contract start date, length and methodology 10"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "2. Supplier Staff 11"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "3. Swap-out 11"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "4. Staff vetting procedures 12"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "5. Due diligence 12"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "6. Warranties, representations and acceptance criteria 13"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "7. Business continuity and disaster recovery 13"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "8. Payment terms and VAT 13"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "9. Recovery of sums due and right of set-off 14"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "10. Insurance 14"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "11. Confidentiality 16"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "12. Conflict of Interest 17"
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": null,
+          "pageStart": null,
+          "sectionPath": [],
+          "text": "Digital Outcomes and Specialists 4 Framework Agreement\n\nCall-Off Contract\n\nThis Call-Off Contract for the Digital Outcomes and Specialists 4 Framework Agreement (RM1043.6) includes\n\nTable of Contents\n\nPart A - Order Form 4\n\nPrinciple contact details 6\n\nData Protection Officers 6\n\nPart B – Terms and conditions 10\n\n1. Call-Off Contract start date, length and methodology 10\n\n2. Supplier Staff 11\n\n3. Swap-out 11\n\n4. Staff vetting procedures 12\n\n5. Due diligence 12\n\n6. Warranties, representations and",
+          "tokenCount": 594
+        },
+        {
+          "chunkId": "79c5b3dfe2948f728ca1256e27524edd",
+          "contentHash": "e831d7146f9471390b4d6bc2c26d449205e97c26bf4dde8d7dd542e1ec01e16c",
+          "evidenceRefs": [
+            {
+              "sourceKind": "NATIVE",
+              "text": "Part A - Order Form"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "This Order Form is issued in accordance with the Digital Outcomes and Specialists Framework Agreement (RM1043.6)."
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": null,
+          "pageStart": null,
+          "sectionPath": [
+            "Part A - Order Form"
+          ],
+          "text": "Part A - Order Form\n\nThis Order Form is issued in accordance with the Digital Outcomes and Specialists Framework Agreement (RM1043.6).",
+          "tokenCount": 26
+        },
+        {
+          "chunkId": "39c392bc6bd89bafbe1a8d27ca60e280",
+          "contentHash": "14ccaee49c461cdc338db7974a19a77ed73a7942792e7ea5a347b184cfa0282d",
+          "evidenceRefs": [
+            {
+              "sourceKind": "NATIVE",
+              "text": "Principle contact details"
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": null,
+          "pageStart": null,
+          "sectionPath": [
+            "Part A - Order Form",
+            "Principle contact details"
+          ],
+          "text": "Principle contact details",
+          "tokenCount": 3
+        },
+        {
+          "chunkId": "6b4e7537c205ea5c1c68be8f6dd244fd",
+          "contentHash": "0fab90104a4659d695b9a24257838b04a7c53a16bc67cf935f08dd27f33f6fde",
+          "evidenceRefs": [
+            {
+              "sourceKind": "NATIVE",
+              "text": "Data Protection Officers"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "Call-Off Contract Charges: Enter information here"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "Note: Charging Method"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "(Winning providers pricing matrix)"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "(Winning providers discount price matrix - including trigger points)"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "Buyer to insert"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "SIGNED:"
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": null,
+          "pageStart": null,
+          "sectionPath": [
+            "Part A - Order Form",
+            "Data Protection Officers"
+          ],
+          "text": "Data Protection Officers\n\nCall-Off Contract Charges: Enter information here\n\nNote: Charging Method\n\n(Winning providers pricing matrix)\n\n(Winning providers discount price matrix - including trigger points)\n\nBuyer to insert\n\nSIGNED:",
+          "tokenCount": 38
+        },
+        {
+          "chunkId": "e5ea2d0732c969571de3b8ed9690480c",
+          "contentHash": "f82d6d1b8cb7b11cde2156bd15e87968dc54569f44dc9dabe20e000629cc5bd5",
+          "evidenceRefs": [
+            {
+              "sourceKind": "NATIVE",
+              "text": "Part B – Terms and conditions"
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": null,
+          "pageStart": null,
+          "sectionPath": [
+            "Part B – Terms and conditions"
+          ],
+          "text": "Part B – Terms and conditions",
+          "tokenCount": 6
+        },
+        {
+          "chunkId": "899742bc04fa8ab43bd0a730910672d6",
+          "contentHash": "45d64b3e2e69ceaf1969e485efb074fb1ad874420823c0dd6b5d1a543cff6de9",
+          "evidenceRefs": [
+            {
+              "sourceKind": "NATIVE",
+              "text": "1. Call-Off Contract start date, length and methodology"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "1.1 The Supplier will start providing the Services in accordance with the dates specified in any Statement of Work (SOW)."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "1.2 Completion dates for Deliverables will be set out in any SOW."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "1.3 Unless the Call-Off Contract period has been either increased in accordance with Clause 1.4 or decreased in accordance with Clause 1.5 then the term of the Call-Off Contract will end when the first of these occurs:"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "the Call-Off Contract period End Date listed in the Order Form is reached; or"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "the final Deliverable, specified in the final SOW, is completed."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "1.4 The Buyer can extend the term of the Call-Off Contract by amending the Call-Off Contract End Date where:"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "an Extension Period was specified in the Order Form; and"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "written notice was given to the Supplier before the expiry of the notice period set out in the Order Form. The notice must state that the Call-Off Contract term will be extended, and must specify the number of whole days of the extension."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "After this, the term of the Call-Off Contract will end on the last day of the Extension Period listed in the notice (the “Extension Period End Date”). 1.5 If the Call-Off Contract is terminated early, either during the initial Call-Off Contract period, or during any Extension Period, the term of the Call-Off Contract will end on the termination date."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "1.6 The Supplier will plan on using an agile process, starting with user needs. The methodology will be outlined in the SOW. Waterfall methodology will only be used in exceptional circumstances, and where it can be shown to best meet user needs. Projects may need a combination of both waterfall and agile methods, playing to their respective strengths."
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": null,
+          "pageStart": null,
+          "sectionPath": [
+            "Part B – Terms and conditions",
+            "1. Call-Off Contract start date, length and methodology"
+          ],
+          "text": "1. Call-Off Contract start date, length and methodology\n\n1.1 The Supplier will start providing the Services in accordance with the dates specified in any Statement of Work (SOW).\n\n1.2 Completion dates for Deliverables will be set out in any SOW.\n\n1.3 Unless the Call-Off Contract period has been either increased in accordance with Clause 1.4 or decreased in accordance with Clause 1.5 then the term of the Call-Off Contract will end when the first of these occurs:\n\nthe Call-Off Contract period End ",
+          "tokenCount": 361
+        },
+        {
+          "chunkId": "09ea396668386539064de10e1a05beb8",
+          "contentHash": "0b9cf265f5e466898ab777fb96fcb24ed43579b905f2ab0097c55815173957f6",
+          "evidenceRefs": [
+            {
+              "sourceKind": "NATIVE",
+              "text": "2. Supplier Staff"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "2.1 The Supplier Staff will:"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "fulfil all reasonable requests of the Buyer;"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "apply all due skill, care and diligence to the provisions of the Services;"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "be appropriately experienced, qualified and trained to supply the Services;"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "respond to any enquiries about the Services as soon as reasonably possible; and"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "complete any necessary vetting procedures specified by the Buyer."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "2.2 The Supplier will ensure that Key Staff are assigned to provide the Services for their Working Days (agreed between Supplier and Buyer) and are not removed from the Services during the dates specified in the relevant SOW."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "2.3 The Supplier will promptly replace any Key Staff that the Buyer considers unsatisfactory at no extra charge. The Supplier will promptly replace anyone who resigns with someone who is acceptable to the Buyer. If the Supplier cannot provide an acceptable replacement, the Buyer may terminate the Call-Off Contract subject to clause 23."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "2.4 Supplier Staff will comply with Buyer requirements for the conduct of staff when on Buyer’s premises."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "2.5 The Supplier will comply with the Buyer’s staff vetting procedures for all or part of the Supplier Staff."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "2.6 The Supplier will, on request (and subject to any obligations under the Data Protection Legislation), provide a copy of the contract of employment or engagement (between the Supplier and the Supplier Staff) for every member of Supplier Staff made available to the Buyer."
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": null,
+          "pageStart": null,
+          "sectionPath": [
+            "Part B – Terms and conditions",
+            "2. Supplier Staff"
+          ],
+          "text": "2. Supplier Staff\n\n2.1 The Supplier Staff will:\n\nfulfil all reasonable requests of the Buyer;\n\napply all due skill, care and diligence to the provisions of the Services;\n\nbe appropriately experienced, qualified and trained to supply the Services;\n\nrespond to any enquiries about the Services as soon as reasonably possible; and\n\ncomplete any necessary vetting procedures specified by the Buyer.\n\n2.2 The Supplier will ensure that Key Staff are assigned to provide the Services for their Working Days ",
+          "tokenCount": 274
+        },
+        {
+          "chunkId": "f7ff761f334c9f39e04c3f8d8f4155ee",
+          "contentHash": "c5a38593a1d3654b3b7c6ed684cc69a37c15aa44201f2328edb28a0b2f52935c",
+          "evidenceRefs": [
+            {
+              "sourceKind": "NATIVE",
+              "text": "3. Swap-out"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "3.1 Supplier Staff providing the Services may only be swapped out with the prior approval of the Buyer. For this approval, the Buyer will consider:"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "the provisions of Clause 2.1; and"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "their Statement of Requirements and the Supplier’s response."
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": null,
+          "pageStart": null,
+          "sectionPath": [
+            "Part B – Terms and conditions",
+            "3. Swap-out"
+          ],
+          "text": "3. Swap-out\n\n3.1 Supplier Staff providing the Services may only be swapped out with the prior approval of the Buyer. For this approval, the Buyer will consider:\n\nthe provisions of Clause 2.1; and\n\ntheir Statement of Requirements and the Supplier’s response.",
+          "tokenCount": 55
+        },
+        {
+          "chunkId": "8c0803460a66214a1ff4ce1b6cd1e286",
+          "contentHash": "95792a01a785304b4fd03fac015b14e31229e49637e4f1cc16360672e5890af1",
+          "evidenceRefs": [
+            {
+              "sourceKind": "NATIVE",
+              "text": "4. Staff vetting procedures"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "4.1 All Supplier Staff will need to be cleared to the level determined by the Buyer prior to the commencement of work."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "4.2 The Buyer may stipulate differing clearance levels for different roles during the Call-Off Contract period."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "4.3 The Supplier will ensure that it complies with any additional staff vetting procedures requested by the Buyer."
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": null,
+          "pageStart": null,
+          "sectionPath": [
+            "Part B – Terms and conditions",
+            "4. Staff vetting procedures"
+          ],
+          "text": "4. Staff vetting procedures\n\n4.1 All Supplier Staff will need to be cleared to the level determined by the Buyer prior to the commencement of work.\n\n4.2 The Buyer may stipulate differing clearance levels for different roles during the Call-Off Contract period.\n\n4.3 The Supplier will ensure that it complies with any additional staff vetting procedures requested by the Buyer.",
+          "tokenCount": 72
+        },
+        {
+          "chunkId": "0b31104b9401b5a2a148107ce6f895e1",
+          "contentHash": "845e02e17b936444ec4a196245bdb0cae1b6eeca475aa9717e9bd20844844adb",
+          "evidenceRefs": [
+            {
+              "sourceKind": "NATIVE",
+              "text": "5. Due diligence"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "5.1 Both Parties acknowledge that information will be needed to provide the Services throughout the term of the Call-Off Contract and not just during the Further Competition process. Both Parties agree to share such information freely."
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "5.2 Further to Clause 5.1, both Parties agree that when entering into a Call-Off Contract, they:"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "5.2.1 have made their own enquiries and are satisfied by the accuracy of any information supplied by the other Party"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "5.2.2 are confident that they can fulfil their obligations according to the terms of the Call-Off Contract"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "5.2.3 have raised all due diligence questions before signing the Call-Off Contract"
+            },
+            {
+              "sourceKind": "NATIVE",
+              "text": "5.2.4 have entered into the Call-Off Contract relying on its own due diligence"
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": null,
+          "pageStart": null,
+          "sectionPath": [
+            "Part B – Terms and conditions",
+            "5. Due diligence"
+          ],
+          "text": "5. Due diligence\n\n5.1 Both Parties acknowledge that information will be needed to provide the Services throughout the term of the Call-Off Contract and not just during the Further Competition process. Both Parties agree to share such information freely.\n\n5.2 Further to Clause 5.1, both Parties agree that when entering into a Call-Off Contract, they:\n\n5.2.1 have made their own enquiries and are satisfied by the accuracy of any information supplied by the other Party\n\n5.2.2 are confident that they",
+          "tokenCount": 155
+        }
+      ],
+      "classification": {
+        "alternatives": [],
+        "confidence": 0.99,
+        "confirmedBy": null,
+        "confirmedLabel": null,
+        "displayName": "CONTRACT",
+        "evidence": [
+          {
+            "page": 1,
+            "source": "filename_and_text",
+            "text": "dos-4-call-off-contract.odt"
+          }
+        ],
+        "label": "CONTRACT",
+        "provenance": {
+          "classifier": "classifier://label-candidates@1",
+          "mediaType": "application/vnd.oasis.opendocument.text"
+        }
+      },
+      "contentArtifactRef": "blob://019fa706-5b1d-780e-b408-6cb33f022ece",
+      "documentId": "019fa704-bad2-7976-b181-99a51e806689",
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fields": [
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": true,
+          "displayName": "文档标题",
+          "effectiveValue": "Digital Outcomes and Specialists 4 Framework Agreement\nCall-Off Contract",
+          "evidenceRefs": [
+            {
+              "page": 1,
+              "pattern": "(?im)^(Digital Outcomes and Specialists 4 Framework Agreement(?:\\s+Call-Off Contract(?:\\s+v\\d+)?)?)$",
+              "text": "Digital Outcomes and Specialists 4 Framework Agreement\nCall-Off Contract"
+            }
+          ],
+          "fieldPath": "document.title",
+          "machineValue": "Digital Outcomes and Specialists 4 Framework Agreement\nCall-Off Contract",
+          "qualityFlags": [],
+          "reviewStatus": "AUTO_ACCEPTED",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": true,
+          "displayName": "合同/框架编号",
+          "effectiveValue": "RM1043.6",
+          "evidenceRefs": [
+            {
+              "page": 1,
+              "pattern": "\\b(RM\\d+(?:\\.\\d+)*)\\b",
+              "text": "RM1043.6"
+            }
+          ],
+          "fieldPath": "contract.reference",
+          "machineValue": "RM1043.6",
+          "qualityFlags": [],
+          "reviewStatus": "AUTO_ACCEPTED",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": true,
+          "displayName": "买方",
+          "effectiveValue": "and Supplier details",
+          "evidenceRefs": [
+            {
+              "page": 1,
+              "pattern": "(?im)^(?:Buyer|买方)(?:['\\u2019]s)?\\s*(?:name)?\\s*[:\\N{FULLWIDTH COLON}]?\\s*(.+)$",
+              "text": "Buyer and Supplier details"
+            }
+          ],
+          "fieldPath": "contract.buyer",
+          "machineValue": "and Supplier details",
+          "qualityFlags": [],
+          "reviewStatus": "AUTO_ACCEPTED",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.0,
+          "confirmedValue": null,
+          "critical": true,
+          "displayName": "供应商",
+          "effectiveValue": null,
+          "evidenceRefs": [],
+          "fieldPath": "contract.supplier",
+          "machineValue": null,
+          "qualityFlags": [],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.0,
+          "confirmedValue": null,
+          "critical": true,
+          "displayName": "合同金额",
+          "effectiveValue": null,
+          "evidenceRefs": [],
+          "fieldPath": "contract.value",
+          "machineValue": null,
+          "qualityFlags": [],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "Part A",
+          "effectiveValue": "Part A - Order Form",
+          "evidenceRefs": [
+            {
+              "page": 1,
+              "pattern": "(?im)^(Part A\\s*[-\\u2013]\\s*Order Form)$",
+              "text": "Part A - Order Form"
+            }
+          ],
+          "fieldPath": "contract.partA",
+          "machineValue": "Part A - Order Form",
+          "qualityFlags": [],
+          "reviewStatus": "AUTO_ACCEPTED",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "Part B",
+          "effectiveValue": "Part B – Terms and conditions",
+          "evidenceRefs": [
+            {
+              "page": 1,
+              "pattern": "(?im)^(Part B\\s*[-\\u2013]\\s*Terms and conditions)$",
+              "text": "Part B – Terms and conditions"
+            }
+          ],
+          "fieldPath": "contract.partB",
+          "machineValue": "Part B – Terms and conditions",
+          "qualityFlags": [],
+          "reviewStatus": "AUTO_ACCEPTED",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.0,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "Part C",
+          "effectiveValue": null,
+          "evidenceRefs": [],
+          "fieldPath": "contract.partC",
+          "machineValue": null,
+          "qualityFlags": [],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        }
+      ],
+      "filename": "dos-4-call-off-contract.odt",
+      "mediaType": "application/vnd.oasis.opendocument.text",
+      "organization": {},
+      "provenance": {
+        "agentRef": "agent://document/structurer@1",
+        "attempt": 1,
+        "chunkerRef": "chunker://structure-aware@1",
+        "classifierRef": "classifier://label-candidates@1",
+        "detectedMediaType": "application/vnd.oasis.opendocument.text",
+        "extractorRefs": [
+          "extractor://schema-rules@2"
+        ],
+        "parserRef": "parser://odf-native@1",
+        "processingPlan": {
+          "largeDocument": false,
+          "pageBatchSize": 10,
+          "pageBatches": [
+            [
+              1
+            ]
+          ]
+        },
+        "processingRunId": "019fa704-bd5f-712c-82d4-f3245271f29e",
+        "profileRef": "document-profile://business-structuring@1",
+        "qualityRef": "quality://document-structure-gates@1"
+      },
+      "qualityFlags": [
+        "EXTRACTION_REVIEW_REQUIRED"
+      ],
+      "sections": [
+        {
+          "level": 1,
+          "paragraphEnd": 87,
+          "paragraphStart": 86,
+          "path": [
+            "Part A - Order Form"
+          ],
+          "sectionId": "section-1",
+          "title": "Part A - Order Form"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 88,
+          "paragraphStart": 88,
+          "path": [
+            "Part A - Order Form",
+            "Principle contact details"
+          ],
+          "sectionId": "section-2",
+          "title": "Principle contact details"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 95,
+          "paragraphStart": 89,
+          "path": [
+            "Part A - Order Form",
+            "Data Protection Officers"
+          ],
+          "sectionId": "section-3",
+          "title": "Data Protection Officers"
+        },
+        {
+          "level": 1,
+          "paragraphEnd": 96,
+          "paragraphStart": 96,
+          "path": [
+            "Part B – Terms and conditions"
+          ],
+          "sectionId": "section-4",
+          "title": "Part B – Terms and conditions"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 107,
+          "paragraphStart": 97,
+          "path": [
+            "Part B – Terms and conditions",
+            "1. Call-Off Contract start date, length and methodology"
+          ],
+          "sectionId": "section-5",
+          "title": "1. Call-Off Contract start date, length and methodology"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 119,
+          "paragraphStart": 108,
+          "path": [
+            "Part B – Terms and conditions",
+            "2. Supplier Staff"
+          ],
+          "sectionId": "section-6",
+          "title": "2. Supplier Staff"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 123,
+          "paragraphStart": 120,
+          "path": [
+            "Part B – Terms and conditions",
+            "3. Swap-out"
+          ],
+          "sectionId": "section-7",
+          "title": "3. Swap-out"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 127,
+          "paragraphStart": 124,
+          "path": [
+            "Part B – Terms and conditions",
+            "4. Staff vetting procedures"
+          ],
+          "sectionId": "section-8",
+          "title": "4. Staff vetting procedures"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 134,
+          "paragraphStart": 128,
+          "path": [
+            "Part B – Terms and conditions",
+            "5. Due diligence"
+          ],
+          "sectionId": "section-9",
+          "title": "5. Due diligence"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 140,
+          "paragraphStart": 135,
+          "path": [
+            "Part B – Terms and conditions",
+            "6. Warranties, representations and acceptance criteria"
+          ],
+          "sectionId": "section-10",
+          "title": "6. Warranties, representations and acceptance criteria"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 142,
+          "paragraphStart": 141,
+          "path": [
+            "Part B – Terms and conditions",
+            "7. Business continuity and disaster recovery"
+          ],
+          "sectionId": "section-11",
+          "title": "7. Business continuity and disaster recovery"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 149,
+          "paragraphStart": 143,
+          "path": [
+            "Part B – Terms and conditions",
+            "8. Payment terms and VAT"
+          ],
+          "sectionId": "section-12",
+          "title": "8. Payment terms and VAT"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 151,
+          "paragraphStart": 150,
+          "path": [
+            "Part B – Terms and conditions",
+            "9. Recovery of sums due and right of set-off"
+          ],
+          "sectionId": "section-13",
+          "title": "9. Recovery of sums due and right of set-off"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 181,
+          "paragraphStart": 152,
+          "path": [
+            "Part B – Terms and conditions",
+            "10. Insurance"
+          ],
+          "sectionId": "section-14",
+          "title": "10. Insurance"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 200,
+          "paragraphStart": 182,
+          "path": [
+            "Part B – Terms and conditions",
+            "11. Confidentiality"
+          ],
+          "sectionId": "section-15",
+          "title": "11. Confidentiality"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 209,
+          "paragraphStart": 201,
+          "path": [
+            "Part B – Terms and conditions",
+            "12. Conflict of Interest"
+          ],
+          "sectionId": "section-16",
+          "title": "12. Conflict of Interest"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 270,
+          "paragraphStart": 210,
+          "path": [
+            "Part B – Terms and conditions",
+            "13. Intellectual Property Rights"
+          ],
+          "sectionId": "section-17",
+          "title": "13. Intellectual Property Rights"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 292,
+          "paragraphStart": 271,
+          "path": [
+            "Part B – Terms and conditions",
+            "14. Data Protection and Disclosure"
+          ],
+          "sectionId": "section-18",
+          "title": "14. Data Protection and Disclosure"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 306,
+          "paragraphStart": 293,
+          "path": [
+            "Part B – Terms and conditions",
+            "15. Buyer Data"
+          ],
+          "sectionId": "section-19",
+          "title": "15. Buyer Data"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 309,
+          "paragraphStart": 307,
+          "path": [
+            "Part B – Terms and conditions",
+            "16. Document and source code management repository"
+          ],
+          "sectionId": "section-20",
+          "title": "16. Document and source code management repository"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 311,
+          "paragraphStart": 310,
+          "path": [
+            "Part B – Terms and conditions",
+            "17. Records and audit access"
+          ],
+          "sectionId": "section-21",
+          "title": "17. Records and audit access"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 315,
+          "paragraphStart": 312,
+          "path": [
+            "Part B – Terms and conditions",
+            "18. Freedom of Information (FOI) requests"
+          ],
+          "sectionId": "section-22",
+          "title": "18. Freedom of Information (FOI) requests"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 317,
+          "paragraphStart": 316,
+          "path": [
+            "Part B – Terms and conditions",
+            "19. Standards and quality"
+          ],
+          "sectionId": "section-23",
+          "title": "19. Standards and quality"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 324,
+          "paragraphStart": 318,
+          "path": [
+            "Part B – Terms and conditions",
+            "20. Security"
+          ],
+          "sectionId": "section-24",
+          "title": "20. Security"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 326,
+          "paragraphStart": 325,
+          "path": [
+            "Part B – Terms and conditions",
+            "21. Incorporation of terms"
+          ],
+          "sectionId": "section-25",
+          "title": "21. Incorporation of terms"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 352,
+          "paragraphStart": 327,
+          "path": [
+            "Part B – Terms and conditions",
+            "22. Managing disputes"
+          ],
+          "sectionId": "section-26",
+          "title": "22. Managing disputes"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 368,
+          "paragraphStart": 353,
+          "path": [
+            "Part B – Terms and conditions",
+            "23. Termination"
+          ],
+          "sectionId": "section-27",
+          "title": "23. Termination"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 402,
+          "paragraphStart": 369,
+          "path": [
+            "Part B – Terms and conditions",
+            "24. Consequences of termination"
+          ],
+          "sectionId": "section-28",
+          "title": "24. Consequences of termination"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 404,
+          "paragraphStart": 403,
+          "path": [
+            "Part B – Terms and conditions",
+            "25. Supplier’s status"
+          ],
+          "sectionId": "section-29",
+          "title": "25. Supplier’s status"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 408,
+          "paragraphStart": 405,
+          "path": [
+            "Part B – Terms and conditions",
+            "26. Notices"
+          ],
+          "sectionId": "section-30",
+          "title": "26. Notices"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 412,
+          "paragraphStart": 409,
+          "path": [
+            "Part B – Terms and conditions",
+            "27. Exit plan"
+          ],
+          "sectionId": "section-31",
+          "title": "27. Exit plan"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 415,
+          "paragraphStart": 413,
+          "path": [
+            "Part B – Terms and conditions",
+            "29. Help at retendering and handover to replacement supplier"
+          ],
+          "sectionId": "section-32",
+          "title": "29. Help at retendering and handover to replacement supplier"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 418,
+          "paragraphStart": 416,
+          "path": [
+            "Part B – Terms and conditions",
+            "30. Changes to services"
+          ],
+          "sectionId": "section-33",
+          "title": "30. Changes to services"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 422,
+          "paragraphStart": 419,
+          "path": [
+            "Part B – Terms and conditions",
+            "31. Contract changes"
+          ],
+          "sectionId": "section-34",
+          "title": "31. Contract changes"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 424,
+          "paragraphStart": 423,
+          "path": [
+            "Part B – Terms and conditions",
+            "32. Force Majeure"
+          ],
+          "sectionId": "section-35",
+          "title": "32. Force Majeure"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 428,
+          "paragraphStart": 425,
+          "path": [
+            "Part B – Terms and conditions",
+            "33. Entire agreement"
+          ],
+          "sectionId": "section-36",
+          "title": "33. Entire agreement"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 451,
+          "paragraphStart": 429,
+          "path": [
+            "Part B – Terms and conditions",
+            "34. Liability"
+          ],
+          "sectionId": "section-37",
+          "title": "34. Liability"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 454,
+          "paragraphStart": 452,
+          "path": [
+            "Part B – Terms and conditions",
+            "35. Waiver and cumulative remedies"
+          ],
+          "sectionId": "section-38",
+          "title": "35. Waiver and cumulative remedies"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 461,
+          "paragraphStart": 455,
+          "path": [
+            "Part B – Terms and conditions",
+            "36. Fraud"
+          ],
+          "sectionId": "section-39",
+          "title": "36. Fraud"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 466,
+          "paragraphStart": 462,
+          "path": [
+            "Part B – Terms and conditions",
+            "37. Prevention of bribery and corruption"
+          ],
+          "sectionId": "section-40",
+          "title": "37. Prevention of bribery and corruption"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 468,
+          "paragraphStart": 467,
+          "path": [
+            "Part B – Terms and conditions",
+            "38. Legislative change"
+          ],
+          "sectionId": "section-41",
+          "title": "38. Legislative change"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 470,
+          "paragraphStart": 469,
+          "path": [
+            "Part B – Terms and conditions",
+            "39. Publicity, branding, media and official enquiries"
+          ],
+          "sectionId": "section-42",
+          "title": "39. Publicity, branding, media and official enquiries"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 472,
+          "paragraphStart": 471,
+          "path": [
+            "Part B – Terms and conditions",
+            "40. Non Discrimination"
+          ],
+          "sectionId": "section-43",
+          "title": "40. Non Discrimination"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 485,
+          "paragraphStart": 473,
+          "path": [
+            "Part B – Terms and conditions",
+            "41. Premises"
+          ],
+          "sectionId": "section-44",
+          "title": "41. Premises"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 488,
+          "paragraphStart": 486,
+          "path": [
+            "Part B – Terms and conditions",
+            "42. Equipment"
+          ],
+          "sectionId": "section-45",
+          "title": "42. Equipment"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 490,
+          "paragraphStart": 489,
+          "path": [
+            "Part B – Terms and conditions",
+            "43. Law and jurisdiction"
+          ],
+          "sectionId": "section-46",
+          "title": "43. Law and jurisdiction"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 491,
+          "paragraphStart": 491,
+          "path": [
+            "Part B – Terms and conditions",
+            "44. Defined Terms"
+          ],
+          "sectionId": "section-47",
+          "title": "44. Defined Terms"
+        },
+        {
+          "level": 1,
+          "paragraphEnd": 492,
+          "paragraphStart": 492,
+          "path": [
+            "Part C - The Schedules"
+          ],
+          "sectionId": "section-48",
+          "title": "Part C - The Schedules"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 494,
+          "paragraphStart": 493,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 1 - Requirements"
+          ],
+          "sectionId": "section-49",
+          "title": "Schedule 1 - Requirements"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 496,
+          "paragraphStart": 495,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 2 - Supplier’s response"
+          ],
+          "sectionId": "section-50",
+          "title": "Schedule 2 - Supplier’s response"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 497,
+          "paragraphStart": 497,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 3 - Statement of Work (SOW), including pricing arrangements and Key Staff"
+          ],
+          "sectionId": "section-51",
+          "title": "Schedule 3 - Statement of Work (SOW), including pricing arrangements and Key Staff"
+        },
+        {
+          "level": 3,
+          "paragraphEnd": 500,
+          "paragraphStart": 498,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 3 - Statement of Work (SOW), including pricing arrangements and Key Staff",
+            "Sch 3.1 SOW Details"
+          ],
+          "sectionId": "section-52",
+          "title": "Sch 3.1 SOW Details"
+        },
+        {
+          "level": 3,
+          "paragraphEnd": 503,
+          "paragraphStart": 501,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 3 - Statement of Work (SOW), including pricing arrangements and Key Staff",
+            "Sch 3.2 Key Staff"
+          ],
+          "sectionId": "section-53",
+          "title": "Sch 3.2 Key Staff"
+        },
+        {
+          "level": 3,
+          "paragraphEnd": 505,
+          "paragraphStart": 504,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 3 - Statement of Work (SOW), including pricing arrangements and Key Staff",
+            "Sch 3.3 Deliverables"
+          ],
+          "sectionId": "section-54",
+          "title": "Sch 3.3 Deliverables"
+        },
+        {
+          "level": 3,
+          "paragraphEnd": 532,
+          "paragraphStart": 506,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 3 - Statement of Work (SOW), including pricing arrangements and Key Staff",
+            "Sch 3.4 Call-Off Contract Charges"
+          ],
+          "sectionId": "section-55",
+          "title": "Sch 3.4 Call-Off Contract Charges"
+        },
+        {
+          "level": 3,
+          "paragraphEnd": 534,
+          "paragraphStart": 533,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 3 - Statement of Work (SOW), including pricing arrangements and Key Staff",
+            "Sch 3.5. Call-Off Contract Extension Period"
+          ],
+          "sectionId": "section-56",
+          "title": "Sch 3.5. Call-Off Contract Extension Period"
+        },
+        {
+          "level": 3,
+          "paragraphEnd": 535,
+          "paragraphStart": 535,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 3 - Statement of Work (SOW), including pricing arrangements and Key Staff",
+            "Sch 3.6. Agreement of statement of works"
+          ],
+          "sectionId": "section-57",
+          "title": "Sch 3.6. Agreement of statement of works"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 547,
+          "paragraphStart": 536,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 4 - Contract Change Notice (CCN)"
+          ],
+          "sectionId": "section-58",
+          "title": "Schedule 4 - Contract Change Notice (CCN)"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 549,
+          "paragraphStart": 548,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 5 - Balanced Scorecard"
+          ],
+          "sectionId": "section-59",
+          "title": "Schedule 5 - Balanced Scorecard"
+        },
+        {
+          "level": 3,
+          "paragraphEnd": 627,
+          "paragraphStart": 550,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 5 - Balanced Scorecard",
+            "Balanced scorecard example with 4 KPIs"
+          ],
+          "sectionId": "section-60",
+          "title": "Balanced scorecard example with 4 KPIs"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 628,
+          "paragraphStart": 628,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 6 - Optional Buyer terms and conditions"
+          ],
+          "sectionId": "section-61",
+          "title": "Schedule 6 - Optional Buyer terms and conditions"
+        },
+        {
+          "level": 3,
+          "paragraphEnd": 630,
+          "paragraphStart": 629,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 6 - Optional Buyer terms and conditions",
+            "Sch 6.1 Buyer’s agent"
+          ],
+          "sectionId": "section-62",
+          "title": "Sch 6.1 Buyer’s agent"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 632,
+          "paragraphStart": 631,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 7 - How Services are bought (Further Competition process)"
+          ],
+          "sectionId": "section-63",
+          "title": "Schedule 7 - How Services are bought (Further Competition process)"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 746,
+          "paragraphStart": 633,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 8 - Deed of guarantee"
+          ],
+          "sectionId": "section-64",
+          "title": "Schedule 8 - Deed of guarantee"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 761,
+          "paragraphStart": 747,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 9 - Processing, Personal Data and Data Subjects"
+          ],
+          "sectionId": "section-65",
+          "title": "Schedule 9 - Processing, Personal Data and Data Subjects"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 791,
+          "paragraphStart": 762,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 10 – Alternative Clauses"
+          ],
+          "sectionId": "section-66",
+          "title": "Schedule 10 – Alternative Clauses"
+        },
+        {
+          "level": 2,
+          "paragraphEnd": 801,
+          "paragraphStart": 792,
+          "path": [
+            "Part C - The Schedules",
+            "Schedule 11: Joint Controller Agreement"
+          ],
+          "sectionId": "section-67",
+          "title": "Schedule 11: Joint Controller Agreement"
+        }
+      ],
+      "sha256": "022e406c0d3f5ed3dc7968dcf8bb0e98b5665b0aaff8e7772a15b56688ad024d",
+      "tables": [
+        {
+          "columnCount": 2,
+          "columns": [
+            "Buyer",
+            ""
+          ],
+          "evidenceRefs": [
+            {
+              "sourcePath": "content.xml",
+              "tableName": "Table1"
+            }
+          ],
+          "name": "Table1",
+          "pageEnd": null,
+          "pageStart": null,
+          "rowCount": 20,
+          "rows": [
+            [
+              "Buyer",
+              ""
+            ],
+            [
+              "Supplier",
+              ""
+            ],
+            [
+              "Call-Off Contract Ref.",
+              ""
+            ],
+            [
+              "Call-Off Contract title",
+              ""
+            ],
+            [
+              "Call-Off Contract description",
+              ""
+            ],
+            [
+              "Call-Off Contract period",
+              ""
+            ],
+            [
+              "Start date",
+              "E nter the contract start date and is valid for E nter the initial contract period in months."
+            ],
+            [
+              "End date",
+              "Enter the day which is the last date of the initial Call-Off Contract Period."
+            ],
+            [
+              "(Optional) Maximum Call-Off Contract Extension Period",
+              "Enter the maximum number of days that the Call-Off Contract period can be extended by (not to exceed 25% of the initial Call-Off Contract period)."
+            ],
+            [
+              "Latest Extension Period End Date",
+              "Enter the day which is the last date of the maximum Extension Period."
+            ],
+            [
+              "Notice period (prior to the initial Call-Off Contract period) to trigger Call-Off Contract Extension",
+              "Set out the notice period before the end of the initial Call-Off Contract Period before which you will trigger a Call-Off Contract Extension if required."
+            ],
+            [
+              "Call-Off Contract value",
+              ""
+            ],
+            [
+              "Charging method",
+              "Capped time and materials (CTM) Price per story Time and materials (T&M) Fixed price Other pricing method or a combination of pricing methods agreed by the Parties"
+            ],
+            [
+              "Capped time and materials (CTM)",
+              ""
+            ],
+            [
+              "Price per story",
+              ""
+            ],
+            [
+              "Time and materials (T&M)",
+              ""
+            ],
+            [
+              "Fixed price",
+              ""
+            ],
+            [
+              "Other pricing method or a combination of pricing methods agreed by the Parties",
+              ""
+            ],
+            [
+              "Notice period for termination for convenience",
+              ""
+            ],
+            [
+              "Initial SOW package",
+              ""
+            ]
+          ],
+          "sourceKind": "NATIVE",
+          "tableId": "table-1"
+        },
+        {
+          "columnCount": 2,
+          "columns": [
+            "Capped time and materials (CTM)",
+            ""
+          ],
+          "evidenceRefs": [
+            {
+              "sourcePath": "content.xml",
+              "tableName": "Table2"
+            }
+          ],
+          "name": "Table2",
+          "pageEnd": null,
+          "pageStart": null,
+          "rowCount": 5,
+          "rows": [
+            [
+              "Capped time and materials (CTM)",
+              ""
+            ],
+            [
+              "Price per story",
+              ""
+            ],
+            [
+              "Time and materials (T&M)",
+              ""
+            ],
+            [
+              "Fixed price",
+              ""
+            ],
+            [
+              "Other pricing method or a combination of pricing methods agreed by the Parties",
+              ""
+            ]
+          ],
+          "sourceKind": "NATIVE",
+          "tableId": "table-2"
+        },
+        {
+          "columnCount": 2,
+          "columns": [
+            "Project reference:",
+            "DOS-xxx"
+          ],
+          "evidenceRefs": [
+            {
+              "sourcePath": "content.xml",
+              "tableName": "Table3"
+            }
+          ],
+          "name": "Table3",
+          "pageEnd": null,
+          "pageStart": null,
+          "rowCount": 7,
+          "rows": [
+            [
+              "Project reference:",
+              "DOS-xxx"
+            ],
+            [
+              "Buyer reference:",
+              "Enter text."
+            ],
+            [
+              "Order date:",
+              "Enter date."
+            ],
+            [
+              "Purchase order:",
+              "Enter PO number."
+            ],
+            [
+              "From:",
+              "the Buyer Buyer’s name. Buyer’s address."
+            ],
+            [
+              "To:",
+              "the Supplier Supplier’s name. Supplier phone. Supplier’s address: [street address] [locality] [region] [post code] [country name]"
+            ],
+            [
+              "Together:",
+              "Company number the “Parties”"
+            ]
+          ],
+          "sourceKind": "NATIVE",
+          "tableId": "table-3"
+        },
+        {
+          "columnCount": 3,
+          "columns": [
+            "For the Buyer:",
+            "Name:",
+            "Enter name."
+          ],
+          "evidenceRefs": [
+            {
+              "sourcePath": "content.xml",
+              "tableName": "Table4"
+            }
+          ],
+          "name": "Table4",
+          "pageEnd": null,
+          "pageStart": null,
+          "rowCount": 8,
+          "rows": [
+            [
+              "For the Buyer:",
+              "Name:",
+              "Enter name."
+            ],
+            [
+              "",
+              "Title:",
+              "Enter title."
+            ],
+            [
+              "",
+              "Email:",
+              "Enter email address."
+            ],
+            [
+              "",
+              "Phone:",
+              "Enter phone number."
+            ],
+            [
+              "For the supplier",
+              "Name:",
+              "Enter name."
+            ],
+            [
+              "",
+              "Title:",
+              "Enter title."
+            ],
+            [
+              "",
+              "Email:",
+              "Enter email address."
+            ],
+            [
+              "",
+              "Phone:",
+              "Enter phone number."
+            ]
+          ],
+          "sourceKind": "NATIVE",
+          "tableId": "table-4"
+        },
+        {
+          "columnCount": 3,
+          "columns": [
+            "For the Buyer:",
+            "Name:",
+            "Enter name."
+          ],
+          "evidenceRefs": [
+            {
+              "sourcePath": "content.xml",
+              "tableName": "Table5"
+            }
+          ],
+          "name": "Table5",
+          "pageEnd": null,
+          "pageStart": null,
+          "rowCount": 8,
+          "rows": [
+            [
+              "For the Buyer:",
+              "Name:",
+              "Enter name."
+            ],
+            [
+              "",
+              "Title:",
+              "Enter title."
+            ],
+            [
+              "",
+              "Email:",
+              "Enter email address."
+            ],
+            [
+              "",
+              "Phone:",
+              "Enter phone number."
+            ],
+            [
+              "For the supplier:",
+              "Name:",
+              "Enter name."
+            ],
+            [
+              "",
+              "Title:",
+              "Enter title."
+            ],
+            [
+              "",
+              "Email:",
+              "Enter email address."
+            ],
+            [
+              "",
+              "Phone:",
+              "Enter phone number."
+            ]
+          ],
+          "sourceKind": "NATIVE",
+          "tableId": "table-5"
+        },
+        {
+          "columnCount": 2,
+          "columns": [
+            "Buyer contractual requirements",
+            ""
+          ],
+          "evidenceRefs": [
+            {
+              "sourcePath": "content.xml",
+              "tableName": "Table6"
+            }
+          ],
+          "name": "Table6",
+          "pageEnd": null,
+          "pageStart": null,
+          "rowCount": 18,
+          "rows": [
+            [
+              "Buyer contractual requirements",
+              ""
+            ],
+            [
+              "Digital outcomes and specialists services required:",
+              "For the provision of [ Enter requirement ] ."
+            ],
+            [
+              "Warranty period",
+              "[Enter days] days from the date of Buyer acceptance of release."
+            ],
+            [
+              "Location:",
+              "Enter any required delivery location"
+            ],
+            [
+              "Staff vetting procedures:",
+              "The level of clearance for this requirement is: Enter any additional requirements"
+            ],
+            [
+              "Standards:",
+              "Enter any additional requirements"
+            ],
+            [
+              "Limit on supplier’s liability:",
+              "Enter any additional requirements"
+            ],
+            [
+              "Insurance:",
+              "Enter any additional requirements"
+            ],
+            [
+              "Supplier’s information",
+              ""
+            ],
+            [
+              "Commercially sensitive information:",
+              "Enter any additional requirements Note: Completed by the winning Supplier, as agreed by the Buyer."
+            ],
+            [
+              "Subcontractors / Partners:",
+              "Enter any additional requirements Note: Completed by the winning Supplier, as agreed by the Buyer"
+            ],
+            [
+              "Call-Off Contract Charges and payment",
+              ""
+            ],
+            [
+              "The method of payment for the Call-Off Contract Charges (GPC or BACS)",
+              "Enter information here"
+            ],
+            [
+              "Invoice (including Electronic Invoice) details",
+              "Enter information here"
+            ],
+            [
+              "Who and where to send invoices to:",
+              "Enter information here"
+            ],
+            [
+              "Invoice information required – eg PO, project ref, etc.",
+              "Enter information here"
+            ],
+            [
+              "Invoice frequency",
+              "Enter information here"
+            ],
+            [
+              "Call-Off Contract value:",
+              "Enter information here Note: Buyer to enter estimated contract value."
+            ]
+          ],
+          "sourceKind": "NATIVE",
+          "tableId": "table-6"
+        },
+        {
+          "columnCount": 2,
+          "columns": [
+            "Additional Buyer terms",
+            ""
+          ],
+          "evidenceRefs": [
+            {
+              "sourcePath": "content.xml",
+              "tableName": "Table8"
+            }
+          ],
+          "name": "Table8",
+          "pageEnd": null,
+          "pageStart": null,
+          "rowCount": 5,
+          "rows": [
+            [
+              "Additional Buyer terms",
+              ""
+            ],
+            [
+              "Warranties, representations and acceptance criteria",
+              "The Supplier warrants and undertakes to the Buyer that: Enter any additional warranties and undertakings."
+            ],
+            [
+              "Supplemental requirements in addition to the call-off terms",
+              "Enter text."
+            ],
+            [
+              "Buyer specific amendments to/refinements of the Call-Off Contract terms",
+              "Enter notes."
+            ],
+            [
+              "Specific terms:",
+              "Enter text"
+            ]
+          ],
+          "sourceKind": "NATIVE",
+          "tableId": "table-7"
+        },
+        {
+          "columnCount": 1,
+          "columns": [
+            "Formation of Contract"
+          ],
+          "evidenceRefs": [
+            {
+              "sourcePath": "content.xml",
+              "tableName": "Table7"
+            }
+          ],
+          "name": "Table7",
+          "pageEnd": null,
+          "pageStart": null,
+          "rowCount": 4,
+          "rows": [
+            [
+              "Formation of Contract"
+            ],
+            [
+              "By signing and returning this Order Form (Part A), the Supplier agrees to enter into a Call-Off Contract with the Buyer."
+            ],
+            [
+              "The Parties agree that they have read the Order Form (Part A), the Call-Off Contract terms and conditions (Part B), and the Schedules (Part C), and by signing below agree to be bound by this Call-Off Contract."
+            ],
+            [
+              "In accordance with the Further Competition procedure set out in Section 3 of the Framework Agreement, this Call-Off Contract will be formed when the Buyer acknowledges the receipt of the signed copy of the Order Form from the Supplier (the “call-off effective date”). The Call-Off Contract outlines the Deliverables of the agreement. The Order Form outlines any amendment of the terms and conditions set out in Part B. The terms and conditions of the Call-Off Contract Order Form will supersede those of the Call-Off Contract standard terms and conditions. Background to the agreement (A) The Supplier is a provider of digital outcomes and specialists services and undertook to provide such Services under the terms set out in Framework Agreement number RM1043.6 (the “Framework Agreement”). (B) The Buyer served an Order Form for Services to the Supplier on the Order Date stated in the Order Form. (C) The Parties intend that this Call-Off Contract will not itself oblige the Buyer to buy or the Supplier to supply the Services. Specific instructions and requirements will have contractual effect on the execution of an SOW."
+            ]
+          ],
+          "sourceKind": "NATIVE",
+          "tableId": "table-8"
+        },
+        {
+          "columnCount": 3,
+          "columns": [
+            "",
+            "Supplier :",
+            "Buyer :"
+          ],
+          "evidenceRefs": [
+            {
+              "sourcePath": "content.xml",
+              "tableName": "Table10"
+            }
+          ],
+          "name": "Table10",
+          "pageEnd": null,
+          "pageStart": null,
+          "rowCount": 5,
+          "rows": [
+            [
+              "",
+              "Supplier :",
+              "Buyer :"
+            ],
+            [
+              "Name:",
+              "Enter text.",
+              "Enter text"
+            ],
+            [
+              "Title:",
+              "Enter text.",
+              "Enter text"
+            ],
+            [
+              "Signature:",
+              "",
+              ""
+            ],
+            [
+              "Date:",
+              "Enter a date.",
+              "Enter a date."
+            ]
+          ],
+          "sourceKind": "NATIVE",
+          "tableId": "table-9"
+        },
+        {
+          "columnCount": 3,
+          "columns": [
+            "Delivery type",
+            "Deemed delivery time",
+            "Proof of Service"
+          ],
+          "evidenceRefs": [
+            {
+              "sourcePath": "content.xml",
+              "tableName": "Table11"
+            }
+          ],
+          "name": "Table11",
+          "pageEnd": null,
+          "pageStart": null,
+          "rowCount": 2,
+          "rows": [
+            [
+              "Delivery type",
+              "Deemed delivery time",
+              "Proof of Service"
+            ],
+            [
+              "Email",
+              "9am on the first Working Day after sending",
+              "Dispatched in a pdf form to the correct email address without any error message"
+            ]
+          ],
+          "sourceKind": "NATIVE",
+          "tableId": "table-10"
+        }
+      ]
+    }
+  ],
+  "effectId": "33311886-e139-4f0d-b195-8eed479eb46a",
+  "humanReview": {
+    "correctionCount": 0,
+    "decision": "CONFIRM",
+    "reason": "已核对真实 ODF 原文、字段证据、表格、模型降级标记与质量标记，确认进入结构化发布。"
+  },
+  "provenance": {
+    "agentRef": "agent://document/structurer@1",
+    "agentSchemaVersion": "schema://document-structuring/agent-result@1",
+    "effectId": "be97b448-6493-47d0-b022-53cb46dcff39",
+    "evaluationId": "019fa711-c26c-77f2-ab1d-bb38b953d60c",
+    "preparedContentHash": "3ed6c1d12227c850b8f18ada0013599407380e93c71259c04a4868b6a7b924b2",
+    "publishedInputHash": "09ea9e1818e3b5d27ec98eef751b76a97e3ad552baab2d5a3ec237cb9b16c580",
+    "runId": "019fa711-c272-75e1-8a18-783c5ce315a7",
+    "toolRefs": [
+      "tool://document/read-versions@1",
+      "tool://document/structure-prepare@1",
+      "tool://document/quality-check@1",
+      "tool://document/publish@1"
+    ]
+  },
+  "qualityFlags": [
+    "AGENT_DOCUMENT_RESULT_MISSING",
+    "AGENT_OUTPUT_SCHEMA_INVALID"
+  ],
+  "reviewRequired": false,
+  "schemaVersion": "schema://document-structuring/package@1",
+  "status": "READY",
+  "summary": "模型输出不符合结构契约，已保留确定性解析结果并转人工复核。"
+}

@@ -1,0 +1,1600 @@
+packages\adapter-agno\src\swarmcore_adapter_agno\adapter.py:1:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 | / from __future__ import annotations
+ 2 | |
+ 3 | | import json
+ 4 | | import logging
+ 5 | | from collections.abc import Mapping
+ 6 | | from typing import Any, Protocol, cast
+ 7 | |
+ 8 | | from agno.agent import Agent
+ 9 | | from agno.models.base import Model
+10 | | from agno.run.agent import RunOutput
+11 | | from jsonschema import Draft202012Validator, ValidationError
+   | |____________________________________________________________^ I001
+12 |
+13 |   logger = logging.getLogger(__name__)
+   |
+   = help: Organize imports
+
+packages\application\src\swarmcore_application\document_processing\__init__.py:30:11: RUF022 [*] `__all__` is not sorted
+   |
+28 |   )
+29 |
+30 |   __all__ = [
+   |  ___________^
+31 | |     "DEFAULT_BUSINESS_PROFILE",
+32 | |     "STAGE_LABELS_ZH",
+33 | |     "ClassificationResult",
+34 | |     "DocumentProcessingError",
+35 | |     "DocumentProcessingProfile",
+36 | |     "DocumentProcessingService",
+37 | |     "DocumentRequirement",
+38 | |     "DocumentRequirementService",
+39 | |     "DocumentReviewService",
+40 | |     "ExtractionField",
+41 | |     "EnvHttpOcrAdapter",
+42 | |     "LabelCandidateClassifier",
+43 | |     "ParsedContent",
+44 | |     "ParserRegistry",
+45 | |     "ProcessingResultEnvelope",
+46 | |     "SchemaDrivenExtractor",
+47 | |     "TesseractOcrAdapter",
+48 | |     "UnconfiguredOcrAdapter",
+49 | |     "UploadBatchService",
+50 | |     "build_ocr_adapter",
+51 | |     "resolve_profile",
+52 | |     "schema_for_ref",
+53 | | ]
+   | |_^ RUF022
+   |
+   = help: Apply an isort-style sorting to `__all__`
+
+packages\application\src\swarmcore_application\document_processing\parsers.py:90:51: SIM118 Use `key in dict` instead of `key in dict.keys()`
+   |
+88 |             if rows and all(isinstance(row, dict) for row in rows):
+89 |                 columns = sorted(
+90 |                     {str(key) for row in rows for key in row.keys()}
+   |                                                   ^^^^^^^^^^^^^^^^^ SIM118
+91 |                 )
+92 |                 tables.append(
+   |
+   = help: Remove `.keys()`
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """Business-grade contract post-evaluation report composition and rendering."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | import hashlib
+ 6 | | import json
+ 7 | | import math
+ 8 | | import re
+ 9 | | from copy import deepcopy
+10 | | from datetime import date, timedelta
+11 | | from html import escape
+12 | | from io import BytesIO
+13 | | from pathlib import Path
+14 | | from typing import Any
+15 | |
+16 | | from reportlab.graphics.shapes import Circle, Drawing, Line, Polygon, String
+17 | | from reportlab.lib import colors
+18 | | from reportlab.lib.enums import TA_CENTER, TA_LEFT
+19 | | from reportlab.lib.pagesizes import A4
+20 | | from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+21 | | from reportlab.lib.units import mm
+22 | | from reportlab.pdfbase import pdfmetrics
+23 | | from reportlab.pdfbase.ttfonts import TTFont, TTFError
+24 | | from reportlab.pdfgen.canvas import Canvas
+25 | | from reportlab.platypus import (
+26 | |     HRFlowable,
+27 | |     PageBreak,
+28 | |     Paragraph,
+29 | |     SimpleDocTemplate,
+30 | |     Spacer,
+31 | |     Table,
+32 | |     TableStyle,
+33 | | )
+   | |_^ I001
+34 |
+35 |   DIMENSION_ORDER = (
+   |
+   = help: Organize imports
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:89:34: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+   |
+87 |     if rate < formal_threshold:
+88 |         reasons.append(
+89 |             f"资料正文可读取率为{rate:.1%}，低于正式报告门槛{formal_threshold:.0%}。"
+   |                                           ^^ RUF001
+90 |         )
+91 |     if coverage.get("missingRequired"):
+   |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:160:43: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+158 |         if not refs:
+159 |             conclusion = (
+160 |                 f"{conclusion} 本维度缺少直接业务凭证，当前得分仅反映结构化记录的"
+    |                                                      ^^ RUF001
+161 |                 "零异常结果，不代表已完成实质合规核验。"
+162 |             )
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:161:23: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+159 |             conclusion = (
+160 |                 f"{conclusion} 本维度缺少直接业务凭证，当前得分仅反映结构化记录的"
+161 |                 "零异常结果，不代表已完成实质合规核验。"
+    |                            ^^ RUF001
+162 |             )
+163 |         dimensions_out.append(
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:180:101: E501 Line too long (102 > 100)
+    |
+178 |                 ],
+179 |                 "risks": [
+180 |                     _sanitize_text(str(item.get("detail") or item.get("title") or ""), evidence_index)
+    |                                                                                                     ^^ E501
+181 |                     for item in finding_items
+182 |                 ],
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:278:35: RUF001 String contains ambiguous `；` (FULLWIDTH SEMICOLON). Did you mean `;` (SEMICOLON)?
+    |
+276 |             "executiveSummary": executive_summary,
+277 |             "keyFindings": [*management_conclusions, *key_findings],
+278 |             "dataQualityNotice": "；".join(readability.get("reasons", []))
+    |                                   ^^ RUF001
+279 |             or "资料可读率满足正式报告门槛。",
+280 |         },
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:283:32: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+281 |         "methodology": {
+282 |             "description": (
+283 |                 "本报告以冻结文件版本为证据源，由领域 Agent 提取事实，"
+    |                                              ^^ RUF001
+284 |                 "确定性工具完成七维评分、金额、发票、偏差和风险计算；"
+285 |                 "模型仅负责解释已冻结结果，不能修改分数、等级和证据。"
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:283:47: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+281 |         "methodology": {
+282 |             "description": (
+283 |                 "本报告以冻结文件版本为证据源，由领域 Agent 提取事实，"
+    |                                                                     ^^ RUF001
+284 |                 "确定性工具完成七维评分、金额、发票、偏差和风险计算；"
+285 |                 "模型仅负责解释已冻结结果，不能修改分数、等级和证据。"
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:284:43: RUF001 String contains ambiguous `；` (FULLWIDTH SEMICOLON). Did you mean `;` (SEMICOLON)?
+    |
+282 |             "description": (
+283 |                 "本报告以冻结文件版本为证据源，由领域 Agent 提取事实，"
+284 |                 "确定性工具完成七维评分、金额、发票、偏差和风险计算；"
+    |                                                                    ^^ RUF001
+285 |                 "模型仅负责解释已冻结结果，不能修改分数、等级和证据。"
+286 |             ),
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:285:30: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+283 |                 "本报告以冻结文件版本为证据源，由领域 Agent 提取事实，"
+284 |                 "确定性工具完成七维评分、金额、发票、偏差和风险计算；"
+285 |                 "模型仅负责解释已冻结结果，不能修改分数、等级和证据。"
+    |                                          ^^ RUF001
+286 |             ),
+287 |             "dimensionCount": len(dimensions_out),
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:405:33: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+    |
+403 |     ]
+404 |     if missing_sections:
+405 |         blocking.append(f"缺少报告章节：{', '.join(missing_sections)}")
+    |                                       ^^ RUF001
+406 |     overview = report_document.get("dimensionOverview") or []
+407 |     sections = report_document.get("dimensionSections") or []
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:416:28: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+    |
+414 |     if citation_check.get("dimensionsWithoutCitations"):
+415 |         warnings.append(
+416 |             "部分评价维度缺少直接证据引用："
+    |                                          ^^ RUF001
+417 |             + "、".join(citation_check["dimensionsWithoutCitations"])
+418 |         )
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:433:33: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+431 |             warnings.append(_business_quality_warning(detail))
+432 |     if not readability.get("formalEligible"):
+433 |         warnings.append("资料可读率不足，报告已降级为资料质量预审报告。")
+    |                                        ^^ RUF001
+434 |     passed = not blocking
+435 |     quality = {
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:609:51: RUF001 String contains ambiguous `（` (FULLWIDTH LEFT PARENTHESIS). Did you mean `(` (LEFT PARENTHESIS)?
+    |
+607 |         text = text.replace(ref, f"证据“{indexed['label']}”")
+608 |     text = re.sub(
+609 |         r"(?<![A-Za-z0-9])E\d{3}(?![A-Za-z0-9])(?:（[^）]*）)?",
+    |                                                   ^^ RUF001
+610 |         "对应证据",
+611 |         text,
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:609:54: RUF001 String contains ambiguous `）` (FULLWIDTH RIGHT PARENTHESIS). Did you mean `)` (RIGHT PARENTHESIS)?
+    |
+607 |         text = text.replace(ref, f"证据“{indexed['label']}”")
+608 |     text = re.sub(
+609 |         r"(?<![A-Za-z0-9])E\d{3}(?![A-Za-z0-9])(?:（[^）]*）)?",
+    |                                                       ^^ RUF001
+610 |         "对应证据",
+611 |         text,
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:609:57: RUF001 String contains ambiguous `）` (FULLWIDTH RIGHT PARENTHESIS). Did you mean `)` (RIGHT PARENTHESIS)?
+    |
+607 |         text = text.replace(ref, f"证据“{indexed['label']}”")
+608 |     text = re.sub(
+609 |         r"(?<![A-Za-z0-9])E\d{3}(?![A-Za-z0-9])(?:（[^）]*）)?",
+    |                                                           ^^ RUF001
+610 |         "对应证据",
+611 |         text,
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:635:45: RUF001 String contains ambiguous `（` (FULLWIDTH LEFT PARENTHESIS). Did you mean `(` (LEFT PARENTHESIS)?
+    |
+633 |     text = text.replace("Fact Contract Change 001", "合同变更事实")
+634 |     text = text.replace("Fact Supplier Penalty 001", "供应商处罚事实")
+635 |     text = text.replace("SPC统计过程控制", "统计过程控制（SPC）")
+    |                                                         ^^ RUF001
+636 |     controlled_reference = "证据“受控归档资料”"
+637 |     if text.count(controlled_reference) > 3:
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:635:49: RUF001 String contains ambiguous `）` (FULLWIDTH RIGHT PARENTHESIS). Did you mean `)` (RIGHT PARENTHESIS)?
+    |
+633 |     text = text.replace("Fact Contract Change 001", "合同变更事实")
+634 |     text = text.replace("Fact Supplier Penalty 001", "供应商处罚事实")
+635 |     text = text.replace("SPC统计过程控制", "统计过程控制（SPC）")
+    |                                                              ^^ RUF001
+636 |     controlled_reference = "证据“受控归档资料”"
+637 |     if text.count(controlled_reference) > 3:
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:639:28: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+637 |     if text.count(controlled_reference) > 3:
+638 |         text = text.replace(controlled_reference, "")
+639 |         text = f"依据受控归档资料清单，{text}"
+    |                                      ^^ RUF001
+640 |         text = re.sub(r"(?:[、,，;；]\s*){2,}", "，", text)
+641 |     text = re.sub(r"\s+", " ", text).strip()
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:640:31: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+638 |         text = text.replace(controlled_reference, "")
+639 |         text = f"依据受控归档资料清单，{text}"
+640 |         text = re.sub(r"(?:[、,，;；]\s*){2,}", "，", text)
+    |                                ^^ RUF001
+641 |     text = re.sub(r"\s+", " ", text).strip()
+642 |     return text
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:640:33: RUF001 String contains ambiguous `；` (FULLWIDTH SEMICOLON). Did you mean `;` (SEMICOLON)?
+    |
+638 |         text = text.replace(controlled_reference, "")
+639 |         text = f"依据受控归档资料清单，{text}"
+640 |         text = re.sub(r"(?:[、,，;；]\s*){2,}", "，", text)
+    |                                   ^^ RUF001
+641 |     text = re.sub(r"\s+", " ", text).strip()
+642 |     return text
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:640:47: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+638 |         text = text.replace(controlled_reference, "")
+639 |         text = f"依据受控归档资料清单，{text}"
+640 |         text = re.sub(r"(?:[、,，;；]\s*){2,}", "，", text)
+    |                                                  ^^ RUF001
+641 |     text = re.sub(r"\s+", " ", text).strip()
+642 |     return text
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:649:36: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+647 |     lowered = text.lower()
+648 |     if "acceptance document" in lowered and "conflicts with contract subject" in lowered:
+649 |         return "验收资料引用的项目名称与合同标的不一致，需核清项目身份后再作为履约证据。"
+    |                                                       ^^ RUF001
+650 |     if "base payload specifies contract amount" in lowered and "no immutable" in lowered:
+651 |         return "合同金额与实际成本虽在案件数据中一致，但缺少可交叉验证的不可变付款或对账凭证。"
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:651:35: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+649 |         return "验收资料引用的项目名称与合同标的不一致，需核清项目身份后再作为履约证据。"
+650 |     if "base payload specifies contract amount" in lowered and "no immutable" in lowered:
+651 |         return "合同金额与实际成本虽在案件数据中一致，但缺少可交叉验证的不可变付款或对账凭证。"
+    |                                                     ^^ RUF001
+652 |     if "contract amount in evidence shows ocr artifacts" in lowered:
+653 |         return "合同金额的文字识别结果存在小数伪影，金额判断应以签署合同及财务凭证复核结果为准。"
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:653:34: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+651 |         return "合同金额与实际成本虽在案件数据中一致，但缺少可交叉验证的不可变付款或对账凭证。"
+652 |     if "contract amount in evidence shows ocr artifacts" in lowered:
+653 |         return "合同金额的文字识别结果存在小数伪影，金额判断应以签署合同及财务凭证复核结果为准。"
+    |                                                   ^^ RUF001
+654 |     if "contract document" in lowered and "unreadable" in lowered:
+655 |         return "一份合同类归档资料不可读取，无法完整核验交付、验收及合同条款。"
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:655:30: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+653 |         return "合同金额的文字识别结果存在小数伪影，金额判断应以签署合同及财务凭证复核结果为准。"
+654 |     if "contract document" in lowered and "unreadable" in lowered:
+655 |         return "一份合同类归档资料不可读取，无法完整核验交付、验收及合同条款。"
+    |                                           ^^ RUF001
+656 |     if "contract name in base payload" in lowered and (
+657 |         "differs from evidence" in lowered or "differs from signed" in lowered
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:659:33: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+657 |         "differs from evidence" in lowered or "differs from signed" in lowered
+658 |     ):
+659 |         return "案件合同名称与归档合同标题不一致，需统一项目身份和合同名称口径。"
+    |                                                 ^^ RUF001
+660 |     if "real internal delivery notes" in lowered and "evidence gap" in lowered:
+661 |         return "公开资料未披露内部交付单、验收签收单及入库单，实物交付证据存在缺口。"
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:661:39: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+659 |         return "案件合同名称与归档合同标题不一致，需统一项目身份和合同名称口径。"
+660 |     if "real internal delivery notes" in lowered and "evidence gap" in lowered:
+661 |         return "公开资料未披露内部交付单、验收签收单及入库单，实物交付证据存在缺口。"
+    |                                                             ^^ RUF001
+662 |     if "invoice category documents" in lowered and "blank templates" in lowered:
+663 |         return "发票类资料仅包含空白票样和测试说明，不属于本合同的真实交易发票。"
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:663:34: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+661 |         return "公开资料未披露内部交付单、验收签收单及入库单，实物交付证据存在缺口。"
+662 |     if "invoice category documents" in lowered and "blank templates" in lowered:
+663 |         return "发票类资料仅包含空白票样和测试说明，不属于本合同的真实交易发票。"
+    |                                                   ^^ RUF001
+664 |     if "invoice document" in lowered and "unreadable" in lowered:
+665 |         return "一份发票类资料不可读取，无法核验其中是否包含与本合同相关的财务信息。"
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:665:28: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+663 |         return "发票类资料仅包含空白票样和测试说明，不属于本合同的真实交易发票。"
+664 |     if "invoice document" in lowered and "unreadable" in lowered:
+665 |         return "一份发票类资料不可读取，无法核验其中是否包含与本合同相关的财务信息。"
+    |                                       ^^ RUF001
+666 |     unreadable = re.fullmatch(
+667 |         r"(\d+) document\(s\) have no readable processed content",
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:685:39: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+683 |         flags=re.IGNORECASE,
+684 |     ):
+685 |         return "部分 Agent 的结构化输出未通过约束校验，系统已保留案件基础数据。"
+    |                                                      ^^ RUF001
+686 |     acceptance_conflict = re.fullmatch(
+687 |         r"Acceptance document .+ references '([^']+)'(?: \([^)]*\))? "
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:694:53: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+692 |     if acceptance_conflict:
+693 |         return (
+694 |             f"验收资料指向“{acceptance_conflict.group(1)}”，"
+    |                                                           ^^ RUF001
+695 |             f"与合同标的“{acceptance_conflict.group(2)}”不一致。"
+696 |         )
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:706:48: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+704 |         return (
+705 |             f"案件合同编号“{contract_id_conflict.group(1)}”包含标段后缀"
+706 |             f"“{contract_id_conflict.group(2)}”，但合同正文编号为"
+    |                                                ^^ RUF001
+707 |             f"“{contract_id_conflict.group(3)}”，需核实编号口径。"
+708 |         )
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:707:48: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+705 |             f"案件合同编号“{contract_id_conflict.group(1)}”包含标段后缀"
+706 |             f"“{contract_id_conflict.group(2)}”，但合同正文编号为"
+707 |             f"“{contract_id_conflict.group(3)}”，需核实编号口径。"
+    |                                                ^^ RUF001
+708 |         )
+709 |     if re.fullmatch(
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:714:30: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+712 |         flags=re.IGNORECASE,
+713 |     ):
+714 |         return "一份合同类归档资料不可读取，无法完整核验交付里程碑、验收标准与合同条款。"
+    |                                           ^^ RUF001
+715 |     contract_name_conflict = re.fullmatch(
+716 |         r"Contract name in base payload \('([^']+)'\) differs from "
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:724:53: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+722 |         return (
+723 |             f"案件合同名称“{contract_name_conflict.group(1)}”与签署合同标题"
+724 |             f"“{contract_name_conflict.group(2)}”不一致，需统一项目身份。"
+    |                                                        ^^ RUF001
+725 |         )
+726 |     english_words = re.findall(r"\b[A-Za-z]{3,}\b", text)
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:729:38: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+727 |     chinese_chars = re.findall(r"[\u4e00-\u9fff]", text)
+728 |     if len(english_words) >= 8 and len(english_words) > len(chinese_chars):
+729 |         return "自动一致性检查发现一项需人工复核的资料冲突，原始诊断已保存在运行审计记录中。"
+    |                                                           ^^ RUF001
+730 |     return text
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:739:60: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+737 |     if review_required:
+738 |         replacements = (
+739 |             (r"(?:评价|评估)(?:结论)?为?通过且无需(?:人工)?复核", "评分达到通过阈值，但需人工复核"),
+    |                                                                                    ^^ RUF001
+740 |             (r"无需人工复核", "需人工复核"),
+741 |             (r"无需复核", "需人工复核"),
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:756:30: RUF001 String contains ambiguous `（` (FULLWIDTH LEFT PARENTHESIS). Did you mean `(` (LEFT PARENTHESIS)?
+    |
+754 |         reason = "结构化评分或控制条件未满足要求"
+755 |     prefix = (
+756 |         f"结构化评价结论为“{outcome}”（综合得分{result.get('overallScore')}分，"
+    |                                      ^^ RUF001
+757 |         f"等级{result.get('grade')}，风险等级{result.get('riskLevel')}），原因：{reason}。"
+758 |     )
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:756:64: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+754 |         reason = "结构化评分或控制条件未满足要求"
+755 |     prefix = (
+756 |         f"结构化评价结论为“{outcome}”（综合得分{result.get('overallScore')}分，"
+    |                                                                              ^^ RUF001
+757 |         f"等级{result.get('grade')}，风险等级{result.get('riskLevel')}），原因：{reason}。"
+758 |     )
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:757:34: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+755 |     prefix = (
+756 |         f"结构化评价结论为“{outcome}”（综合得分{result.get('overallScore')}分，"
+757 |         f"等级{result.get('grade')}，风险等级{result.get('riskLevel')}），原因：{reason}。"
+    |                                    ^^ RUF001
+758 |     )
+759 |     return f"{prefix}{text}".strip()
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:757:64: RUF001 String contains ambiguous `）` (FULLWIDTH RIGHT PARENTHESIS). Did you mean `)` (RIGHT PARENTHESIS)?
+    |
+755 |     prefix = (
+756 |         f"结构化评价结论为“{outcome}”（综合得分{result.get('overallScore')}分，"
+757 |         f"等级{result.get('grade')}，风险等级{result.get('riskLevel')}），原因：{reason}。"
+    |                                                                       ^^ RUF001
+758 |     )
+759 |     return f"{prefix}{text}".strip()
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:757:65: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+755 |     prefix = (
+756 |         f"结构化评价结论为“{outcome}”（综合得分{result.get('overallScore')}分，"
+757 |         f"等级{result.get('grade')}，风险等级{result.get('riskLevel')}），原因：{reason}。"
+    |                                                                         ^^ RUF001
+758 |     )
+759 |     return f"{prefix}{text}".strip()
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:757:68: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+    |
+755 |     prefix = (
+756 |         f"结构化评价结论为“{outcome}”（综合得分{result.get('overallScore')}分，"
+757 |         f"等级{result.get('grade')}，风险等级{result.get('riskLevel')}），原因：{reason}。"
+    |                                                                               ^^ RUF001
+758 |     )
+759 |     return f"{prefix}{text}".strip()
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:766:31: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+764 |     chinese_chars = re.findall(r"[\u4e00-\u9fff]", value)
+765 |     if len(english_words) >= 6 and len(english_words) > len(chinese_chars):
+766 |         return "自动审查发现非阻断性表达问题，详细诊断已保存在运行审计记录中。"
+    |                                             ^^ RUF001
+767 |     return value
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:774:30: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+772 |     score = dimension.get("score")
+773 |     if score is None:
+774 |         return f"{name}缺少足够证据，暂不能形成正式评价结论。"
+    |                                    ^^ RUF001
+775 |     status = "表现稳定" if float(score) >= 80 else "存在改进空间"
+776 |     return f"{name}得分{float(score):.2f}分，{status}。{dimension.get('summary') or ''}".strip()
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:776:41: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+774 |         return f"{name}缺少足够证据，暂不能形成正式评价结论。"
+775 |     status = "表现稳定" if float(score) >= 80 else "存在改进空间"
+776 |     return f"{name}得分{float(score):.2f}分，{status}。{dimension.get('summary') or ''}".strip()
+    |                                            ^^ RUF001
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:785:39: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+783 |             continue
+784 |         name = DIMENSION_NAMES.get(str(item.get("dimension")), "相关维度")
+785 |         values.append(f"针对{name}建立整改台账，明确责任人、完成期限和验收证据。")
+    |                                               ^^ RUF001
+786 |     return values or ["保持现有履约控制措施，并按季度复核关键证据和风险状态。"]
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:786:34: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+784 |         name = DIMENSION_NAMES.get(str(item.get("dimension")), "相关维度")
+785 |         values.append(f"针对{name}建立整改台账，明确责任人、完成期限和验收证据。")
+786 |     return values or ["保持现有履约控制措施，并按季度复核关键证据和风险状态。"]
+    |                                            ^^ RUF001
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:819:52: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+817 |                 "owner": "合同负责人" if index % 2 else "供应商项目负责人",
+818 |                 "dueDate": (baseline + timedelta(days=30 * index)).isoformat(),
+819 |                 "acceptanceCriteria": "整改完成并提交可追溯证据，经业务负责人复核关闭。",
+    |                                                                ^^ RUF001
+820 |             }
+821 |         )
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:836:50: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+834 |             "actualDate": "按评价期汇总",
+835 |             "status": (
+836 |                 f"到期{payload.get('dueCount', 0)}项，"
+    |                                                     ^^ RUF001
+837 |                 f"按期{payload.get('onTimeCount', payload.get('onTime', 0))}项，"
+838 |                 f"延期{payload.get('lateCount', payload.get('late', 0))}项"
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:837:76: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+835 |             "status": (
+836 |                 f"到期{payload.get('dueCount', 0)}项，"
+837 |                 f"按期{payload.get('onTimeCount', payload.get('onTime', 0))}项，"
+    |                                                                               ^^ RUF001
+838 |                 f"延期{payload.get('lateCount', payload.get('late', 0))}项"
+839 |             ),
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:862:39: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+860 |         "varianceRate": payload.get("varianceRate", metrics.get("overrunRate")),
+861 |         "conflicts": list(payload.get("conflicts") or []),
+862 |         "conclusion": "金额与成本数据由确定性工具对账，冲突项需以批准的合同变更为准。",
+    |                                                      ^^ RUF001
+863 |     }
+    |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1079:22: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+     |
+1077 |             _p(report.get("title"), styles["coverSub"]),
+1078 |             Spacer(1, 20 * mm),
+1079 |             _p(f"报告编号：{report.get('reportNumber')}", styles["coverSub"]),
+     |                          ^^ RUF001
+1080 |             _p(f"版本：{report.get('version')}", styles["coverSub"]),
+1081 |             _p(
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1080:20: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+     |
+1078 |             Spacer(1, 20 * mm),
+1079 |             _p(f"报告编号：{report.get('reportNumber')}", styles["coverSub"]),
+1080 |             _p(f"版本：{report.get('version')}", styles["coverSub"]),
+     |                      ^^ RUF001
+1081 |             _p(
+1082 |                 f"评价期间：{report.get('contractProfile', {}).get('evaluationStart')} 至 "
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1082:23: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+     |
+1080 |             _p(f"版本：{report.get('version')}", styles["coverSub"]),
+1081 |             _p(
+1082 |                 f"评价期间：{report.get('contractProfile', {}).get('evaluationStart')} 至 "
+     |                           ^^ RUF001
+1083 |                 f"{report.get('contractProfile', {}).get('evaluationEnd')}",
+1084 |                 styles["coverSub"],
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1092:26: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+     |
+1090 |         story.append(
+1091 |             _p(
+1092 |                 "资料质量预审报告：当前资料可读率未达到正式报告门槛，"
+     |                                  ^^ RUF001
+1093 |                 "本文件不得替代最终签发版本。",
+1094 |                 styles["warning"],
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1092:43: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1090 |         story.append(
+1091 |             _p(
+1092 |                 "资料质量预审报告：当前资料可读率未达到正式报告门槛，"
+     |                                                                    ^^ RUF001
+1093 |                 "本文件不得替代最终签发版本。",
+1094 |                 styles["warning"],
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1180:93: E501 Line too long (107 > 100)
+     |
+1178 |         ["合同标识", profile.get("contractId"), "评价版本", report.get("version")],
+1179 |         ["评价开始", profile.get("evaluationStart"), "评价结束", profile.get("evaluationEnd")],
+1180 |         ["合同金额", _money(profile.get("contractAmount")), "实际成本", _money(profile.get("actualCost"))],
+     |                                                                                                     ^^^^^^^ E501
+1181 |         ["报告模式", _mode_label(report.get("reportMode")), "报告编号", report.get("reportNumber")],
+1182 |     ]
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1192:23: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+     |
+1190 |             _p(method.get("description"), styles["body"]),
+1191 |             _p(
+1192 |                 f"评价维度：{method.get('dimensionCount')}个；"
+     |                           ^^ RUF001
+1193 |                 f"权重合计：{method.get('weightsTotal')}%；"
+1194 |                 f"正式报告可读率门槛：{float(method.get('readabilityThreshold') or 0):.0%}。",
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1192:55: RUF001 String contains ambiguous `；` (FULLWIDTH SEMICOLON). Did you mean `;` (SEMICOLON)?
+     |
+1190 |             _p(method.get("description"), styles["body"]),
+1191 |             _p(
+1192 |                 f"评价维度：{method.get('dimensionCount')}个；"
+     |                                                             ^^ RUF001
+1193 |                 f"权重合计：{method.get('weightsTotal')}%；"
+1194 |                 f"正式报告可读率门槛：{float(method.get('readabilityThreshold') or 0):.0%}。",
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1193:23: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+     |
+1191 |             _p(
+1192 |                 f"评价维度：{method.get('dimensionCount')}个；"
+1193 |                 f"权重合计：{method.get('weightsTotal')}%；"
+     |                           ^^ RUF001
+1194 |                 f"正式报告可读率门槛：{float(method.get('readabilityThreshold') or 0):.0%}。",
+1195 |                 styles["body"],
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1193:53: RUF001 String contains ambiguous `；` (FULLWIDTH SEMICOLON). Did you mean `;` (SEMICOLON)?
+     |
+1191 |             _p(
+1192 |                 f"评价维度：{method.get('dimensionCount')}个；"
+1193 |                 f"权重合计：{method.get('weightsTotal')}%；"
+     |                                                          ^^ RUF001
+1194 |                 f"正式报告可读率门槛：{float(method.get('readabilityThreshold') or 0):.0%}。",
+1195 |                 styles["body"],
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1194:28: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+     |
+1192 |                 f"评价维度：{method.get('dimensionCount')}个；"
+1193 |                 f"权重合计：{method.get('weightsTotal')}%；"
+1194 |                 f"正式报告可读率门槛：{float(method.get('readabilityThreshold') or 0):.0%}。",
+     |                                     ^^ RUF001
+1195 |                 styles["body"],
+1196 |             ),
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1199:33: RUF001 String contains ambiguous `；` (FULLWIDTH SEMICOLON). Did you mean `;` (SEMICOLON)?
+     |
+1197 |             _p("内容责任边界", styles["h2"]),
+1198 |             _p(
+1199 |                 "事实抽取和报告叙述可能使用模型；评分、金额核算、风险等级、"
+     |                                                ^^ RUF001
+1200 |                 "证据索引和质量门禁由确定性程序执行。人工审批意见作为独立审计记录保留。",
+1201 |                 styles["body"],
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1248:101: E501 Line too long (102 > 100)
+     |
+1246 |             scale = level / 5
+1247 |             points.extend(
+1248 |                 [center + radius * scale * math.cos(angle), center + radius * scale * math.sin(angle)]
+     |                                                                                                     ^^ E501
+1249 |             )
+1250 |         drawing.add(
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1324:101: E501 Line too long (111 > 100)
+     |
+1322 |     metrics = section.get("metrics") or {}
+1323 |     metric_rows = [["指标", "值"]]
+1324 |     metric_rows.extend([_human_metric_name(str(key)), _format_metric(value)] for key, value in metrics.items())
+     |                                                                                                     ^^^^^^^^^^^ E501
+1325 |     if len(metric_rows) == 1:
+1326 |         metric_rows.append(["数据状态", "未提供可展示指标"])
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1334:34: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1332 |             story.append(_p(str(citation.get("label") or "业务证据"), styles["body"]))
+1333 |     else:
+1334 |         story.append(_p("暂无直接证据引用，已列入资料补充清单。", styles["warning"]))
+     |                                          ^^ RUF001
+1335 |     risks = section.get("risks") or []
+1336 |     if risks:
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1364:20: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+     |
+1362 |             Spacer(1, 5 * mm),
+1363 |             _p(
+1364 |                 "说明：时间轴仅展示冻结证据中可核验的计划与实际节点；"
+     |                      ^^ RUF001
+1365 |                 "无法解析的扫描件不会被模型补造为里程碑。",
+1366 |                 styles["body"],
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1364:43: RUF001 String contains ambiguous `；` (FULLWIDTH SEMICOLON). Did you mean `;` (SEMICOLON)?
+     |
+1362 |             Spacer(1, 5 * mm),
+1363 |             _p(
+1364 |                 "说明：时间轴仅展示冻结证据中可核验的计划与实际节点；"
+     |                                                                    ^^ RUF001
+1365 |                 "无法解析的扫描件不会被模型补造为里程碑。",
+1366 |                 styles["body"],
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1471:92: E501 Line too long (112 > 100)
+     |
+1469 |     )
+1470 |     story.append(
+1471 |         _table(index_rows or [["编号", "业务证据名称"], ["-", "无"]], widths=[25 * mm, 135 * mm], styles=styles)
+     |                                                                                                     ^^^^^^^^^^^^ E501
+1472 |     )
+1473 |     if evidence.get("conflicts"):
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1574:21: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1572 |             _p(
+1573 |                 "本报告由受控流程生成。任何脱离本报告编号、版本、文件哈希和审批记录的"
+1574 |                 "复制件，均不得作为最终履约评价依据。",
+     |                        ^^ RUF001
+1575 |                 styles["warning"],
+1576 |             ),
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1639:41: RUF001 String contains ambiguous `：` (FULLWIDTH COLON). Did you mean `:` (COLON)?
+     |
+1637 |         return "当前未形成可展示的结构化诊断。"
+1638 |     parts = [
+1639 |         f"{_human_metric_name(str(key))}：{_format_metric(item)}"
+     |                                         ^^ RUF001
+1640 |         for key, item in value.items()
+1641 |         if isinstance(item, str | int | float | bool)
+     |
+
+packages\application\src\swarmcore_application\formal_post_evaluation_report.py:1643:13: RUF001 String contains ambiguous `；` (FULLWIDTH SEMICOLON). Did you mean `;` (SEMICOLON)?
+     |
+1641 |         if isinstance(item, str | int | float | bool)
+1642 |     ]
+1643 |     return "；".join(parts[:12]) or "诊断结果已保存于结构化附件。"
+     |             ^^ RUF001
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:375:101: E501 Line too long (109 > 100)
+    |
+373 |     media_type: str | None,
+374 | ) -> dict[str, Any]:
+375 |     source = payload.get("invoiceFactSet") if isinstance(payload.get("invoiceFactSet"), Mapping) else payload
+    |                                                                                                     ^^^^^^^^^ E501
+376 |     if not isinstance(source, Mapping):
+377 |         return _empty_fact_set(
+    |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:392:101: E501 Line too long (106 > 100)
+    |
+390 |         if isinstance(nested, Mapping) and key in nested:
+391 |             return nested[key]
+392 |         party_key = "buyer" if key.startswith("buyer") else "seller" if key.startswith("seller") else None
+    |                                                                                                     ^^^^^^ E501
+393 |         if party_key and isinstance(source.get(party_key), Mapping):
+394 |             party = source[party_key]
+    |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:469:101: E501 Line too long (107 > 100)
+    |
+467 |             [str(document_version_id)] if document_version_id is not None else []
+468 |         ),
+469 |         "needsFieldConfirmation": not bool(invoice_number and seller_tax and amount_including is not None),
+    |                                                                                                     ^^^^^^^ E501
+470 |         "parseStatus": "STRUCTURED",
+471 |         "parserVersion": PARSER_VERSION,
+    |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:493:39: UP038 Use `X | Y` in `isinstance` call instead of `(X, Y)`
+    |
+491 |         )
+492 |
+493 |     text = content.decode("utf-8") if isinstance(content, (bytes, bytearray)) else str(content)
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UP038
+494 |     stripped = text.strip()
+495 |     looks_xml = normalized_media in {"application/xml", "text/xml"} or stripped.startswith(
+    |
+    = help: Convert to `X | Y`
+
+packages\application\src\swarmcore_application\invoice_assurance.py:703:101: E501 Line too long (108 > 100)
+    |
+701 |             actual=_number(amount_ex + tax_amount),
+702 |             delta=_number(total_close_delta),
+703 |             reason=None if total_ok else "amountExcludingTax + taxAmount does not equal amountIncludingTax",
+    |                                                                                                     ^^^^^^^^ E501
+704 |             evidence_refs=evidence,
+705 |             blocking=not total_ok,
+    |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:1250:101: E501 Line too long (102 > 100)
+     |
+1248 |                     {
+1249 |                         "type": kind,
+1250 |                         "id": item.get("id") or item.get("purchaseOrderId") or item.get("contractId"),
+     |                                                                                                     ^^ E501
+1251 |                     }
+1252 |                 ],
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:1299:101: E501 Line too long (106 > 100)
+     |
+1297 | def payment_gate(context: Mapping[str, Any]) -> dict[str, Any]:
+1298 |     """Compute hard payment blocks versus soft review gates."""
+1299 |     verification = context.get("verification") if isinstance(context.get("verification"), Mapping) else {}
+     |                                                                                                     ^^^^^^ E501
+1300 |     duplication = context.get("duplication") if isinstance(context.get("duplication"), Mapping) else {}
+1301 |     rule_results = [
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:1300:101: E501 Line too long (103 > 100)
+     |
+1298 |     """Compute hard payment blocks versus soft review gates."""
+1299 |     verification = context.get("verification") if isinstance(context.get("verification"), Mapping) else {}
+1300 |     duplication = context.get("duplication") if isinstance(context.get("duplication"), Mapping) else {}
+     |                                                                                                     ^^^ E501
+1301 |     rule_results = [
+1302 |         item for item in (context.get("ruleResults") or []) if isinstance(item, Mapping)
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:1360:41: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1358 |                 "blocking": True,
+1359 |                 "reasonCode": "PAID_DUPLICATE",
+1360 |                 "remediation": "核对历史付款凭证，禁止重复支付",
+     |                                                 ^^ RUF001
+1361 |                 "evidenceRefs": list(duplication.get("evidenceRefs") or []),
+1362 |             }
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:1593:101: E501 Line too long (108 > 100)
+     |
+1591 |         if item.get("severity") == "CRITICAL"
+1592 |     ]
+1593 |     critical_pass = all(item.get("status") == "PASS" for item in critical_rules) if critical_rules else True
+     |                                                                                                     ^^^^^^^^ E501
+1594 |     verification_ok = verification_status == "FACE_MATCHED"
+1595 |     no_hard_blocks = not hard_blocks and not gate_result.get("blocking")
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:1824:101: E501 Line too long (104 > 100)
+     |
+1822 |         "PAYMENT_BLOCKED": "付款阻断",
+1823 |     }.get(outcome, outcome)
+1824 |     fact_set = result.get("invoiceFactSet") if isinstance(result.get("invoiceFactSet"), Mapping) else {}
+     |                                                                                                     ^^^^ E501
+1825 |     totals = fact_set.get("totals") if isinstance(fact_set.get("totals"), Mapping) else {}
+1826 |     verification = result.get("verification") if isinstance(result.get("verification"), Mapping) else {}
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:1826:101: E501 Line too long (104 > 100)
+     |
+1824 |     fact_set = result.get("invoiceFactSet") if isinstance(result.get("invoiceFactSet"), Mapping) else {}
+1825 |     totals = fact_set.get("totals") if isinstance(fact_set.get("totals"), Mapping) else {}
+1826 |     verification = result.get("verification") if isinstance(result.get("verification"), Mapping) else {}
+     |                                                                                                     ^^^^ E501
+1827 |     enterprise_status = (
+1828 |         result.get("enterprisePublicStatus")
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:1842:97: E501 Line too long (115 > 100)
+     |
+1840 |         f"- 开票日期: {fact_set.get('issueDate') or '-'}",
+1841 |         f"- 销售方: {seller.get('name') or '-'} / {seller.get('taxId') or '-'}",
+1842 |         f"- 价税合计: {totals.get('amountIncludingTax') if totals.get('amountIncludingTax') is not None else '-'} "
+     |                                                                                                     ^^^^^^^^^^^^^^^ E501
+1843 |         f"{totals.get('currency') or 'CNY'}",
+1844 |         "官方查验",
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:1889:30: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1887 |         (
+1888 |             "声明",
+1889 |             "官方查验仅证明平台返回的票面信息，不代表交易真实或允许付款。",
+     |                                              ^^ RUF001
+1890 |             "金额、税额、重复和付款阻断由确定性规则计算；模型输出不得改写这些结论。",
+1891 |             "本报告用于付款前置条件校验，不发起银行付款。",
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:1890:35: RUF001 String contains ambiguous `；` (FULLWIDTH SEMICOLON). Did you mean `;` (SEMICOLON)?
+     |
+1888 |             "声明",
+1889 |             "官方查验仅证明平台返回的票面信息，不代表交易真实或允许付款。",
+1890 |             "金额、税额、重复和付款阻断由确定性规则计算；模型输出不得改写这些结论。",
+     |                                                        ^^ RUF001
+1891 |             "本报告用于付款前置条件校验，不发起银行付款。",
+1892 |         )
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance.py:1891:27: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1889 |             "官方查验仅证明平台返回的票面信息，不代表交易真实或允许付款。",
+1890 |             "金额、税额、重复和付款阻断由确定性规则计算；模型输出不得改写这些结论。",
+1891 |             "本报告用于付款前置条件校验，不发起银行付款。",
+     |                                        ^^ RUF001
+1892 |         )
+1893 |     )
+     |
+
+packages\application\src\swarmcore_application\invoice_assurance_operations.py:6:1: UP035 [*] Import from `collections.abc` instead: `Iterable`, `Mapping`
+  |
+4 | from dataclasses import dataclass
+5 | from datetime import UTC, date, datetime, time
+6 | from typing import Any, Iterable, Literal, Mapping
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UP035
+7 | from uuid import UUID
+  |
+  = help: Import from `collections.abc`
+
+packages\application\src\swarmcore_application\invoice_assurance_operations.py:295:101: E501 Line too long (104 > 100)
+    |
+293 |     terminal = {"SUCCEEDED", "FAILED", "CANCELLED"}
+294 |     if all(value in terminal for value in values):
+295 |         return "COMPLETED" if all(value == "SUCCEEDED" for value in values) else "COMPLETED_WITH_ERRORS"
+    |                                                                                                     ^^^^ E501
+296 |     if any(value in {"RUNNING", "WAITING_APPROVAL"} for value in values):
+297 |         return "RUNNING"
+    |
+
+packages\compiler\src\swarmcore_compiler\compiler.py:1:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 | / from __future__ import annotations
+ 2 | |
+ 3 | | import hashlib
+ 4 | | import json
+ 5 | | import re
+ 6 | | from collections import deque
+ 7 | | from typing import Any, Literal
+ 8 | |
+ 9 | | from jsonschema import Draft202012Validator, SchemaError
+10 | | from pydantic import BaseModel, ConfigDict, Field
+11 | | from swarmcore_registry import RegistrySnapshot, builtin_registry, synthesize_project_model_registration
+12 | | from swarmcore_spec import ExpressionError, validate_condition
+13 | | from swarmcore_spec.models import (
+14 | |     AgentNode,
+15 | |     LoopNode,
+16 | |     ParallelNode,
+17 | |     RouterNode,
+18 | |     SwarmStrategy,
+19 | |     ToolNode,
+20 | | )
+   | |_^ I001
+21 |
+22 |   COMPILER_VERSION = "1.1.0"
+   |
+   = help: Organize imports
+
+packages\compiler\src\swarmcore_compiler\compiler.py:11:101: E501 Line too long (104 > 100)
+   |
+ 9 | from jsonschema import Draft202012Validator, SchemaError
+10 | from pydantic import BaseModel, ConfigDict, Field
+11 | from swarmcore_registry import RegistrySnapshot, builtin_registry, synthesize_project_model_registration
+   |                                                                                                     ^^^^ E501
+12 | from swarmcore_spec import ExpressionError, validate_condition
+13 | from swarmcore_spec.models import (
+   |
+
+packages\registry\src\swarmcore_registry\models.py:1106:40: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1104 |                 version="1",
+1105 |                 role="researcher",
+1106 |                 description="使用受控检索调研主题，并整理结构化结论。",
+     |                                                  ^^ RUF001
+1107 |                 instructions=(
+1108 |                     "Research the requested topic with the controlled search tool. Prioritize "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1183:41: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1181 |                 version="1",
+1182 |                 role="contract-field-extractor",
+1183 |                 description="从合同文本提取指定字段，并附证据与置信度。",
+     |                                                    ^^ RUF001
+1184 |                 instructions=(
+1185 |                     "Extract only the requested fields from the supplied contract text. Never "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1225:41: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1223 |                 version="1",
+1224 |                 role="contract-post-evaluation-analyst",
+1225 |                 description="基于上传文件与流程说明，生成规范化的合同后评价结果。",
+     |                                                    ^^ RUF001
+1226 |                 instructions=(
+1227 |                     "Read every supplied file and the user-defined workflow, then produce one "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1251:38: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1249 |                 version="1",
+1250 |                 role="contract-baseline-analyst",
+1251 |                 description="分析合同基准证据，归一化主体、金额、周期与必备资料。",
+     |                                              ^^ RUF001
+1252 |                 instructions=(
+1253 |                     "Analyze only contract-baseline evidence: primary contracts, amendments, "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1275:43: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1273 |                 version="1",
+1274 |                 role="contract-performance-quality-analyst",
+1275 |                 description="分析交付、里程碑与验收证据，归一化履约义务。",
+     |                                                        ^^ RUF001
+1276 |                 instructions=(
+1277 |                     "Analyze only delivery, milestone, acceptance, timeliness, and quality "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1298:42: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1296 |                 version="1",
+1297 |                 role="contract-finance-invoice-analyst",
+1298 |                 description="分析金额、成本与发票证据，归一化财务事实。",
+     |                                                      ^^ RUF001
+1299 |                 instructions=(
+1300 |                     "Analyze only contract amount, amendments, actual cost, invoices, tax and "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1321:39: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1319 |                 version="1",
+1320 |                 role="contract-deviation-risk-analyst",
+1321 |                 description="分析偏差与风险证据，归一化治理类事实。",
+     |                                                ^^ RUF001
+1322 |                 instructions=(
+1323 |                     "Analyze only deviations, changes, remediation, supplier and risk evidence. "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1344:38: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1342 |                 version="2",
+1343 |                 role="contract-baseline-analyst",
+1344 |                 description="分析合同基准证据，输出字符串化事实与证据引用。",
+     |                                              ^^ RUF001
+1345 |                 instructions=(
+1346 |                     "Analyze only contract-baseline evidence: contracts, amendments, procurement "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1367:38: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1365 |                 version="2",
+1366 |                 role="contract-performance-quality-analyst",
+1367 |                 description="分析履约质量证据，输出字符串化事实与证据引用。",
+     |                                              ^^ RUF001
+1368 |                 instructions=(
+1369 |                     "Analyze only delivery, milestone, acceptance, timeliness, and quality "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1389:38: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1387 |                 version="2",
+1388 |                 role="contract-finance-invoice-analyst",
+1389 |                 description="分析财务发票证据，输出字符串化事实与证据引用。",
+     |                                              ^^ RUF001
+1390 |                 instructions=(
+1391 |                     "Analyze only contract amount, amendments, actual cost, invoices, tax and "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1411:38: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1409 |                 version="2",
+1410 |                 role="contract-deviation-risk-analyst",
+1411 |                 description="分析偏差风险证据，输出字符串化事实与证据引用。",
+     |                                              ^^ RUF001
+1412 |                 instructions=(
+1413 |                     "Analyze only deviations, changes, remediation, supplier and risk evidence. "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1433:39: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1431 |                 version="1",
+1432 |                 role="contract-evidence-reviewer",
+1433 |                 description="复核诊断与证据冲突，判断是否需要人工介入。",
+     |                                                ^^ RUF001
+1434 |                 instructions=(
+1435 |                     "Review the deterministic coverage, consistency, timeline, finance, invoice, "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1593:39: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1591 |                 version="1",
+1592 |                 role="deviation-schedule-scope-fact-analyst",
+1593 |                 description="提取进度与范围事实，不计算偏差指标。",
+     |                                                ^^ RUF001
+1594 |                 instructions=(
+1595 |                     "Extract only schedule baselines, actual or forecast milestone dates, "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1618:41: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1616 |                 version="1",
+1617 |                 role="deviation-cost-change-fact-analyst",
+1618 |                 description="提取预算与变更成本事实，不计算成本指标。",
+     |                                                    ^^ RUF001
+1619 |                 instructions=(
+1620 |                     "Extract only original budget, approved changes, current budget, AC, "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1686:41: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1684 |                 version="1",
+1685 |                 role="deviation-evidence-reviewer",
+1686 |                 description="复核偏差证据与责任建议，判断是否需人工确认。",
+     |                                                    ^^ RUF001
+1687 |                 instructions=(
+1688 |                     "Review coverage, immutable evidence, conflicts, baseline ambiguity, blocked "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1748:41: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1746 |                 version="1",
+1747 |                 role="invoice-fact-normalizer",
+1748 |                 description="规范化低置信度发票字段，保留高置信原始值。",
+     |                                                    ^^ RUF001
+1749 |                 instructions=(
+1750 |                     "Normalize only low-confidence OCR candidates and invoice line item "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1774:44: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1772 |                 version="1",
+1773 |                 role="invoice-commercial-match-analyst",
+1774 |                 description="提出发票行与业务行的候选匹配，不裁定金额。",
+     |                                                          ^^ RUF001
+1775 |                 instructions=(
+1776 |                     "Propose candidate mappings between invoice lines and contract, purchase "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1799:41: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1797 |                 version="1",
+1798 |                 role="invoice-evidence-risk-reviewer",
+1799 |                 description="复核发票核验与匹配风险，输出中文风险叙述。",
+     |                                                    ^^ RUF001
+1800 |                 instructions=(
+1801 |                     "Review evidence coverage, conflicts and unsupported claims across "
+     |
+
+packages\registry\src\swarmcore_registry\models.py:1983:38: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+1981 |                 version="1",
+1982 |                 operation="contract.document_read",
+1983 |                 description="读取受控项目文档，供合同分析使用。",
+     |                                              ^^ RUF001
+1984 |                 risk=ToolRisk.LOW,
+1985 |                 inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2342:51: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+2340 | …     version="1",
+2341 | …     operation="contract.post_evaluation",
+2342 | …     description="基于结构化文档、履约、偏差、发票与风险事实，确定性计算七维合同后评价。",
+     |                                                              ^^ RUF001
+2343 | …     risk=ToolRisk.LOW,
+2344 | …     inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2446:40: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+2444 |                 version="1",
+2445 |                 operation="document.post_evaluation_readability_gate",
+2446 |                 description="按确定性可读内容阈值，将冻结文档集判定为可出正式报告或需预审。",
+     |                                                  ^^ RUF001
+2447 |                 risk=ToolRisk.LOW,
+2448 |                 inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2468:51: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+2466 |                 version="1",
+2467 |                 operation="report.compose_post_evaluation",
+2468 |                 description="基于冻结结果、诊断、已批证据与有界模型叙述，编排完整业务级报告文档。",
+     |                                                                        ^^ RUF001
+2469 |                 risk=ToolRisk.LOW,
+2470 |                 inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2505:36: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+2503 |                 version="1",
+2504 |                 operation="report.verify_post_evaluation_citations",
+2505 |                 description="核验报告引用，并证明展示分数与冻结评价一致。",
+     |                                          ^^ RUF001
+2506 |                 risk=ToolRisk.LOW,
+2507 |                 inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2523:55: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+2521 | …     version="1",
+2522 | …     operation="report.check_post_evaluation_quality",
+2523 | …     description="应用确定性正式报告完整性、分数、引用与业务用语门槛，并输出第 3 版冻结结果。",
+     |                                                                      ^^ RUF001
+2524 | …     risk=ToolRisk.LOW,
+2525 | …     inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2523:67: E501 Line too long (106 > 100)
+     |
+2521 | …     version="1",
+2522 | …     operation="report.check_post_evaluation_quality",
+2523 | …     description="应用确定性正式报告完整性、分数、引用与业务用语门槛，并输出第 3 版冻结结果。",
+     |                                                                                           ^^^^^^ E501
+2524 | …     risk=ToolRisk.LOW,
+2525 | …     inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2550:54: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+2548 | …     version="4",
+2549 | …     operation="report.render_post_evaluation_v4",
+2550 | …     description="渲染经质量门槛把关的多章节中文合同后评价 PDF，含封面、得分图、表格、证据、整改与审批。",
+     |                                                                ^^ RUF001
+2551 | …     risk=ToolRisk.LOW,
+2552 | …     inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2550:68: E501 Line too long (117 > 100)
+     |
+2548 | …     version="4",
+2549 | …     operation="report.render_post_evaluation_v4",
+2550 | …     description="渲染经质量门槛把关的多章节中文合同后评价 PDF，含封面、得分图、表格、证据、整改与审批。",
+     |                                                                                            ^^^^^^^^^^^^^^^^ E501
+2551 | …     risk=ToolRisk.LOW,
+2552 | …     inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2646:44: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+2644 |                 version="1",
+2645 |                 operation="deviation.facts_merge",
+2646 |                 description="合并有证据支撑的偏差事实补丁，不计算指标。",
+     |                                                          ^^ RUF001
+2647 |                 risk=ToolRisk.LOW,
+2648 |                 inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2753:36: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+2751 |                 version="1",
+2752 |                 operation="deviation.trend_build",
+2753 |                 description="构建可比趋势，并在首次或不可比运行上给出下降判断。",
+     |                                          ^^ RUF001
+2754 |                 risk=ToolRisk.LOW,
+2755 |                 inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2862:46: RUF001 String contains ambiguous `；` (FULLWIDTH SEMICOLON). Did you mean `;` (SEMICOLON)?
+     |
+2860 |                 version="1",
+2861 |                 operation="invoice.parse",
+2862 |                 description="优先解析发票 XML 结构化数据；对低置信度字段标记人工确认，不编造数值。",
+     |                                                         ^^ RUF001
+2863 |                 risk=ToolRisk.LOW,
+2864 |                 inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2862:60: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+2860 |                 version="1",
+2861 |                 operation="invoice.parse",
+2862 |                 description="优先解析发票 XML 结构化数据；对低置信度字段标记人工确认，不编造数值。",
+     |                                                                                     ^^ RUF001
+2863 |                 risk=ToolRisk.LOW,
+2864 |                 inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2914:42: RUF001 String contains ambiguous `（` (FULLWIDTH LEFT PARENTHESIS). Did you mean `(` (LEFT PARENTHESIS)?
+     |
+2912 | …     version="1",
+2913 | …     operation="business.snapshot_read",
+2914 | …     description="归一化并哈希冻结业务快照（合同、采购订单、验收、供应商、应付台账与预算策略）。",
+     |                                            ^^ RUF001
+2915 | …     risk=ToolRisk.LOW,
+2916 | …     inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2914:67: RUF001 String contains ambiguous `）` (FULLWIDTH RIGHT PARENTHESIS). Did you mean `)` (RIGHT PARENTHESIS)?
+     |
+2912 | …     version="1",
+2913 | …     operation="business.snapshot_read",
+2914 | …     description="归一化并哈希冻结业务快照（合同、采购订单、验收、供应商、应付台账与预算策略）。",
+     |                                                                                              ^^ RUF001
+2915 | …     risk=ToolRisk.LOW,
+2916 | …     inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2978:48: RUF001 String contains ambiguous `；` (FULLWIDTH SEMICOLON). Did you mean `;` (SEMICOLON)?
+     |
+2976 | …     version="1",
+2977 | …     operation="invoice.enterprise_status_check",
+2978 | …     description="核验企业公示状态的授权接口或人工回执；不抓取、不绕过验证码，证据不足时返回待人工核验。",
+     |                                                        ^^ RUF001
+2979 | …     risk=ToolRisk.LOW,
+2980 | …     inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:2978:59: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+2976 | …     version="1",
+2977 | …     operation="invoice.enterprise_status_check",
+2978 | …     description="核验企业公示状态的授权接口或人工回执；不抓取、不绕过验证码，证据不足时返回待人工核验。",
+     |                                                                              ^^ RUF001
+2979 | …     risk=ToolRisk.LOW,
+2980 | …     inputSchema=_object_schema(
+     |
+
+packages\registry\src\swarmcore_registry\models.py:3042:38: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+     |
+3040 |                 version="1",
+3041 |                 operation="invoice.payment_gate",
+3042 |                 description="评估付款就绪门槛，含不可自动通过的硬阻断项。",
+     |                                              ^^ RUF001
+3043 |                 risk=ToolRisk.LOW,
+3044 |                 inputSchema=_object_schema(
+     |
+
+tests\unit\test_agno_adapter.py:1:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 | / import asyncio
+ 2 | | from collections.abc import Mapping
+ 3 | | from typing import Any
+ 4 | |
+ 5 | | import pytest
+ 6 | | from agno.models.message import Message
+ 7 | | from agno.models.metrics import Metrics
+ 8 | | from agno.run.agent import RunOutput, RunStatus
+ 9 | | from swarmcore_adapter_agno import AgnoAdapter
+10 | | from swarmcore_adapter_agno import adapter as adapter_module
+   | |____________________________________________________________^ I001
+   |
+   = help: Organize imports
+
+tests\unit\test_capability_readiness.py:262:44: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+260 |     tool = next(item for item in summaries if item.ref == "tool://search@1")
+261 |     model = next(item for item in summaries if item.ref == "model://general@1")
+262 |     assert agent.description == "使用受控检索调研主题，并整理结构化结论。"
+    |                                                      ^^ RUF001
+263 |     assert "Research the requested topic" not in agent.description
+264 |     assert tool.description == "在已配置的知识源中检索内容。"
+    |
+
+tests\unit\test_document_processing_pipeline.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """Unit tests for the generic document processing pipeline."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | import json
+ 6 | | import re
+ 7 | | from io import BytesIO
+ 8 | | from contextlib import asynccontextmanager
+ 9 | | from pathlib import Path
+10 | | from uuid import uuid4
+11 | |
+12 | | import pytest
+13 | | from swarmcore_application.document_processing import (
+14 | |     DEFAULT_BUSINESS_PROFILE,
+15 | |     DocumentProcessingService,
+16 | |     DocumentRequirementService,
+17 | |     DocumentReviewService,
+18 | |     LabelCandidateClassifier,
+19 | |     ParserRegistry,
+20 | |     UploadBatchService,
+21 | |     resolve_profile,
+22 | | )
+23 | | from swarmcore_application.document_processing.adapters import (
+24 | |     EnvHttpOcrAdapter,
+25 | |     SchemaDrivenExtractor,
+26 | |     UnconfiguredOcrAdapter,
+27 | |     schema_for_ref,
+28 | | )
+29 | | from reportlab.pdfgen.canvas import Canvas
+30 | | from swarmcore_application.document_processing.contracts import (
+31 | |     ClassificationResult,
+32 | |     ExtractionField,
+33 | |     ParsedContent,
+34 | | )
+35 | | from swarmcore_capability_contract_post_evaluation import MANIFEST as CPE_MANIFEST
+36 | | from swarmcore_persistence.models import Base
+37 | | from swarmcore_registry.capability_packs import CapabilityPackManifest
+   | |______________________________________________________________________^ I001
+   |
+   = help: Organize imports
+
+tests\unit\test_document_processing_pipeline.py:116:17: UP012 [*] Unnecessary call to `encode` as UTF-8
+    |
+114 |         filename="risks.json",
+115 |         media_type="application/json",
+116 |         content='[{"riskId":"R-1","level":"HIGH"}]'.encode(),
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UP012
+117 |     )
+118 |     pdf_stream = BytesIO()
+    |
+    = help: Rewrite as bytes literal
+
+tests\unit\test_document_processing_pipeline.py:242:12: B009 [*] Do not call `getattr` with a constant attribute value. It is not any safer than normal property access.
+    |
+241 |     request = captured["request"]
+242 |     assert getattr(request, "headers")["Authorization"] == "Bearer secret"
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^ B009
+243 |     assert captured["timeout"] == 5
+244 |     assert result["text"] == "识别后的合同正文"
+    |
+    = help: Replace `getattr` with attribute access
+
+tests\unit\test_formal_post_evaluation_report.py:131:46: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+129 |         section_drafts={},
+130 |         editorial={
+131 |             "executiveSummary": "评价结论为通过且无需复核，holistic analysis 已完成。",
+    |                                                          ^^ RUF001
+132 |             "dimensionNarratives": {
+133 |                 "DOCUMENT_COMPLETENESS": (
+    |
+
+tests\unit\test_formal_post_evaluation_report.py:163:52: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+162 |     conclusion = report["dimensionSections"][0]["conclusion"]
+163 |     assert report["timeline"][0]["status"] == "到期2项，按期2项，延期0项"
+    |                                                       ^^ RUF001
+164 |     assert "E001" not in conclusion
+165 |     assert "UUID" not in conclusion
+    |
+
+tests\unit\test_formal_post_evaluation_report.py:163:57: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+162 |     conclusion = report["dimensionSections"][0]["conclusion"]
+163 |     assert report["timeline"][0]["status"] == "到期2项，按期2项，延期0项"
+    |                                                                ^^ RUF001
+164 |     assert "E001" not in conclusion
+165 |     assert "UUID" not in conclusion
+    |
+
+tests\unit\test_formal_post_evaluation_report.py:172:23: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+170 |     assert "整体性分析" in report["managementSummary"]["executiveSummary"]
+171 |     assert report["evidenceAndLimitations"]["conflicts"] == [
+172 |         "一份合同类归档资料不可读取，无法完整核验交付、验收及合同条款。",
+    |                                    ^^ RUF001
+173 |         "发票类资料仅包含空白票样和测试说明，不属于本合同的真实交易发票。",
+174 |     ]
+    |
+
+tests\unit\test_formal_post_evaluation_report.py:173:27: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+171 |     assert report["evidenceAndLimitations"]["conflicts"] == [
+172 |         "一份合同类归档资料不可读取，无法完整核验交付、验收及合同条款。",
+173 |         "发票类资料仅包含空白票样和测试说明，不属于本合同的真实交易发票。",
+    |                                            ^^ RUF001
+174 |     ]
+175 |     assert "有1份资料未提取到可读正文。" in report["evidenceAndLimitations"]["limitations"]
+    |
+
+tests\unit\test_formal_post_evaluation_report.py:232:24: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+    |
+230 |     warnings = result["reportQuality"]["warnings"]
+231 |     assert warnings == [
+232 |         "自动审查发现非阻断性表达问题，详细诊断已保存在运行审计记录中。"
+    |                                      ^^ RUF001
+233 |     ]
+    |
+
+tests\unit\test_tool_descriptions_zh.py:62:45: RUF001 String contains ambiguous `，` (FULLWIDTH COMMA). Did you mean `,` (COMMA)?
+   |
+60 |     agent = builtin_registry().resolve_agent("agent://contract/post-evaluation-analyst@1")
+61 |     assert agent is not None
+62 |     assert agent.description == "基于上传文件与流程说明，生成规范化的合同后评价结果。"
+   |                                                        ^^ RUF001
+63 |     assert agent.instructions.startswith("Read every supplied file")
+   |
+
+tmp\start_api_stubbed.py:34:47: RUF100 [*] Unused `noqa` directive (non-enabled: `ANN002`, `ANN003`)
+   |
+33 |     class _Greenlet:
+34 |         def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+   |                                               ^^^^^^^^^^^^^^^^^^^^^^ RUF100
+35 |             del args, kwargs
+   |
+   = help: Remove unused `noqa` directive
+
+tmp\start_api_stubbed.py:37:45: RUF100 [*] Unused `noqa` directive (non-enabled: `ANN002`, `ANN003`)
+   |
+35 |             del args, kwargs
+36 |
+37 |         def switch(self, *args, **kwargs):  # noqa: ANN002, ANN003
+   |                                             ^^^^^^^^^^^^^^^^^^^^^^ RUF100
+38 |             del args, kwargs
+39 |             raise RuntimeError("greenlet stub cannot switch")
+   |
+   = help: Remove unused `noqa` directive
+
+tmp\start_api_stubbed.py:64:47: RUF100 [*] Unused `noqa` directive (non-enabled: `ANN002`, `ANN003`)
+   |
+63 |     class _Dummy:
+64 |         def __call__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+   |                                               ^^^^^^^^^^^^^^^^^^^^^^ RUF100
+65 |             return self
+   |
+   = help: Remove unused `noqa` directive
+
+tmp\start_api_stubbed.py:67:44: RUF100 [*] Unused `noqa` directive (non-enabled: `ANN001`)
+   |
+65 |             return self
+66 |
+67 |         def __getattr__(self, name: str):  # noqa: ANN001
+   |                                            ^^^^^^^^^^^^^^ RUF100
+68 |             return self
+   |
+   = help: Remove unused `noqa` directive
+
+Found 149 errors.
+[*] 13 fixable with the `--fix` option (2 hidden fixes can be enabled with the `--unsafe-fixes` option).

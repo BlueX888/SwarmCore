@@ -8,6 +8,7 @@ from .adapters import (
     schema_for_ref,
 )
 from .contracts import (
+    BUSINESS_STRUCTURING_PROFILE,
     DEFAULT_BUSINESS_PROFILE,
     STAGE_LABELS_ZH,
     ClassificationResult,
@@ -26,19 +27,29 @@ from .service import (
     DocumentReviewService,
     UploadBatchService,
 )
+from .structuring import (
+    ChunkingPolicy,
+    DocumentChunker,
+    DocumentQualityChecker,
+    estimate_tokens,
+)
 
 __all__ = [
+    "BUSINESS_STRUCTURING_PROFILE",
     "DEFAULT_BUSINESS_PROFILE",
     "STAGE_LABELS_ZH",
+    "ChunkingPolicy",
     "ClassificationResult",
+    "DocumentChunker",
     "DocumentProcessingError",
     "DocumentProcessingProfile",
     "DocumentProcessingService",
+    "DocumentQualityChecker",
     "DocumentRequirement",
     "DocumentRequirementService",
     "DocumentReviewService",
-    "ExtractionField",
     "EnvHttpOcrAdapter",
+    "ExtractionField",
     "LabelCandidateClassifier",
     "ParsedContent",
     "ParserRegistry",
@@ -48,6 +59,7 @@ __all__ = [
     "UnconfiguredOcrAdapter",
     "UploadBatchService",
     "build_ocr_adapter",
+    "estimate_tokens",
     "resolve_profile",
     "schema_for_ref",
 ]

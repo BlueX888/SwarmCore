@@ -1,0 +1,140 @@
+{
+  "verifiedAt": "2026-07-28T04:23:21Z",
+  "environment": "local",
+  "tenantId": "00000000-0000-0000-0000-000000000001",
+  "projectId": "00000000-0000-0000-0000-000000000002",
+  "capabilityPack": "swarm-calibration@1.0.4",
+  "strategy": "strategy://swarm-calibration/assess@4",
+  "evaluationId": "019fa6d5-4fc3-767e-91ef-94eb55e7b663",
+  "runId": "019fa6d5-4fcf-73ad-a710-85acab5ad08d",
+  "temporalWorkflowId": "swarm:00000000-0000-0000-0000-000000000001:019fa6d5-4fcf-73ad-a710-85acab5ad08d",
+  "temporalRunId": "019fa6d5-509d-7dce-8055-afbb3190e9dd",
+  "status": "SUCCEEDED",
+  "completionQuality": "COMPLETE",
+  "result": {
+    "status": "COMPLETED",
+    "resultHash": "57ecb6ea157a6565aedf9244ab936f2a9bc2b208f8c71403bb65534a6f58f346",
+    "qualityScore": 100,
+    "qualityDecision": "PASS",
+    "qualityThreshold": 85,
+    "selectedRoute": "PRIMARY",
+    "runtimeAuthoritative": true,
+    "tasks": {
+      "total": 31,
+      "succeeded": 29,
+      "failed": 0,
+      "skipped": 2,
+      "cancelled": 0
+    }
+  },
+  "businessInput": {
+    "issueUrl": "https://github.com/temporalio/sdk-python/issues/782",
+    "repository": "temporalio/sdk-python",
+    "pullRequest": "https://github.com/temporalio/sdk-python/pull/1352",
+    "mergeCommitSha": "391338b66939c8c2068c5d28a66be682743bc972"
+  },
+  "realData": {
+    "evidenceCount": 3,
+    "sourceTypes": [
+      "github_issue",
+      "github_discussion",
+      "github_pull_request"
+    ],
+    "evidenceManifestHash": "4f3f60213af8f08ca3f5589be5b7245b3842887617588b313d03fb853e96eda0"
+  },
+  "sandbox": {
+    "status": "PASSED",
+    "image": "localhost:5000/swarmcore-repository-verifier@sha256:fb1e9861f2a4a496edd539b0a15df428e4f62916887a3450667f92374e5569a5",
+    "networkMode": "none",
+    "command": [
+      "python",
+      "-m",
+      "compileall",
+      "-q",
+      "temporalio"
+    ],
+    "exitCode": 0,
+    "archiveSha256": "16f771f5784b9ecd46592133e14fd90c51f861f8abafb52c4234ea6a6cab187e"
+  },
+  "models": {
+    "providerModel": "kimi-k2.5",
+    "runtime": "agno",
+    "usageRecords": 7,
+    "inputTokens": 82172,
+    "outputTokens": 17695,
+    "costUsdMicros": 0,
+    "byLogicalModel": [
+      {
+        "logicalModel": "model://calibration-primary",
+        "requests": 4,
+        "inputTokens": 61821,
+        "outputTokens": 9334
+      },
+      {
+        "logicalModel": "model://calibration-review",
+        "requests": 2,
+        "inputTokens": 5034,
+        "outputTokens": 5944
+      },
+      {
+        "logicalModel": "model://calibration-standby",
+        "requests": 1,
+        "inputTokens": 15317,
+        "outputTokens": 2417
+      }
+    ]
+  },
+  "durabilityAndControl": {
+    "runEvents": 180,
+    "successfulToolEffects": 12,
+    "auditLogs": 14,
+    "approvals": [
+      {
+        "nodeKey": "sandbox-verify",
+        "status": "APPROVED",
+        "handledBy": "calibration-reviewer"
+      },
+      {
+        "nodeKey": "record-result",
+        "status": "APPROVED",
+        "handledBy": "calibration-operator"
+      }
+    ],
+    "outboxEvents": 185,
+    "deliveredOutboxEvents": 185,
+    "recovery": [
+      "Recovered select-route through the native retry_task command after correcting a Tool Worker capability-secret mismatch.",
+      "Recovered primary-diagnosis through the native retry_task command after isolating the Agent and Model Gateway with one capability-secret configuration."
+    ]
+  },
+  "reports": [
+    {
+      "format": "JSON",
+      "reportId": "019fa6f6-82c2-7189-a3b2-92acbec9aa00",
+      "contentHash": "185d0e8ba05a33854e43f9bc1b788d4352d75e8fee4c868b2efe30be58935359"
+    },
+    {
+      "format": "PDF",
+      "reportId": "019fa6f6-82c2-7c48-a533-8f7ba76aae85",
+      "contentHash": "d604ef18124bc5332ee312cd62253528645c32cc9150fdfbbaa315ac018f4599"
+    }
+  ],
+  "scope": {
+    "verified": [
+      "REST API",
+      "PostgreSQL with tenant/project RLS",
+      "Temporal durable workflow",
+      "real GitHub REST data",
+      "real external Kimi model calls through Model Gateway",
+      "primary, standby, review and revision Agent execution",
+      "Docker digest-pinned network-disabled repository verification",
+      "human approvals",
+      "JSON and PDF report persistence",
+      "Audit and Outbox delivery"
+    ],
+    "notVerified": [
+      "Playwright end-to-end UI",
+      "production deployment qualification"
+    ]
+  }
+}

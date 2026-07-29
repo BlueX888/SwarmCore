@@ -4,7 +4,7 @@ from datetime import date
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from swarmcore_application import (
     CaseService,
     CaseSubjectInput,
     ConnectionService,
+    ContractPerformanceService,
     DecisionAssetService,
     DecisionExecutionService,
     DocumentLibraryService,
@@ -26,10 +27,12 @@ from swarmcore_application import (
     DocumentReviewService,
     InvoiceAssuranceOperationsService,
     InvoiceBatchInput,
+    ProcurementSupplierRiskService,
     ResourceCatalogService,
     RuleSetService,
     UploadBatchService,
     WorkbenchService,
+    build_schedule,
 )
 from swarmcore_capability_contract_integrity import (
     MANIFEST,
@@ -38,6 +41,18 @@ from swarmcore_capability_contract_integrity import (
     REFERENCES,
     SCHEMAS,
     STRATEGIES,
+)
+from swarmcore_capability_contract_performance import (
+    MANIFEST as CONTRACT_PERFORMANCE_MANIFEST,
+)
+from swarmcore_capability_contract_performance import (
+    REFERENCES as CONTRACT_PERFORMANCE_REFERENCES,
+)
+from swarmcore_capability_contract_performance import (
+    SCHEMAS as CONTRACT_PERFORMANCE_SCHEMAS,
+)
+from swarmcore_capability_contract_performance import (
+    STRATEGIES as CONTRACT_PERFORMANCE_STRATEGIES,
 )
 from swarmcore_capability_contract_post_evaluation import (
     MANIFEST as POST_EVALUATION_MANIFEST,
@@ -63,6 +78,18 @@ from swarmcore_capability_deviation_analysis import (
 from swarmcore_capability_deviation_analysis import (
     STRATEGIES as DEVIATION_ANALYSIS_STRATEGIES,
 )
+from swarmcore_capability_document_structuring import (
+    MANIFEST as DOCUMENT_STRUCTURING_MANIFEST,
+)
+from swarmcore_capability_document_structuring import (
+    REFERENCES as DOCUMENT_STRUCTURING_REFERENCES,
+)
+from swarmcore_capability_document_structuring import (
+    SCHEMAS as DOCUMENT_STRUCTURING_SCHEMAS,
+)
+from swarmcore_capability_document_structuring import (
+    STRATEGIES as DOCUMENT_STRUCTURING_STRATEGIES,
+)
 from swarmcore_capability_invoice_assurance import (
     MANIFEST as INVOICE_ASSURANCE_MANIFEST,
 )
@@ -74,6 +101,30 @@ from swarmcore_capability_invoice_assurance import (
 )
 from swarmcore_capability_invoice_assurance import (
     STRATEGIES as INVOICE_ASSURANCE_STRATEGIES,
+)
+from swarmcore_capability_procurement_supplier_risk import (
+    MANIFEST as PROCUREMENT_SUPPLIER_RISK_MANIFEST,
+)
+from swarmcore_capability_procurement_supplier_risk import (
+    REFERENCES as PROCUREMENT_SUPPLIER_RISK_REFERENCES,
+)
+from swarmcore_capability_procurement_supplier_risk import (
+    SCHEMAS as PROCUREMENT_SUPPLIER_RISK_SCHEMAS,
+)
+from swarmcore_capability_procurement_supplier_risk import (
+    STRATEGIES as PROCUREMENT_SUPPLIER_RISK_STRATEGIES,
+)
+from swarmcore_capability_swarm_calibration import (
+    MANIFEST as SWARM_CALIBRATION_MANIFEST,
+)
+from swarmcore_capability_swarm_calibration import (
+    REFERENCES as SWARM_CALIBRATION_REFERENCES,
+)
+from swarmcore_capability_swarm_calibration import (
+    SCHEMAS as SWARM_CALIBRATION_SCHEMAS,
+)
+from swarmcore_capability_swarm_calibration import (
+    STRATEGIES as SWARM_CALIBRATION_STRATEGIES,
 )
 from swarmcore_governance import BlobCapabilityIssuer
 from swarmcore_persistence.models import (
@@ -112,11 +163,15 @@ from .business_schemas import (
     BusinessWorkSnapshot,
     CapabilityPackListResponse,
     CapabilityPackSnapshot,
+    CollectContractPerformanceRequest,
     CompleteAttachmentRequest,
     CompleteDocumentUploadRequest,
     ConfirmClassificationRequest,
     ConfirmFieldsRequest,
-    CreateInvoiceAssuranceBatchRequest,
+    ContractPerformanceCaseSnapshot,
+    ContractPerformanceEvidenceListResponse,
+    ContractPerformancePlanSnapshot,
+    ContractPerformanceSnapshotResponse,
     CreateBusinessObjectRelationRequest,
     CreateBusinessObjectRequest,
     CreateBusinessObjectVersionRequest,
@@ -124,12 +179,18 @@ from .business_schemas import (
     CreateCaseRequest,
     CreateConnectionRequest,
     CreateConnectionVersionRequest,
+    CreateContractPerformanceCaseRequest,
     CreateDecisionAssetRequest,
+    CreateInvoiceAssuranceBatchRequest,
     CreateResourceRequest,
     CreateRuleSetRequest,
+    CreateSupplierRiskMonitorRequest,
+    CreateSupplierRiskWorkOrderRequest,
     CreateUploadBatchRequest,
     CreateWorkItemRequest,
     DocumentListResponse,
+    DocumentProcessingEventListResponse,
+    DocumentProcessingEventSnapshot,
     DocumentProcessingResultSnapshot,
     DocumentProcessingRunSnapshot,
     DocumentRequirementListResponse,
@@ -142,11 +203,13 @@ from .business_schemas import (
     FindingActionRequest,
     FindingListResponse,
     FindingSnapshot,
+    InitializeContractPerformanceRequest,
+    InitiateAttachmentRequest,
+    InitiateDocumentRequest,
     InvoiceAssuranceBatchItemSnapshot,
     InvoiceAssuranceBatchSnapshot,
     InvoiceRuleTrendSnapshot,
-    InitiateAttachmentRequest,
-    InitiateDocumentRequest,
+    PublishContractPerformancePlanRequest,
     ReportListResponse,
     ReportSnapshot,
     ReprocessDocumentRequest,
@@ -154,10 +217,19 @@ from .business_schemas import (
     RuleSetDraftSnapshot,
     RuleSetValidationResponse,
     RuleSetVersionSnapshot,
+    RunSwarmCalibrationRequest,
+    SupplierRiskAlertListResponse,
+    SupplierRiskAlertSnapshot,
+    SupplierRiskHistoryItem,
+    SupplierRiskHistoryResponse,
+    SupplierRiskMonitorSnapshot,
+    SupplierRiskWorkOrderListResponse,
+    SupplierRiskWorkOrderSnapshot,
     UpdateCaseRequest,
     UpdateDecisionDraftRequest,
     UpdateDocumentBindingsRequest,
     UpdateRuleSetDraftRequest,
+    UpdateSupplierRiskWorkOrderRequest,
     UpdateWorkItemRequest,
     UploadBatchSnapshot,
     ValidateRuleSetRequest,
@@ -178,8 +250,12 @@ capability_packs = CapabilityPackService(
         (
             *REFERENCES,
             *POST_EVALUATION_REFERENCES,
+            *CONTRACT_PERFORMANCE_REFERENCES,
             *DEVIATION_ANALYSIS_REFERENCES,
+            *DOCUMENT_STRUCTURING_REFERENCES,
             *INVOICE_ASSURANCE_REFERENCES,
+            *PROCUREMENT_SUPPLIER_RISK_REFERENCES,
+            *SWARM_CALIBRATION_REFERENCES,
         )
     ),
     trusted_manifests=(
@@ -187,14 +263,22 @@ capability_packs = CapabilityPackService(
         MANIFEST_V2,
         MANIFEST_V2_1,
         POST_EVALUATION_MANIFEST,
+        CONTRACT_PERFORMANCE_MANIFEST,
         DEVIATION_ANALYSIS_MANIFEST,
+        DOCUMENT_STRUCTURING_MANIFEST,
         INVOICE_ASSURANCE_MANIFEST,
+        PROCUREMENT_SUPPLIER_RISK_MANIFEST,
+        SWARM_CALIBRATION_MANIFEST,
     ),
     trusted_strategies={
         **STRATEGIES,
         **POST_EVALUATION_STRATEGIES,
+        **CONTRACT_PERFORMANCE_STRATEGIES,
         **DEVIATION_ANALYSIS_STRATEGIES,
+        **DOCUMENT_STRUCTURING_STRATEGIES,
         **INVOICE_ASSURANCE_STRATEGIES,
+        **PROCUREMENT_SUPPLIER_RISK_STRATEGIES,
+        **SWARM_CALIBRATION_STRATEGIES,
     },
 )
 rule_sets = RuleSetService()
@@ -203,8 +287,12 @@ workbench = WorkbenchService(
     schemas={
         **SCHEMAS,
         **POST_EVALUATION_SCHEMAS,
+        **CONTRACT_PERFORMANCE_SCHEMAS,
         **DEVIATION_ANALYSIS_SCHEMAS,
+        **DOCUMENT_STRUCTURING_SCHEMAS,
         **INVOICE_ASSURANCE_SCHEMAS,
+        **PROCUREMENT_SUPPLIER_RISK_SCHEMAS,
+        **SWARM_CALIBRATION_SCHEMAS,
     },
     rule_sets=rule_sets,
 )
@@ -222,6 +310,8 @@ upload_batches = UploadBatchService()
 document_requirements = DocumentRequirementService()
 business_works = BusinessWorkService(capability_packs, workbench, cases, documents=documents)
 invoice_assurance_operations = InvoiceAssuranceOperationsService(business_works)
+contract_performance = ContractPerformanceService()
+procurement_supplier_risk = ProcurementSupplierRiskService()
 
 Scope = Annotated[RequestScope, Depends(request_scope)]
 Session = Annotated[AsyncSession, Depends(db_session)]
@@ -282,6 +372,123 @@ def _invoice_batch_snapshot(value: Any) -> InvoiceAssuranceBatchSnapshot:
                 outcome=item.outcome,
             )
             for item in value.items
+        ],
+    )
+
+
+def _contract_performance_case_snapshot(value: Any) -> ContractPerformanceCaseSnapshot:
+    return ContractPerformanceCaseSnapshot(
+        caseId=value.id,
+        contractObjectId=value.contract_object_id,
+        status=value.status,
+        timezone=value.timezone,
+        currency=value.currency,
+        activePlanVersionId=value.active_plan_version_id,
+        createdAt=value.created_at,
+        updatedAt=value.updated_at,
+    )
+
+
+def _contract_performance_plan_snapshot(value: Any) -> ContractPerformancePlanSnapshot:
+    return ContractPerformancePlanSnapshot(
+        planVersionId=value.id,
+        caseId=value.case_id,
+        version=value.version,
+        status=value.status,
+        originalBaseline=value.original_baseline,
+        currentBaseline=value.current_baseline,
+        coverage=value.coverage,
+        changeHistory=value.change_history,
+        reviewDecisions=value.review_decisions,
+        planHash=value.plan_hash,
+        effectiveAt=value.effective_at,
+        publishedBy=value.published_by,
+    )
+
+
+def _contract_performance_snapshot(value: Any) -> ContractPerformanceSnapshotResponse:
+    return ContractPerformanceSnapshotResponse(
+        snapshotId=value.id,
+        caseId=value.case_id,
+        planVersionId=value.plan_version_id,
+        asOf=value.as_of,
+        status=value.status,
+        collectionStatus=value.collection_status,
+        result=value.result,
+        resultHash=value.result_hash,
+        ganttHash=value.gantt_hash,
+        createdAt=value.created_at,
+    )
+
+
+def _supplier_risk_monitor_snapshot(value: Any) -> SupplierRiskMonitorSnapshot:
+    return SupplierRiskMonitorSnapshot(
+        monitorId=value.id,
+        caseId=value.case_id,
+        supplierName=value.supplier_name,
+        supplierCreditCode=value.supplier_credit_code,
+        status=value.status,
+        cadence=value.cadence,
+        sources=list(value.source_configuration),
+        nextCheckAt=value.next_check_at,
+        lastCheckedAt=value.last_checked_at,
+        lastSnapshotId=value.last_snapshot_id,
+        createdAt=value.created_at,
+        updatedAt=value.updated_at,
+    )
+
+
+def _supplier_risk_alert_snapshot(value: Any) -> SupplierRiskAlertSnapshot:
+    return SupplierRiskAlertSnapshot(
+        alertId=value.id,
+        monitorId=value.monitor_id,
+        snapshotId=value.snapshot_id,
+        alertType=value.alert_type,
+        severity=value.severity,
+        status=value.status,
+        title=value.title,
+        details=value.details,
+        evidence=list(value.evidence),
+        createdAt=value.created_at,
+        updatedAt=value.updated_at,
+    )
+
+
+async def _supplier_risk_work_order_snapshot(
+    session: AsyncSession,
+    *,
+    scope: RequestScope,
+    value: Any,
+) -> SupplierRiskWorkOrderSnapshot:
+    actions = await procurement_supplier_risk.list_work_order_actions(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        work_order_id=value.id,
+    )
+    return SupplierRiskWorkOrderSnapshot(
+        workOrderId=value.id,
+        alertId=value.alert_id,
+        status=value.status,
+        priority=value.priority,
+        assignee=value.assignee,
+        dueAt=value.due_at,
+        resolution=value.resolution,
+        createdBy=value.created_by,
+        createdAt=value.created_at,
+        updatedAt=value.updated_at,
+        actions=[
+            {
+                "actionId": item.id,
+                "action": item.action,
+                "fromStatus": item.from_status,
+                "toStatus": item.to_status,
+                "comment": item.comment,
+                "actor": item.actor,
+                "metadata": item.metadata_,
+                "createdAt": item.created_at,
+            }
+            for item in actions
         ],
     )
 
@@ -347,14 +554,18 @@ async def list_capability_packs(scope: Scope, session: Session) -> CapabilityPac
         session, tenant_id=scope.tenant_id, project_id=scope.project_id
     )
     version_ids = [version.id for _, version, _ in rows]
-    evaluated_version_ids = set(
-        await session.scalars(
-            select(Evaluation.capability_pack_version_id).where(
-                Evaluation.tenant_id == scope.tenant_id,
-                Evaluation.capability_pack_version_id.in_(version_ids),
+    evaluated_version_ids = (
+        set(
+            await session.scalars(
+                select(Evaluation.capability_pack_version_id).where(
+                    Evaluation.tenant_id == scope.tenant_id,
+                    Evaluation.capability_pack_version_id.in_(version_ids),
+                )
             )
         )
-    ) if version_ids else set()
+        if version_ids
+        else set()
+    )
     items: list[CapabilityPackSnapshot] = []
     for pack, version, binding in rows:
         blockers = await capability_packs.blockers_for_version(
@@ -386,6 +597,518 @@ async def list_capability_packs(scope: Scope, session: Session) -> CapabilityPac
             )
         )
     return CapabilityPackListResponse(items=items)
+
+
+@router.post(
+    "/projects/{project_id}/contract-performance/cases",
+    response_model=ContractPerformanceCaseSnapshot,
+    status_code=201,
+)
+async def create_contract_performance_case(
+    body: CreateContractPerformanceCaseRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+) -> ContractPerformanceCaseSnapshot:
+    value = await contract_performance.create_case(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        contract_object_id=body.contract_object_id,
+        timezone=body.timezone,
+        currency=body.currency,
+        idempotency_key=idempotency_key,
+        actor=scope.actor_id,
+    )
+    return _contract_performance_case_snapshot(value)
+
+
+@router.post(
+    "/projects/{project_id}/contract-performance/cases/{case_id}:initialize",
+    response_model=ContractPerformancePlanSnapshot,
+    status_code=202,
+)
+async def initialize_contract_performance_case(
+    case_id: UUID,
+    body: InitializeContractPerformanceRequest,
+    scope: Scope,
+    session: Session,
+) -> ContractPerformancePlanSnapshot:
+    value = await contract_performance.initialize(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        case_id=case_id,
+        candidates=body.candidates,
+        as_of=body.as_of,
+        coverage=body.coverage,
+        actor=scope.actor_id,
+    )
+    return _contract_performance_plan_snapshot(value)
+
+
+@router.post(
+    "/projects/{project_id}/contract-performance/cases/{case_id}/plans/{version}:publish",
+    response_model=ContractPerformancePlanSnapshot,
+)
+async def publish_contract_performance_plan(
+    case_id: UUID,
+    version: int,
+    body: PublishContractPerformancePlanRequest,
+    scope: Scope,
+    session: Session,
+) -> ContractPerformancePlanSnapshot:
+    if set(scope.roles) <= {"supplier", "supplier_collaborator"}:
+        raise HTTPException(status_code=403, detail="supplier cannot publish a buyer plan")
+    value = await contract_performance.publish_plan(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        case_id=case_id,
+        version=version,
+        approval_id=body.approval_id,
+        actor=scope.actor_id,
+        confirmations=body.confirmations,
+    )
+    return _contract_performance_plan_snapshot(value)
+
+
+@router.post(
+    "/projects/{project_id}/contract-performance/cases/{case_id}:collect",
+    response_model=ContractPerformanceSnapshotResponse,
+    status_code=202,
+)
+async def collect_contract_performance_evidence(
+    case_id: UUID,
+    body: CollectContractPerformanceRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+) -> ContractPerformanceSnapshotResponse:
+    value = await contract_performance.collect(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        case_id=case_id,
+        as_of=body.as_of,
+        evidence=body.evidence,
+        candidate_links=body.candidate_links,
+        sources=body.sources,
+        collection_status=body.collection_status,
+        idempotency_key=idempotency_key,
+        actor=scope.actor_id,
+        approved_exceptions=body.approved_exceptions,
+    )
+    return _contract_performance_snapshot(value)
+
+
+@router.get(
+    "/projects/{project_id}/contract-performance/cases/{case_id}/plan",
+    response_model=ContractPerformancePlanSnapshot,
+)
+async def get_contract_performance_plan(
+    case_id: UUID,
+    scope: Scope,
+    session: Session,
+    version: Annotated[int | None, Query(ge=1)] = None,
+) -> ContractPerformancePlanSnapshot:
+    value = await contract_performance.get_plan(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        case_id=case_id,
+        version=version,
+    )
+    return _contract_performance_plan_snapshot(value)
+
+
+@router.get("/projects/{project_id}/contract-performance/cases/{case_id}/gantt")
+async def get_contract_performance_gantt(
+    case_id: UUID,
+    scope: Scope,
+    session: Session,
+    as_of: Annotated[date, Query(alias="asOf")],
+) -> dict[str, Any]:
+    value = await contract_performance.get_plan(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        case_id=case_id,
+    )
+    snapshot = await contract_performance.get_latest_snapshot(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        case_id=case_id,
+        as_of=as_of,
+    )
+    actuals = {
+        str(item["milestoneId"]): {
+            "status": item["status"],
+            "evidenceStatus": (
+                "COMPLETE" if not item.get("missingEvidenceTypes") else "PENDING"
+            ),
+            "actualStartDate": item.get("actualStartDate"),
+            "actualFinishDate": item.get("actualFinishDate"),
+        }
+        for item in (
+            snapshot.result.get("performance", {}).get("milestones", [])
+            if snapshot is not None
+            else []
+        )
+    }
+    return build_schedule(
+        value.current_baseline,
+        original_plan=value.original_baseline,
+        actuals=actuals,
+        as_of=as_of,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/contract-performance/cases/{case_id}/evidence",
+    response_model=ContractPerformanceEvidenceListResponse,
+)
+async def list_contract_performance_evidence(
+    case_id: UUID,
+    scope: Scope,
+    session: Session,
+    evidence_type: Annotated[str | None, Query(alias="type")] = None,
+) -> ContractPerformanceEvidenceListResponse:
+    values = await contract_performance.list_evidence(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        case_id=case_id,
+        evidence_type=evidence_type,
+    )
+    items = [
+        {
+            **value.snapshot,
+            "id": str(value.id),
+            "type": value.evidence_type,
+            "sourceRef": value.source_ref,
+            "sourceRecordId": value.source_record_id,
+            "contentHash": value.content_hash,
+            "capturedAt": value.captured_at.isoformat(),
+        }
+        for value in values
+    ]
+    return ContractPerformanceEvidenceListResponse(items=items, total=len(items))
+
+
+@router.get(
+    "/projects/{project_id}/contract-performance/cases/{case_id}/snapshots/{snapshot_id}",
+    response_model=ContractPerformanceSnapshotResponse,
+)
+async def get_contract_performance_snapshot(
+    case_id: UUID,
+    snapshot_id: UUID,
+    scope: Scope,
+    session: Session,
+) -> ContractPerformanceSnapshotResponse:
+    value = await contract_performance.get_snapshot(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        case_id=case_id,
+        snapshot_id=snapshot_id,
+    )
+    return _contract_performance_snapshot(value)
+
+
+@router.post(
+    "/projects/{project_id}/swarm-calibration:run",
+    response_model=EvaluationSnapshot,
+    status_code=202,
+)
+async def run_swarm_calibration(
+    body: RunSwarmCalibrationRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+) -> EvaluationSnapshot:
+    payload = body.model_dump(
+        by_alias=True,
+        mode="json",
+        exclude={"owner"},
+        exclude_none=True,
+    )
+    item, _ = await business_works.create_work_item(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        work_key="swarm-calibration",
+        payload=payload,
+        owner=body.owner,
+        idempotency_key=f"{idempotency_key}:case",
+        actor=scope.actor_id,
+    )
+    evaluation = await business_works.execute_work_item(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        work_key="swarm-calibration",
+        work_item_id=item.id,
+        idempotency_key=f"{idempotency_key}:assessment",
+        actor=scope.actor_id,
+        submitted_scopes=scope.scopes,
+        auth_context_hash=scope.auth_context_hash,
+    )
+    return _evaluation_snapshot(evaluation)
+
+
+@router.post(
+    "/projects/{project_id}/procurement-supplier-risk/monitors",
+    response_model=SupplierRiskMonitorSnapshot,
+    status_code=201,
+)
+async def create_supplier_risk_monitor(
+    body: CreateSupplierRiskMonitorRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+) -> SupplierRiskMonitorSnapshot:
+    value = await procurement_supplier_risk.create_monitor(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        case_id=body.case_id,
+        supplier_name=body.supplier_name,
+        supplier_credit_code=body.supplier_credit_code,
+        cadence=body.cadence,
+        source_configuration=body.sources,
+        idempotency_key=idempotency_key,
+        actor=scope.actor_id,
+    )
+    return _supplier_risk_monitor_snapshot(value)
+
+
+@router.get(
+    "/projects/{project_id}/procurement-supplier-risk/monitors/{monitor_id}",
+    response_model=SupplierRiskMonitorSnapshot,
+)
+async def get_supplier_risk_monitor(
+    monitor_id: UUID,
+    scope: Scope,
+    session: Session,
+) -> SupplierRiskMonitorSnapshot:
+    value = await procurement_supplier_risk.get_monitor(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        monitor_id=monitor_id,
+    )
+    return _supplier_risk_monitor_snapshot(value)
+
+
+@router.post(
+    "/projects/{project_id}/procurement-supplier-risk/monitors/{monitor_id}:refresh",
+    response_model=EvaluationSnapshot,
+    status_code=202,
+)
+async def refresh_supplier_risk_monitor(
+    monitor_id: UUID,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+) -> EvaluationSnapshot:
+    monitor = await procurement_supplier_risk.get_monitor(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        monitor_id=monitor_id,
+    )
+    item, revision, _ = await cases.get(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        case_id=monitor.case_id,
+    )
+    prior_snapshots = await procurement_supplier_risk.list_snapshots(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        monitor_id=monitor.id,
+        limit=1,
+    )
+    payload = {
+        **revision.payload,
+        "monitorId": str(monitor.id),
+        "supplier": {
+            **dict(revision.payload.get("supplier") or {}),
+            "name": monitor.supplier_name,
+            "creditCode": monitor.supplier_credit_code,
+        },
+        "riskSources": list(monitor.source_configuration),
+        "previousSnapshot": (
+            dict(prior_snapshots[0].result.get("risk") or {})
+            if prior_snapshots
+            else None
+        ),
+    }
+    refresh_key = idempotency_key[:220]
+    if payload != revision.payload:
+        await cases.revise(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            case_id=monitor.case_id,
+            payload=payload,
+            subjects=None,
+            owner=item.owner,
+            expected_revision=item.revision_number,
+            idempotency_key=f"{refresh_key}:monitor-context",
+            actor=scope.actor_id,
+        )
+    evaluation = await cases.assess(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        case_id=monitor.case_id,
+        idempotency_key=f"{refresh_key}:assessment",
+        actor=scope.actor_id,
+        submitted_scopes=scope.scopes,
+        auth_context_hash=scope.auth_context_hash,
+    )
+    return _evaluation_snapshot(evaluation)
+
+
+@router.get(
+    "/projects/{project_id}/procurement-supplier-risk/monitors/{monitor_id}/history",
+    response_model=SupplierRiskHistoryResponse,
+)
+async def list_supplier_risk_history(
+    monitor_id: UUID,
+    scope: Scope,
+    session: Session,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> SupplierRiskHistoryResponse:
+    values = await procurement_supplier_risk.list_snapshots(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        monitor_id=monitor_id,
+        limit=limit,
+    )
+    return SupplierRiskHistoryResponse(
+        items=[
+            SupplierRiskHistoryItem(
+                snapshotId=value.id,
+                evaluationId=value.evaluation_id,
+                asOf=value.as_of,
+                decision=value.decision,
+                riskLevel=value.risk_level,
+                riskScore=value.risk_score,
+                sourceCoverage=value.source_coverage,
+                changeSummary=value.change_summary,
+                resultHash=value.result_hash,
+                result=value.result,
+            )
+            for value in values
+        ]
+    )
+
+
+@router.get(
+    "/projects/{project_id}/procurement-supplier-risk/alerts",
+    response_model=SupplierRiskAlertListResponse,
+)
+async def list_supplier_risk_alerts(
+    scope: Scope,
+    session: Session,
+    monitor_id: Annotated[UUID | None, Query(alias="monitorId")] = None,
+    status: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> SupplierRiskAlertListResponse:
+    values = await procurement_supplier_risk.list_alerts(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        monitor_id=monitor_id,
+        status=status,
+        limit=limit,
+    )
+    return SupplierRiskAlertListResponse(
+        items=[_supplier_risk_alert_snapshot(value) for value in values]
+    )
+
+
+@router.post(
+    "/projects/{project_id}/procurement-supplier-risk/alerts/{alert_id}/work-orders",
+    response_model=SupplierRiskWorkOrderSnapshot,
+    status_code=201,
+)
+async def create_supplier_risk_work_order(
+    alert_id: UUID,
+    body: CreateSupplierRiskWorkOrderRequest,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+) -> SupplierRiskWorkOrderSnapshot:
+    value = await procurement_supplier_risk.create_work_order(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        alert_id=alert_id,
+        priority=body.priority,
+        assignee=body.assignee,
+        due_at=body.due_at,
+        idempotency_key=idempotency_key,
+        actor=scope.actor_id,
+    )
+    return await _supplier_risk_work_order_snapshot(session, scope=scope, value=value)
+
+
+@router.get(
+    "/projects/{project_id}/procurement-supplier-risk/work-orders",
+    response_model=SupplierRiskWorkOrderListResponse,
+)
+async def list_supplier_risk_work_orders(
+    scope: Scope,
+    session: Session,
+    monitor_id: Annotated[UUID | None, Query(alias="monitorId")] = None,
+    status: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> SupplierRiskWorkOrderListResponse:
+    values = await procurement_supplier_risk.list_work_orders(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        monitor_id=monitor_id,
+        status=status,
+        limit=limit,
+    )
+    return SupplierRiskWorkOrderListResponse(
+        items=[
+            await _supplier_risk_work_order_snapshot(session, scope=scope, value=value)
+            for value in values
+        ]
+    )
+
+
+@router.patch(
+    "/projects/{project_id}/procurement-supplier-risk/work-orders/{work_order_id}",
+    response_model=SupplierRiskWorkOrderSnapshot,
+)
+async def update_supplier_risk_work_order(
+    work_order_id: UUID,
+    body: UpdateSupplierRiskWorkOrderRequest,
+    scope: Scope,
+    session: Session,
+) -> SupplierRiskWorkOrderSnapshot:
+    value = await procurement_supplier_risk.update_work_order(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        work_order_id=work_order_id,
+        status=body.status,
+        assignee=body.assignee,
+        resolution=body.resolution,
+        comment=body.comment,
+        actor=scope.actor_id,
+    )
+    return await _supplier_risk_work_order_snapshot(session, scope=scope, value=value)
 
 
 @router.get(
@@ -520,9 +1243,7 @@ async def bind_business_work_strategy(
     "/projects/{project_id}/business-works/{work_key}",
     response_model=BusinessWorkSnapshot,
 )
-async def get_business_work(
-    work_key: str, scope: Scope, session: Session
-) -> BusinessWorkSnapshot:
+async def get_business_work(work_key: str, scope: Scope, session: Session) -> BusinessWorkSnapshot:
     summary = await business_works.get_work(
         session,
         tenant_id=scope.tenant_id,
@@ -1201,6 +1922,66 @@ async def get_document_processing(
         errorDetail=run.error_detail,
         startedAt=run.started_at,
         completedAt=run.completed_at,
+        provenance=dict(run.provenance or {}),
+    )
+
+
+@router.get(
+    "/projects/{project_id}/documents/{document_id}/processing/events",
+    response_model=DocumentProcessingEventListResponse,
+)
+async def get_document_processing_events(
+    document_id: UUID,
+    scope: Scope,
+    session: Session,
+    after: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=500),
+) -> DocumentProcessingEventListResponse:
+    document = await documents.get(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+    )
+    version = await session.scalar(
+        select(BusinessDocumentVersion).where(
+            BusinessDocumentVersion.business_document_id == document.id,
+            BusinessDocumentVersion.version == document.current_version,
+            BusinessDocumentVersion.tenant_id == scope.tenant_id,
+            BusinessDocumentVersion.project_id == scope.project_id,
+        )
+    )
+    if version is None:
+        raise LookupError("DOCUMENT_VERSION_NOT_FOUND")
+    values = await document_processing.list_events(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        version_id=version.id,
+        after=after,
+        limit=limit,
+    )
+    items = [
+        DocumentProcessingEventSnapshot(
+            eventId=value.id,
+            eventSeq=value.event_seq,
+            processingRunId=value.processing_run_id,
+            businessDocumentVersionId=value.business_document_version_id,
+            type=value.type,
+            stage=value.stage,
+            payload=dict(value.payload or {}),
+            inputHash=value.input_hash,
+            outputHash=value.output_hash,
+            toolRef=value.tool_ref,
+            actorId=value.actor_id,
+            traceId=value.trace_id,
+            occurredAt=value.occurred_at,
+        )
+        for value in values
+    ]
+    return DocumentProcessingEventListResponse(
+        items=items,
+        nextAfter=items[-1].event_seq if items else after,
     )
 
 
@@ -1235,6 +2016,88 @@ async def get_document_processing_result(
     )
     if result is None:
         raise LookupError("PROCESSING_RESULT_NOT_FOUND")
+    return DocumentProcessingResultSnapshot(
+        resultId=result.id,
+        resultType=result.result_type,
+        resultVersion=result.result_version,
+        status=result.status,
+        schemaRef=result.schema_ref,
+        producerRef=result.producer_ref,
+        result=result.result,
+        evidence=list(result.evidence or []),
+        confirmedBy=result.confirmed_by,
+        confirmedAt=result.confirmed_at,
+        createdAt=result.created_at,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/documents/{document_id}/structured-package",
+    response_model=DocumentProcessingResultSnapshot,
+)
+async def get_document_structured_package(
+    document_id: UUID,
+    scope: Scope,
+    session: Session,
+) -> DocumentProcessingResultSnapshot:
+    document = await documents.get(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+    )
+    version = await session.scalar(
+        select(BusinessDocumentVersion).where(
+            BusinessDocumentVersion.business_document_id == document.id,
+            BusinessDocumentVersion.version == document.current_version,
+            BusinessDocumentVersion.tenant_id == scope.tenant_id,
+            BusinessDocumentVersion.project_id == scope.project_id,
+        )
+    )
+    if version is None:
+        raise LookupError("DOCUMENT_VERSION_NOT_FOUND")
+    result = await document_processing.latest_result(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        version_id=version.id,
+        result_type="STRUCTURED_PACKAGE",
+    )
+    if result is None:
+        raise LookupError("STRUCTURED_PACKAGE_NOT_FOUND")
+    return DocumentProcessingResultSnapshot(
+        resultId=result.id,
+        resultType=result.result_type,
+        resultVersion=result.result_version,
+        status=result.status,
+        schemaRef=result.schema_ref,
+        producerRef=result.producer_ref,
+        result=result.result,
+        evidence=list(result.evidence or []),
+        confirmedBy=result.confirmed_by,
+        confirmedAt=result.confirmed_at,
+        createdAt=result.created_at,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/documents/{document_id}:publish",
+    response_model=DocumentProcessingResultSnapshot,
+)
+async def publish_document_structured_package(
+    document_id: UUID,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+) -> DocumentProcessingResultSnapshot:
+    result = await document_review.publish(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+        actor=scope.actor_id,
+        idempotency_key=idempotency_key,
+    )
     return DocumentProcessingResultSnapshot(
         resultId=result.id,
         resultType=result.result_type,
@@ -1389,6 +2252,7 @@ async def reprocess_document(
     body: ReprocessDocumentRequest,
     scope: Scope,
     session: Session,
+    idempotency_key: IdempotencyKey,
 ) -> DocumentProcessingRunSnapshot:
     from swarmcore_application.document_processing import STAGE_LABELS_ZH
 
@@ -1398,6 +2262,7 @@ async def reprocess_document(
         project_id=scope.project_id,
         document_id=document_id,
         actor=scope.actor_id,
+        idempotency_key=idempotency_key,
         profile_ref=body.profile_ref,
         candidate_labels=body.classification_labels or None,
         extraction_schema_ref=body.extraction_schema_ref,
@@ -1415,6 +2280,45 @@ async def reprocess_document(
         extractorRefs=list(run.extractor_refs or []),
         errorCode=run.error_code,
         errorDetail=run.error_detail,
+        startedAt=run.started_at,
+        completedAt=run.completed_at,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/documents/{document_id}:cancel-processing",
+    response_model=DocumentProcessingRunSnapshot,
+)
+async def cancel_document_processing(
+    document_id: UUID,
+    scope: Scope,
+    session: Session,
+    idempotency_key: IdempotencyKey,
+) -> DocumentProcessingRunSnapshot:
+    from swarmcore_application.document_processing import STAGE_LABELS_ZH
+
+    run = await document_processing.cancel(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_id=document_id,
+        actor=scope.actor_id,
+        idempotency_key=idempotency_key,
+    )
+    return DocumentProcessingRunSnapshot(
+        processingRunId=run.id,
+        businessDocumentVersionId=run.business_document_version_id,
+        profileRef=run.profile_ref,
+        status=run.status,
+        currentStage=run.current_stage,
+        stageLabel=STAGE_LABELS_ZH.get(run.current_stage, run.current_stage),
+        attempt=run.attempt,
+        parserRef=run.parser_ref,
+        classifierRef=run.classifier_ref,
+        extractorRefs=list(run.extractor_refs or []),
+        errorCode=run.error_code,
+        errorDetail=run.error_detail,
+        provenance=dict(run.provenance or {}),
         startedAt=run.started_at,
         completedAt=run.completed_at,
     )
@@ -2645,16 +3549,16 @@ async def list_decision_executions(
         (
             await session.execute(
                 select(DecisionExecution, EvaluationDecision)
-            .join(
-                EvaluationDecision,
-                EvaluationDecision.id == DecisionExecution.evaluation_decision_id,
-            )
-            .where(
-                EvaluationDecision.evaluation_id == assessment_id,
-                DecisionExecution.tenant_id == scope.tenant_id,
-                DecisionExecution.project_id == scope.project_id,
-            )
-            .order_by(DecisionExecution.executed_at)
+                .join(
+                    EvaluationDecision,
+                    EvaluationDecision.id == DecisionExecution.evaluation_decision_id,
+                )
+                .where(
+                    EvaluationDecision.evaluation_id == assessment_id,
+                    DecisionExecution.tenant_id == scope.tenant_id,
+                    DecisionExecution.project_id == scope.project_id,
+                )
+                .order_by(DecisionExecution.executed_at)
             )
         ).all()
     )

@@ -1,0 +1,5 @@
+INFO:     127.0.0.1:63220 - "GET /health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54119 - "GET /health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54119 - "GET /v1/projects/00000000-0000-0000-0000-000000000002/capability-packs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54119 - "POST /v1/projects/00000000-0000-0000-0000-000000000002/capability-packs/019fa63b-3ebb-705d-994a-a649d8e7d929%3Aenable HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:52395 - "GET /v1/projects/00000000-0000-0000-0000-000000000002/capability-center HTTP/1.1" 200 OK

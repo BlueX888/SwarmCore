@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://contract-performance/result@1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "caseId", "planVersion", "asOf", "status", "collectionStatus",
+    "plan", "performance", "gantt", "evidenceLedger", "changeHistory",
+    "approvals", "provenance", "resultHash"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "schema://contract-performance/result@1"},
+    "caseId": {"type": "string"},
+    "planVersion": {"type": "integer", "minimum": 1},
+    "asOf": {"type": "string", "format": "date"},
+    "status": {"enum": ["ON_TRACK", "AT_RISK", "OVERDUE", "EVIDENCE_PENDING", "REVIEW_REQUIRED", "COMPLETED"]},
+    "collectionStatus": {"enum": ["COMPLETE", "PARTIAL", "FAILED"]},
+    "plan": {"type": "object"},
+    "performance": {"type": "object"},
+    "gantt": {"type": "object"},
+    "evidenceLedger": {"type": "object"},
+    "changeHistory": {"type": "object"},
+    "approvals": {"type": "array", "items": {"type": "object"}},
+    "provenance": {"type": "object"},
+    "resultHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}

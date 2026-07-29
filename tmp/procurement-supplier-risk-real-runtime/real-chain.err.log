@@ -1,0 +1,11 @@
+REAL_CHAIN_FAILED: GET /v1/projects/00000000-0000-0000-0000-000000000002/capability-packs returned 409: {"type":"about:blank","title":"Conflict","status":409,"code":"CONFLICT","detail":"trusted strategy version is immutable and has different content: strategy://procurement-supplier-risk/assess@1","traceId":null}
+Traceback (most recent call last):
+  File "C:\Project\SwarmCore\scripts\run-procurement-supplier-risk-real-chain.py", line 907, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "C:\Project\SwarmCore\scripts\run-procurement-supplier-risk-real-chain.py", line 523, in main
+    packs = _request(
+            ^^^^^^^^^
+  File "C:\Project\SwarmCore\scripts\run-procurement-supplier-risk-real-chain.py", line 361, in _request
+    raise ChainError(
+ChainError: GET /v1/projects/00000000-0000-0000-0000-000000000002/capability-packs returned 409: {"type":"about:blank","title":"Conflict","status":409,"code":"CONFLICT","detail":"trusted strategy version is immutable and has different content: strategy://procurement-supplier-risk/assess@1","traceId":null}

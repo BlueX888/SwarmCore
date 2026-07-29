@@ -1,0 +1,14 @@
+uploaded TENDER_DOCUMENT: 019fa6f0-f0e9-74b3-a0b8-49410cca6c9c
+uploaded WINNING_BID: 019fa6f0-f27b-7481-b719-74ad4a4eb267
+uploaded AWARD_NOTICE: 019fa6f0-f386-7f2c-98e2-5e3ae297da00
+uploaded MASTER_CONTRACT: 019fa6f0-f4b0-753c-924e-f24f2270a92d
+run 019fa6f0-f69f-701d-bff4-1eec4a9da397: ACCEPTED
+run 019fa6f0-f69f-701d-bff4-1eec4a9da397: RUNNING
+run 019fa6f0-f69f-701d-bff4-1eec4a9da397: WAITING_APPROVAL
+approved 16dc24f9-3345-4d4c-af6b-49a52b982f08 with CONFIRM_BLOCK
+run 019fa6f0-f69f-701d-bff4-1eec4a9da397: RUNNING
+run 019fa6f0-f69f-701d-bff4-1eec4a9da397: WAITING_APPROVAL
+approved e00e4b43-b5c9-406b-b34e-8d8234d62fd2 with CONFIRM_BLOCK
+run 019fa6f0-f69f-701d-bff4-1eec4a9da397: RUNNING
+run 019fa6f0-f69f-701d-bff4-1eec4a9da397: SUCCEEDED
+{"status": "SUCCEEDED", "runId": "019fa6f0-f69f-701d-bff4-1eec4a9da397", "caseId": "019fa6f0-f5de-7140-b09a-3939d405d77a", "monitorId": "019fa6f0-f60d-74f4-bf52-d54c3d0b5395", "decision": "BLOCK", "hardGates": ["GOVERNMENT_PROCUREMENT_BAN"], "evidence": "C:\\Project\\SwarmCore\\output\\procurement-supplier-risk-real-chain\\real-chain-20260728T041707Z-ae86ed5f5c.json"}

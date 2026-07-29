@@ -3,11 +3,12 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
+from swarmcore_adapter_agno import AgnoAdapter
+from swarmcore_adapter_agno import adapter as adapter_module
+
 from agno.models.message import Message
 from agno.models.metrics import Metrics
 from agno.run.agent import RunOutput, RunStatus
-from swarmcore_adapter_agno import AgnoAdapter
-from swarmcore_adapter_agno import adapter as adapter_module
 
 
 class Resolver:
@@ -246,3 +247,38 @@ def test_structured_agent_uses_prompt_backed_json_mode(
     asyncio.run(AgnoAdapter(Resolver()).execute(request))
 
     assert captured["use_json_mode"] is True
+
+
+def test_structured_agent_uses_validated_safe_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeAgent:
+        def __init__(self, **_: Any) -> None:
+            pass
+
+        async def arun(self, *_: Any, **__: Any) -> RunOutput:
+            return RunOutput(run_id="run", content={"unexpected": True})
+
+    monkeypatch.setattr(adapter_module, "Agent", FakeAgent)
+    request = {
+        "agent": {
+            "role": "worker",
+            "instructions": "work",
+            "model": "model://general",
+            "outputSchema": {
+                "type": "object",
+                "required": ["reviewRequired"],
+                "properties": {"reviewRequired": {"type": "boolean"}},
+                "additionalProperties": False,
+            },
+            "outputSchemaFallback": {"reviewRequired": True},
+        },
+        "run": {"runId": "run", "input": {}},
+        "node": {"key": "node", "config": {}},
+        "taskExecutionId": "task",
+        "agentInstanceId": "agent",
+    }
+
+    result = asyncio.run(AgnoAdapter(Resolver()).execute(request))
+
+    assert result["content"] == {"reviewRequired": True}

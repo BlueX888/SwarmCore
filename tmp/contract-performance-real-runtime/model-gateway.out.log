@@ -1,0 +1,12 @@
+INFO:     127.0.0.1:63224 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49169 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61960 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61294 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62745 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61703 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51720 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64127 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61200 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56991 - "POST /v1/chat/completions HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:56994 - "POST /v1/chat/completions HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:56997 - "POST /v1/chat/completions HTTP/1.1" 502 Bad Gateway

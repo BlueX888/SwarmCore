@@ -201,10 +201,15 @@ class ModelProviderConfigurationSnapshot(ApiModel):
     display_name: str = Field(default="", alias="displayName")
 
 
+class ModelProviderApiKeySnapshot(ApiModel):
+    api_key: str = Field(alias="apiKey")
+
+
 class ModelProviderTestResult(ApiModel):
     connected: bool
     model_name: str = Field(alias="modelName")
     latency_ms: int = Field(alias="latencyMs")
+    readiness_updated: bool = Field(alias="readinessUpdated")
 
 
 class CapabilityPresetRequest(ApiModel):

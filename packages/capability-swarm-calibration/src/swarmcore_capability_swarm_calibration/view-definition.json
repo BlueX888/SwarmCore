@@ -1,0 +1,25 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "ViewDefinition",
+  "metadata": {"name": "swarm-calibration-case", "version": "1"},
+  "spec": {
+    "steps": [
+      {"key": "task", "title": "任务契约"},
+      {"key": "runtime", "title": "运行策略"},
+      {"key": "review", "title": "确认并运行"}
+    ],
+    "defaultConfiguration": {
+      "primaryReady": true,
+      "standbyReady": true,
+      "qualityThreshold": 85,
+      "minimumEvidenceCoverage": 0.9,
+      "maxRevisionAttempts": 1,
+      "maxFallbackAttempts": 1,
+      "allowExternalWrite": false
+    },
+    "resultSections": [
+      "summary", "topology", "route", "diagnosis", "quality",
+      "sandbox", "evidence", "timeline", "cost", "report"
+    ]
+  }
+}

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import re
-from io import BytesIO
 from contextlib import asynccontextmanager
+from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from reportlab.pdfgen.canvas import Canvas
 from swarmcore_application.document_processing import (
     DEFAULT_BUSINESS_PROFILE,
     DocumentProcessingService,
@@ -26,7 +28,6 @@ from swarmcore_application.document_processing.adapters import (
     UnconfiguredOcrAdapter,
     schema_for_ref,
 )
-from reportlab.pdfgen.canvas import Canvas
 from swarmcore_application.document_processing.contracts import (
     ClassificationResult,
     ExtractionField,
@@ -209,6 +210,78 @@ def test_unconfigured_ocr_is_explicit() -> None:
     assert adapter.available is False
     with pytest.raises(RuntimeError, match="OCR_NOT_CONFIGURED"):
         adapter.recognize(media_type="image/png", content=b"x")
+
+
+@pytest.mark.asyncio
+async def test_large_native_content_is_persisted_before_ocr_degradation(
+    tmp_path: Path,
+) -> None:
+    tenant_id = uuid4()
+    project_id = uuid4()
+    version_id = uuid4()
+    pages = [
+        {
+            "page": index,
+            "text": f"page {index} supplier obligation " + ("x" * 3_000),
+            "sourceKind": "NATIVE",
+        }
+        for index in range(1, 101)
+    ]
+    parsed = ParsedContent(
+        pages=pages,
+        paragraphs=[
+            {
+                "index": index,
+                "page": index,
+                "text": page["text"],
+                "sourceKind": "NATIVE",
+            }
+            for index, page in enumerate(pages, start=1)
+        ],
+        chunks=[
+            {
+                "ordinal": index,
+                "pages": [index],
+                "text": page["text"],
+                "evidence": [{"page": index, "sourceKind": "NATIVE"}],
+            }
+            for index, page in enumerate(pages, start=1)
+        ],
+        textExcerpt="contract",
+        needsOcr=True,
+    )
+
+    class _Session:
+        def __init__(self) -> None:
+            self.added: list[object] = []
+
+        def add(self, value: object) -> None:
+            self.added.append(value)
+
+        async def flush(self) -> None:
+            return None
+
+    session = _Session()
+    storage_root = tmp_path.parent / f"sc-{version_id.hex[:8]}"
+    service = DocumentProcessingService(storage_root=storage_root)
+    compact, content_ref = await service._prepare_persisted_content(  # type: ignore[arg-type]
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        version=SimpleNamespace(id=version_id),
+        parsed=parsed,
+    )
+
+    assert content_ref is not None and content_ref.startswith("blob://")
+    assert len(compact.pages) == 5
+    assert len(compact.paragraphs) == 20
+    assert len(compact.chunks) == 10
+    blob = session.added[0]
+    stored = json.loads(  # type: ignore[attr-defined]
+        (storage_root / blob.object_key).read_text(encoding="utf-8")
+    )
+    assert len(stored["pages"]) == 100
+    assert len(stored["chunks"]) == 100
 
 
 def test_http_ocr_adapter_posts_content_and_normalizes_pages(

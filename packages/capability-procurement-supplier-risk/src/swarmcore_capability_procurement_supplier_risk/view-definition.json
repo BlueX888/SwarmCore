@@ -1,0 +1,22 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "ViewDefinition",
+  "metadata": {"name": "procurement-supplier-risk-case", "version": "1"},
+  "spec": {
+    "title": "招采一致性与供应商风控",
+    "summaryFields": [
+      {"path": "decision", "label": "签署建议"},
+      {"path": "riskLevel", "label": "风险等级"},
+      {"path": "risk.overallRiskScore", "label": "综合风险分"},
+      {"path": "performance.score", "label": "绩效分"}
+    ],
+    "sections": [
+      {"key": "consistency", "title": "四方条款一致性", "component": "procurement-clause-matrix"},
+      {"key": "risk", "title": "供应商风险", "component": "supplier-risk-profile"},
+      {"key": "performance", "title": "供应商绩效", "component": "supplier-performance-scorecard"},
+      {"key": "history", "title": "历史变化", "component": "supplier-risk-history"},
+      {"key": "provenance", "title": "过程与依据", "component": "evidence-provenance"}
+    ]
+  }
+}
+

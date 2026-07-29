@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Bot, CheckCircle2, Copy, Cpu, Eye, EyeOff, Network, Play, PlugZap, Plus, RefreshCw, Save, Search, Settings2, ShieldCheck, Trash2, Wrench, X } from "lucide-react";
 import * as React from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { api } from "@/api/client";
 import type { CapabilityKind, CapabilityPreset, CapabilitySummary, ReadinessReasonCode } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
+import { capabilityDisplayName, capabilitySearchHaystack, normalizeCapabilitySearch } from "@/lib/capability-labels";
 
 const fieldClass = "h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm outline-none focus:border-brand-500 dark:border-gray-700";
 const CONFIGURED_API_KEY_MASK = "••••••••";
@@ -42,9 +43,10 @@ export function PolicyCapabilitiesPage() { return <CapabilitiesPage kind="policy
 export function CapabilitiesPage({ kind }: { kind: CapabilityKind }) {
   const { tenantId, projectId, workspacePath } = useWorkspaceScope();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [search, setSearch] = React.useState("");
-  const [showNotReady, setShowNotReady] = React.useState(false);
+  const [search, setSearch] = React.useState(() => normalizeCapabilitySearch(searchParams.get("search") ?? ""));
+  const [showNotReady, setShowNotReady] = React.useState(() => searchParams.get("showNotReady") === "1");
   const [riskFilter, setRiskFilter] = React.useState<RiskFilter>("");
   const [selected, setSelected] = React.useState<CapabilitySummary>();
   const [input, setInput] = React.useState<Record<string, unknown>>({});
@@ -54,13 +56,18 @@ export function CapabilitiesPage({ kind }: { kind: CapabilityKind }) {
   const [selectedPresetId, setSelectedPresetId] = React.useState("");
   const [creatingModel, setCreatingModel] = React.useState(false);
   const query = useQuery({ queryKey: ["capability-center", tenantId, projectId], queryFn: () => api.getCapabilityCenter(tenantId, projectId) });
+  React.useEffect(() => {
+    if (!selected || !query.data) return;
+    const refreshed = query.data.items.find((item) => item.ref === selected.ref);
+    if (refreshed && refreshed !== selected) setSelected(refreshed);
+  }, [query.data, selected]);
   const presets = useQuery({ queryKey: ["capability-presets", tenantId, projectId], queryFn: () => api.listPresets(tenantId, projectId) });
   const filtered = React.useMemo(() => (query.data?.items ?? []).filter((item) => {
     if (!showNotReady && item.readiness.status !== "READY") return false;
     if (item.kind !== kind) return false;
     if (kind === "tool" && riskFilter && item.risk !== riskFilter) return false;
     const needle = search.trim().toLowerCase();
-    return !needle || `${item.name} ${item.description} ${item.ref}`.toLowerCase().includes(needle);
+    return !needle || capabilitySearchHaystack(item).includes(needle);
   }), [kind, query.data?.items, riskFilter, search, showNotReady]);
   const capabilityPresets = (presets.data?.items ?? []).filter((item) => item.capabilityRef === selected?.ref);
   const simpleProperties = selected ? simpleSchemaProperties(selected.inputSchema) : null;
@@ -126,7 +133,7 @@ export function CapabilitiesPage({ kind }: { kind: CapabilityKind }) {
         <div className="flex max-h-[92vh] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xl dark:border-gray-800 dark:bg-gray-900">
           <div className="flex shrink-0 items-start justify-between gap-4 border-b border-gray-100 p-5 dark:border-gray-800">
             <div className="min-w-0">
-              <Dialog.Title asChild><h2 className="font-semibold text-gray-900 dark:text-white">{selected.name}</h2></Dialog.Title>
+              <Dialog.Title asChild><h2 className="font-semibold text-gray-900 dark:text-white">{capabilityDisplayName(selected)}</h2></Dialog.Title>
               <Dialog.Description className="mt-1 text-sm text-gray-500">{selected.description}</Dialog.Description>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -135,7 +142,7 @@ export function CapabilitiesPage({ kind }: { kind: CapabilityKind }) {
             </div>
           </div>
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
-            {selected.readiness.reasons.length ? <ul className="rounded-xl bg-warning-50 p-4 text-sm text-warning-700 dark:bg-warning-500/10">{selected.readiness.reasons.map((reason) => <li key={`${reason.code}-${reason.dependencyRef ?? ""}`}>{reasonLabels[reason.code]}{reason.dependencyRef ? `：${reason.dependencyRef}` : ""}</li>)}</ul> : null}
+            {selected.readiness.reasons.length ? <ul className="rounded-xl bg-warning-50 p-4 text-sm text-warning-700 dark:bg-warning-500/10">{selected.readiness.reasons.map((reason) => <li key={`${reason.code}-${reason.dependencyRef ?? ""}`}>{reasonLabels[reason.code]}{reason.dependencyRef ? `：${capabilityDisplayName({ ref: reason.dependencyRef, name: reason.dependencyRef })}` : ""}</li>)}</ul> : null}
             {kind === "agent" ? <p className="rounded-xl bg-brand-50 p-3 text-sm text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">{selected.source === "project" ? "这是当前项目的版本化智能体；运行时会由 Agno Adapter 创建真实实例。" : "系统内置版本保持只读。“编辑配置”会复制当前模型、工具和提示词，创建可独立修改的项目智能体。"}</p> : null}
             {kind === "model" ? <ModelProviderForm tenantId={tenantId} projectId={projectId} capabilityRef={selected.ref} onSaved={async () => { await queryClient.invalidateQueries({ queryKey: ["capability-center", tenantId, projectId] }); }} /> : null}
             {kind === "model" ? <p className="rounded-xl bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">提示词在配置智能体或策略节点时填写；此处只负责连通真实模型服务。</p> : null}
@@ -165,6 +172,7 @@ function NewModelConfigurationDialog({ tenantId, projectId, onClose, onSaved }: 
 }
 
 function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, createMode = false }: { tenantId: string; projectId: string; capabilityRef: string; onSaved: () => Promise<void>; createMode?: boolean }) {
+  const queryClient = useQueryClient();
   const logicalModel = capabilityRef.replace(/@[^@]+$/, "");
   const configuration = useQuery({
     queryKey: ["model-provider", tenantId, projectId, logicalModel],
@@ -175,7 +183,6 @@ function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, create
   const [providerUrl, setProviderUrl] = React.useState("");
   const [modelName, setModelName] = React.useState("");
   const [apiKey, setApiKey] = React.useState("");
-  const [editingKey, setEditingKey] = React.useState(false);
   const [showApiKey, setShowApiKey] = React.useState(false);
   const [notice, setNotice] = React.useState("");
   React.useEffect(() => {
@@ -185,7 +192,7 @@ function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, create
     setDisplayName(configuration.data.displayName ?? "");
   }, [configuration.data]);
   const apiKeyConfigured = Boolean(!createMode && configuration.data?.apiKeyConfigured);
-  const showingConfiguredMask = apiKeyConfigured && !apiKey && !editingKey;
+  const showingConfiguredMask = apiKeyConfigured && !apiKey;
   const body = () => ({
     logicalModel,
     providerUrl: providerUrl.trim(),
@@ -194,30 +201,49 @@ function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, create
     ...(apiKey ? { apiKey } : {}),
   });
   const canSubmit = Boolean(providerUrl.trim() && modelName.trim() && (apiKey || apiKeyConfigured));
-  const beginKeyEdit = () => {
-    if (!showingConfiguredMask) return;
-    setEditingKey(true);
-    setShowApiKey(false);
-  };
   const test = useMutation({
-    mutationFn: () => api.testModelProvider(tenantId, projectId, body()),
-    onSuccess: (result) => setNotice(`连接成功：${result.modelName}，真实响应耗时 ${result.latencyMs} ms。`),
+    mutationFn: (requestBody: ReturnType<typeof body>) => api.testModelProvider(tenantId, projectId, requestBody),
+    onSuccess: async (result) => {
+      setNotice(
+        result.readinessUpdated
+          ? `连接成功：${result.modelName}，真实响应耗时 ${result.latencyMs} ms，模型已就绪。`
+          : `连接成功：${result.modelName}，真实响应耗时 ${result.latencyMs} ms。请先保存当前配置，再重新检测以更新可用状态。`,
+      );
+      if (result.readinessUpdated) {
+        await queryClient.invalidateQueries({ queryKey: ["capability-center", tenantId, projectId] });
+      }
+    },
     onError: (error) => setNotice(`连接失败：${error.message}`),
   });
+  const reveal = useMutation({
+    mutationFn: () => api.revealModelProviderApiKey(tenantId, projectId, logicalModel),
+    onSuccess: ({ apiKey: savedApiKey }) => {
+      setApiKey(savedApiKey);
+      setShowApiKey(true);
+      setNotice("");
+    },
+    onError: (error) => setNotice(`读取失败：${error.message}`),
+  });
   const save = useMutation({
-    mutationFn: () => api.saveModelProvider(tenantId, projectId, body()),
-    onSuccess: async (saved) => {
-      setApiKey("");
-      setEditingKey(false);
-      setShowApiKey(false);
-      setNotice(createMode ? `已创建项目模型 ${saved.logicalModel}，API Key 已写入 Vault。` : "配置已保存，API Key 已写入 Vault。");
+    mutationFn: (requestBody: ReturnType<typeof body>) => api.saveModelProvider(tenantId, projectId, requestBody),
+    onSuccess: async (saved, requestBody) => {
       if (!createMode) await configuration.refetch();
+      try {
+        const result = await api.testModelProvider(tenantId, projectId, requestBody);
+        setNotice(
+          result.readinessUpdated
+            ? `配置保存成功，连接检测成功：${result.modelName} 已就绪。`
+            : "配置保存成功，但就绪状态尚未更新，请稍后重新检测。",
+        );
+      } catch (error) {
+        setNotice(`配置保存成功，但自动连接检测失败：${error instanceof Error ? error.message : "未知错误"}`);
+      }
       await onSaved();
     },
     onError: (error) => setNotice(`保存失败：${error.message}`),
   });
   return <section className="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800" aria-labelledby="model-provider-title">
-    <div><h3 id="model-provider-title" className="font-semibold text-gray-900 dark:text-white">模型服务配置</h3><p className="mt-1 text-xs text-gray-500">支持 OpenAI 兼容的 /v1 地址；检测会真实调用一次模型。API Key 保存到 Vault，页面不会回显。</p></div>
+    <div><h3 id="model-provider-title" className="font-semibold text-gray-900 dark:text-white">模型服务配置</h3><p className="mt-1 text-xs text-gray-500">保存后会自动调用模型检测连接；能正常响应即标记为可用。再次打开时可点击眼睛查看 API Key。</p></div>
     <div className="grid gap-4 md:grid-cols-2">
       <label className="text-sm font-medium text-gray-700 dark:text-gray-300 md:col-span-2">显示名称<input aria-label="模型显示名称" className={`mt-2 ${fieldClass}`} value={displayName} onChange={(event) => { setDisplayName(event.target.value); setNotice(""); }} placeholder="可选，默认使用 ModelName" /></label>
       <label className="text-sm font-medium text-gray-700 dark:text-gray-300 md:col-span-2">API URL<input aria-label="模型 API URL" className={`mt-2 ${fieldClass}`} value={providerUrl} onChange={(event) => { setProviderUrl(event.target.value); setNotice(""); }} placeholder="https://api.example.com/v1" /></label>
@@ -230,45 +256,45 @@ function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, create
             type={showingConfiguredMask || !showApiKey ? "password" : "text"}
             autoComplete="new-password"
             className={`${fieldClass} pr-11`}
-            value={showingConfiguredMask ? CONFIGURED_API_KEY_MASK : apiKey}
-            onFocus={beginKeyEdit}
-            onBlur={() => {
-              if (!apiKey) {
-                setEditingKey(false);
-                setShowApiKey(false);
-              }
-            }}
+            value={apiKey}
             onChange={(event) => {
-              setEditingKey(true);
               setApiKey(event.target.value);
               setNotice("");
             }}
-            placeholder={apiKeyConfigured ? "留空保留已保存密钥，或输入新密钥覆盖" : "请输入 API Key"}
+            placeholder={showingConfiguredMask ? CONFIGURED_API_KEY_MASK : apiKeyConfigured ? "输入新密钥以覆盖" : "请输入 API Key"}
           />
           <button
             type="button"
             className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-700 disabled:pointer-events-none disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            aria-label={showingConfiguredMask ? "已保存密钥不可回显" : showApiKey ? "隐藏 API Key" : "显示 API Key"}
-            title={showingConfiguredMask ? "已保存密钥不可回显，可重新输入覆盖" : showApiKey ? "隐藏 API Key" : "显示 API Key"}
-            disabled={showingConfiguredMask || (!apiKey && !editingKey)}
-            onClick={() => setShowApiKey((value) => !value)}
+            aria-label={showingConfiguredMask ? "显示已保存 API Key" : showApiKey ? "隐藏 API Key" : "显示 API Key"}
+            title={showingConfiguredMask ? "显示已保存 API Key" : showApiKey ? "隐藏 API Key" : "显示 API Key"}
+            disabled={reveal.isPending || (!apiKey && !showingConfiguredMask)}
+            onClick={() => {
+              if (showingConfiguredMask) reveal.mutate();
+              else setShowApiKey((value) => !value);
+            }}
           >
             {showApiKey && !showingConfiguredMask ? <Eye className="size-4" aria-hidden="true" /> : <EyeOff className="size-4" aria-hidden="true" />}
           </button>
         </div>
-        {apiKeyConfigured ? <p className="mt-1 text-xs font-normal text-gray-500">已有密钥保存在 Vault；掩码仅表示已配置，长度不代表真实密钥。</p> : null}
+        {apiKey ? (
+          <p className="mt-1 text-xs font-normal text-gray-500">当前 API Key 已载入；可点击眼睛显示或隐藏。</p>
+        ) : apiKeyConfigured ? (
+          <p className="mt-1 text-xs font-normal text-gray-500">API Key 已保存；点击眼睛即可查看。</p>
+        ) : null}
       </div>
     </div>
     {!createMode && configuration.isError ? <p role="alert" className="text-sm text-error-600">读取配置失败：{configuration.error.message}</p> : null}
-    {notice ? <p role="status" className={`rounded-lg p-3 text-sm ${notice.startsWith("连接失败") || notice.startsWith("保存失败") ? "bg-error-50 text-error-600" : "bg-success-50 text-success-700"}`}>{notice}</p> : null}
-    <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => test.mutate()} loading={test.isPending} disabled={!canSubmit}><PlugZap />检测连接</Button><Button onClick={() => save.mutate()} loading={save.isPending} disabled={!canSubmit}><Save />{createMode ? "创建并保存" : "保存配置"}</Button>{notice.startsWith("连接成功") ? <CheckCircle2 className="mt-2 size-5 text-success-500" aria-hidden="true" /> : null}</div>
+    {notice ? <p role="status" className={`rounded-lg p-3 text-sm ${notice.startsWith("连接失败") || notice.startsWith("保存失败") || notice.startsWith("读取失败") || notice.includes("自动连接检测失败") ? "bg-error-50 text-error-600" : "bg-success-50 text-success-700"}`}>{notice}</p> : null}
+    <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => test.mutate(body())} loading={test.isPending} disabled={!canSubmit || save.isPending}><PlugZap />重新检测</Button><Button onClick={() => save.mutate(body())} loading={save.isPending} disabled={!canSubmit || test.isPending}><Save />{createMode ? "创建并保存" : "保存并检测"}</Button>{notice.includes("已就绪") ? <CheckCircle2 className="mt-2 size-5 text-success-500" aria-hidden="true" /> : null}</div>
   </section>;
 }
 
 function CapabilityCard({ item, selected, onSelect, onConfigure }: { item: CapabilitySummary; selected: boolean; onSelect: () => void; onConfigure?: () => void }) {
   const Icon = item.kind === "agent" ? Bot : item.kind === "model" ? Cpu : item.kind === "policy" ? ShieldCheck : Wrench;
   const riskColor = item.risk === "LOW" ? "success" : item.risk === "HIGH" || item.risk === "CRITICAL" ? "error" : "warning";
-  return <article className={`flex flex-col rounded-2xl border bg-white shadow-theme-xs transition dark:bg-gray-900 ${selected ? "border-brand-500 ring-3 ring-brand-500/10" : "border-gray-200 hover:border-brand-300 dark:border-gray-800"}`}><button type="button" onClick={onSelect} className="min-w-0 flex-1 p-5 text-left"><span className="flex items-start justify-between gap-3"><span className="grid size-11 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15"><Icon /></span><Badge color={item.readiness.status === "READY" ? "success" : "warning"}>{item.readiness.status === "READY" ? "可用" : "未就绪"}</Badge></span><span className="mt-4 block font-semibold text-gray-900 dark:text-white">{item.name}</span><span className="mt-1 line-clamp-2 block min-h-10 text-sm text-gray-500">{item.description}</span><span className="mt-4 flex items-center gap-2 text-xs"><Badge color="neutral">{item.source === "system" ? "系统内置" : item.source === "project" ? "项目创建" : item.source}</Badge>{item.risk ? <Badge color={riskColor}>{item.risk} 风险</Badge> : null}</span></button>{onConfigure ? <div className="border-t border-gray-100 px-5 py-2 dark:border-gray-800"><button type="button" aria-label={`编辑 ${item.name} 配置`} className="inline-flex items-center gap-2 py-1 text-sm font-medium text-brand-500 hover:text-brand-600" onClick={onConfigure}><Settings2 className="size-4" />编辑配置</button></div> : null}</article>;
+  const title = capabilityDisplayName(item);
+  return <article className={`flex flex-col rounded-2xl border bg-white shadow-theme-xs transition dark:bg-gray-900 ${selected ? "border-brand-500 ring-3 ring-brand-500/10" : "border-gray-200 hover:border-brand-300 dark:border-gray-800"}`}><button type="button" onClick={onSelect} className="min-w-0 flex-1 p-5 text-left"><span className="flex items-start justify-between gap-3"><span className="grid size-11 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15"><Icon /></span><Badge color={item.readiness.status === "READY" ? "success" : "warning"}>{item.readiness.status === "READY" ? "可用" : "未就绪"}</Badge></span><span className="mt-4 block font-semibold text-gray-900 dark:text-white">{title}</span><span className="mt-1 line-clamp-2 block min-h-10 text-sm text-gray-500">{item.description}</span><span className="mt-4 flex items-center gap-2 text-xs"><Badge color="neutral">{item.source === "system" ? "系统内置" : item.source === "project" ? "项目创建" : item.source}</Badge>{item.risk ? <Badge color={riskColor}>{item.risk} 风险</Badge> : null}</span></button>{onConfigure ? <div className="border-t border-gray-100 px-5 py-2 dark:border-gray-800"><button type="button" aria-label={`编辑 ${title} 配置`} className="inline-flex items-center gap-2 py-1 text-sm font-medium text-brand-500 hover:text-brand-600" onClick={onConfigure}><Settings2 className="size-4" />编辑配置</button></div> : null}</article>;
 }
 
 function InputForm({ properties, input, jsonInput, onInput, onJsonInput }: { properties: Array<[string, Record<string, unknown>]> | null; input: Record<string, unknown>; jsonInput: string; onInput: (value: Record<string, unknown>) => void; onJsonInput: (value: string) => void }) {

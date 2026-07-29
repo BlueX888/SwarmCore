@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://document-structuring/input@1",
+  "type": "object",
+  "required": [
+    "workItemId",
+    "workItemRevisionId",
+    "evaluationId",
+    "payload",
+    "documents",
+    "selectionManifestHash",
+    "configurationHash",
+    "configuration"
+  ],
+  "properties": {
+    "workItemId": {"type": "string", "format": "uuid"},
+    "workItemRevisionId": {"type": "string", "format": "uuid"},
+    "evaluationId": {"type": "string", "format": "uuid"},
+    "payload": {"type": "object"},
+    "subjects": {"type": "array", "items": {"type": "object"}},
+    "documents": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {"type": "object"}
+    },
+    "attachments": {"type": "array", "items": {"type": "object"}},
+    "attachmentManifestHash": {"type": "string"},
+    "selectionManifestHash": {"type": "string", "minLength": 1},
+    "baselineHash": {"type": "string"},
+    "configurationHash": {"type": "string", "minLength": 1},
+    "configuration": {"type": "object"}
+  },
+  "additionalProperties": false
+}

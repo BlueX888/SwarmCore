@@ -34,6 +34,7 @@ ProcessingStatus = Literal[
     "OCR_PROCESSING",
     "CLASSIFYING",
     "EXTRACTING",
+    "QUALITY_CHECK",
     "REVIEW_REQUIRED",
     "READY",
     "FAILED",
@@ -98,8 +99,11 @@ class DocumentRequirement(ProcessingModel):
 class ParsedContent(ProcessingModel):
     pages: list[dict[str, Any]] = Field(default_factory=list)
     paragraphs: list[dict[str, Any]] = Field(default_factory=list)
+    sections: list[dict[str, Any]] = Field(default_factory=list)
     tables: list[dict[str, Any]] = Field(default_factory=list)
     sheets: list[dict[str, Any]] = Field(default_factory=list)
+    chunks: list[dict[str, Any]] = Field(default_factory=list)
+    layout: dict[str, Any] = Field(default_factory=dict)
     embedded_metadata: dict[str, Any] = Field(default_factory=dict, alias="embeddedMetadata")
     warnings: list[str] = Field(default_factory=list)
     text_excerpt: str = Field(default="", alias="textExcerpt", max_length=8000)
@@ -122,6 +126,7 @@ class ExtractionField(ProcessingModel):
     display_name: str = Field(alias="displayName")
     value: Any = None
     value_type: str = Field(default="string", alias="valueType")
+    critical: bool = False
     confidence: float = Field(default=0.0, ge=0, le=1)
     review_status: Literal[
         "AUTO_ACCEPTED", "PENDING", "CONFIRMED", "CORRECTED", "UNCONFIRMED"
@@ -129,17 +134,21 @@ class ExtractionField(ProcessingModel):
     evidence_refs: list[dict[str, Any]] = Field(default_factory=list, alias="evidenceRefs")
     machine_value: Any = Field(default=None, alias="machineValue")
     confirmed_value: Any = Field(default=None, alias="confirmedValue")
+    quality_flags: list[str] = Field(default_factory=list, alias="qualityFlags")
 
 
 class ProcessingResultEnvelope(ProcessingModel):
     schema_version: str = Field(
-        default="schema://document-processing-result/v1", alias="schemaVersion"
+        default="schema://document-processing-result/v2", alias="schemaVersion"
     )
     status: Literal["READY", "REVIEW_REQUIRED", "FAILED"] = "REVIEW_REQUIRED"
     document_type: ClassificationResult | None = Field(default=None, alias="documentType")
     content: ParsedContent = Field(default_factory=ParsedContent)
     extractions: list[ExtractionField] = Field(default_factory=list)
     evidence: list[dict[str, Any]] = Field(default_factory=list)
+    organization: dict[str, Any] = Field(default_factory=dict)
+    quality: dict[str, Any] = Field(default_factory=dict)
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
     quality_flags: list[str] = Field(default_factory=list, alias="qualityFlags")
     warnings: list[str] = Field(default_factory=list)
     provenance: dict[str, Any] = Field(default_factory=dict)
@@ -153,18 +162,60 @@ DEFAULT_BUSINESS_PROFILE = DocumentProcessingProfile(
     acceptedMediaTypes=(
         "text/plain",
         "text/markdown",
+        "text/csv",
+        "application/json",
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.oasis.opendocument.text",
+        "application/vnd.oasis.opendocument.spreadsheet",
+        "application/vnd.oasis.opendocument.presentation",
         "image/png",
         "image/jpeg",
+        "image/tiff",
     ),
-    parserPolicy={"preferNativeText": True},
-    ocrPolicy={"enabled": True, "requiredWhenNoText": True},
+    parserPolicy={
+        "preferNativeText": True,
+        "largeFilePageThreshold": 50,
+        "largeFileByteThreshold": 26_214_400,
+        "largeSpreadsheetRowThreshold": 100_000,
+        "pageBatchSize": 10,
+        "maxPageCount": 500,
+        "maxSpreadsheetRows": 500_000,
+        "maxFileBytes": 209_715_200,
+    },
+    ocrPolicy={
+        "enabled": True,
+        "requiredWhenNoText": True,
+        "pageTextCoverageThreshold": 0.02,
+        "dpi": 300,
+        "pageBatchSize": 10,
+    },
     classifierRef="classifier://label-candidates@1",
     extractionSchemaRefs=(),
     qualityThresholds={"classification": 0.7, "extraction": 0.75},
     humanReviewPolicy={"requireReviewBelowThreshold": True},
+)
+
+BUSINESS_STRUCTURING_PROFILE = DEFAULT_BUSINESS_PROFILE.model_copy(
+    update={
+        "profile_id": "business-structuring",
+        "name": "Business document structuring",
+        "version": "1",
+        "classifier_ref": "classifier://document-nlp@1",
+        "extraction_schema_refs": ("schema://document/contract-structure@1",),
+        "quality_thresholds": {
+            "classification": 0.90,
+            "extraction": 0.85,
+            "criticalExtraction": 0.95,
+            "ocr": 0.90,
+        },
+        "human_review_policy": {
+            "requireReviewBelowThreshold": True,
+            "requireCriticalFieldEvidence": True,
+        },
+    }
 )
 
 
@@ -175,6 +226,15 @@ def resolve_profile(profile_ref: str | None) -> DocumentProcessingProfile:
         "document-profile://business-default@"
     ):
         return DEFAULT_BUSINESS_PROFILE
+    if profile_ref in (
+        BUSINESS_STRUCTURING_PROFILE.ref,
+        "document-profile://business-structuring",
+    ):
+        return BUSINESS_STRUCTURING_PROFILE
+    if profile_ref is not None and profile_ref.startswith(
+        "document-profile://business-structuring@"
+    ):
+        return BUSINESS_STRUCTURING_PROFILE
     raise LookupError("PROCESSING_PROFILE_NOT_FOUND")
 
 

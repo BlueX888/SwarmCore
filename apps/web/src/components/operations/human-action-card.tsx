@@ -66,6 +66,7 @@ export function HumanApprovalCard({
 }) {
   const guide = resolveApprovalGuide(request.nodeKey, request.prompt);
   const canReject = request.allowedActions.includes("reject");
+  const commandPending = request.status === "PENDING" && Boolean(request.handledBy);
 
   return <Card className="min-w-0 overflow-hidden">
     <div className="h-1.5 bg-linear-to-r from-warning-400 via-brand-400 to-brand-600" aria-hidden />
@@ -91,6 +92,12 @@ export function HumanApprovalCard({
     </CardHeader>
     <CardContent className="space-y-5">
       <p className="text-sm leading-6 text-gray-700 dark:text-gray-300">{guide.summary}</p>
+
+      {commandPending ? (
+        <p role="status" className="rounded-2xl border border-warning-200 bg-warning-50/80 px-4 py-3 text-sm text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-200">
+          批准/拒绝命令已受理，正在等待执行引擎落地。请稍候，列表会自动刷新。
+        </p>
+      ) : null}
 
       <section aria-labelledby={`approval-steps-${request.approvalId}`} className="rounded-2xl border border-brand-100 bg-brand-50/60 p-4 dark:border-brand-500/20 dark:bg-brand-500/10">
         <h3 id={`approval-steps-${request.approvalId}`} className="text-sm font-semibold text-brand-700 dark:text-brand-300">你需要做什么</h3>
@@ -139,11 +146,11 @@ export function HumanApprovalCard({
           schema={request.inputSchema}
           omitKeys={["approved"]}
           submitLabel={guide.approveLabel}
-          busy={busy}
+          busy={busy || commandPending}
           icon={<Check />}
           onSubmit={(value) => onApprove({ ...value, approved: true })}
           footer={canReject ? (
-            <Button type="button" variant="destructive" disabled={busy} onClick={onReject}>
+            <Button type="button" variant="destructive" disabled={busy || commandPending} onClick={onReject}>
               <X />
               拒绝
             </Button>

@@ -1,0 +1,107 @@
+{
+  "executionConfig": {
+    "taskQueue": {
+      "name": "swarm-control",
+      "kind": "TASK_QUEUE_KIND_NORMAL"
+    },
+    "defaultWorkflowTaskTimeout": "10s"
+  },
+  "workflowExecutionInfo": {
+    "execution": {
+      "workflowId": "swarm:00000000-0000-0000-0000-000000000001:019fa6d6-b90c-799d-bca4-7cc66c7719ee",
+      "runId": "019fa6d6-b9d0-7cc8-b3ae-4e437929b879"
+    },
+    "type": {
+      "name": "SwarmRunWorkflow"
+    },
+    "startTime": "2026-07-28T03:48:37.968838898Z",
+    "status": "WORKFLOW_EXECUTION_STATUS_RUNNING",
+    "historyLength": "330",
+    "executionTime": "2026-07-28T03:48:37.968838898Z",
+    "memo": {},
+    "searchAttributes": {
+      "indexedFields": {
+        "BuildIds": {
+          "metadata": {
+            "encoding": "anNvbi9wbGFpbg==",
+            "type": "S2V5d29yZExpc3Q="
+          },
+          "data": "WyJ1bnZlcnNpb25lZCIsInVudmVyc2lvbmVkOjdmYWMxOWJiMmYzNDEyMjMzNmU2YjkzNzcxMDI5ZDBhIl0="
+        },
+        "TemporalChangeVersion": {
+          "metadata": {
+            "encoding": "anNvbi9wbGFpbg==",
+            "type": "S2V5d29yZExpc3Q="
+          },
+          "data": "WyJpbml0aWFsLXJ1bi1ldmVudC1tZXRhZGF0YS12MSIsInRyYW5zaXRpdmUtZmFpbHVyZS1ibG9ja2luZy12MSJd"
+        }
+      }
+    },
+    "autoResetPoints": {
+      "points": [
+        {
+          "buildId": "7fac19bb2f34122336e6b93771029d0a",
+          "runId": "019fa6d6-b9d0-7cc8-b3ae-4e437929b879",
+          "firstWorkflowTaskCompletedId": "4",
+          "createTime": "2026-07-28T03:48:38.023331582Z",
+          "resettable": true
+        }
+      ]
+    },
+    "taskQueue": "swarm-control",
+    "stateTransitionCount": "241",
+    "historySizeBytes": "3918899",
+    "mostRecentWorkerVersionStamp": {
+      "buildId": "7fac19bb2f34122336e6b93771029d0a"
+    },
+    "rootExecution": {
+      "workflowId": "swarm:00000000-0000-0000-0000-000000000001:019fa6d6-b90c-799d-bca4-7cc66c7719ee",
+      "runId": "019fa6d6-b9d0-7cc8-b3ae-4e437929b879"
+    },
+    "firstRunId": "019fa6d6-b9d0-7cc8-b3ae-4e437929b879",
+    "priority": {}
+  },
+  "pendingActivities": [
+    {
+      "activityId": "55",
+      "activityType": {
+        "name": "execute_agent"
+      },
+      "state": "PENDING_ACTIVITY_STATE_STARTED",
+      "heartbeatDetails": [
+        {
+          "nodeKey": "clause-analysis",
+          "stage": "running"
+        }
+      ],
+      "lastHeartbeatTime": "2026-07-28T03:50:23.438831590Z",
+      "lastStartedTime": "2026-07-28T03:50:24.460404778Z",
+      "attempt": 2,
+      "maximumAttempts": 3,
+      "scheduledTime": "2026-07-28T03:50:24.456266693Z",
+      "lastFailure": {
+        "message": "Failure exceeds size limit.",
+        "cause": {
+          "message": "agent output does not match output schema at $: '{\\n  \"clauses\": {\\n    \"TENDER\": [\\n      {\\n        \"classification\": \"PARTY\",\\n        \"text\": \"招标人：复旦大学附属中山医院；招标代理机构：上海中世建设咨询有限公司\",\\n        \"evidence\": [\\n          {\\n            \"documentId\": \"019fa6d6-b44a-70c3-9694-848005cdb342\",\\n            \"documentVersionId\": \"019fa6d6-b4cd-73f4-ab9a-19f40f9e5622\",\\n            \"excerpt\": \"招标人：复旦大学附属中山医院\\\\n地址：上海市徐汇区枫林路180号\\\\n联系人：杨婷婷\\\\n电话：021-64041990\\\\n招标代理机构：上海中世建设咨询有限公司\\\\n地址：上海市普陀区曹杨路528弄35号（中世办公楼）\\\\n联系人：安万如、周田田\\\\n电话：021-62445911、62445706\"\\n          }\\n        ]\\n      },\\n      {\\n        \"classification\": \"SUBJECT\",\\n        \"text\": \"项目名称：泛血管全栈数智基座与智能体项目\",\\n        \"evidence\": [\\n          {\\n            \"documentId\": \"019fa6d6-b44a-70c3-9694-848005cdb342\",\\n            \"documentVersionId\": \"019fa6d6-b4cd-73f4-ab9a-19f40f9e5622\",\\n            \"excerpt\": \"项目名称：泛血管全栈数智基座与智能体项目\"\\n          }\\n        ]\\n      },\\n      {\\n        \"classification\": \"PRICE\",\\n        \"text\": \"预算金额：人民币393万元整，超过本项目预算金额的投标，将做无效标处理。\",\\n        \"evidence\": [\\n          {\\n            \"documentId\": \"019fa6d6-b44a-70c3-9694-848005cdb342\",\\n            \"documentVersionId\": \"019fa6d6-b4cd-73f4-ab9a-19f40f9e5622\",\\n            \"excerpt\": \"预算金额\\\\n人民币393万元整，超过本项目预算金额的投标，将做无效标处理。\"\\n          }\\n        ]\\n      },\\n      {\\n        \"classification\": \"SCOPE\",\\n        \"text\": \"泛血管全栈数智基座与智能体建设，包括影像AI存储、文件归档存储、全闪热存储、大数据中间件服务器、大数据治理节点服务器、国产服务器操作系统、泛血管智能体应用软件（具体内容详见招标文件第三部分—采购需求）。\",\\n        \"evidence\": [\\n          {\\n            \"documentId\": \"019fa6d6-b44a-70c3-9694-848005cdb342\",\\n            \"documentVersionId\": \"019fa6d6-b4cd-73f4-ab9a-19f40f9e5622\",\\n            \"excerpt\": \"招标内容\\\\n泛血管全栈数智基座与智能体建设，包括影像AI存储、文件归档存储、全闪热存储、大数据中间件服务器、大数据治理节点服务器、国产服务器操作系统、泛血管智能体应用软件（具体内容详见招标文件第三部分—采购需求）。\"\\n          }\\n        ]\\n      },\\n      {\\n        \"classification\": \"PAYMENT\",\\n        \"text\": \"第一笔付款：合同生效且招标人收到中标人对应金额发票后的15个工作日内，招标人向中标人支付合同总额的60%；第二笔付款：硬件设备、成品软件到货并通过招标人验收并签发验收材料，且招标人收到中标人对应金额发票、履约独立保函后15个工作日内，招标人向中标人支付合同总额的40%。招标人在支付第二笔款项前，中标人应按照合同约定向招标人开具内容正确的履约独立保函，否则招标人有权暂时中止支付上述款项直至中标人履行上述开具保函的义务。\",\\n        \"evidence\": [\\n          {\\n            \"documentId\": \"019fa6d6-b44a-70c3-9694-848005cdb342\",\\n            \"documentVersionId\": \"019fa6d6-b4cd-73f4-ab9a-19f40f9e5622\",\\n            \"excerpt\": \"（1）第一笔付款：合同生效且招标人收到中标人对应金额发票后的15个工作日内，招标人向中标人支付合同总额的60%；\\\\n（2）第二笔付款：硬件设备、成品软件到货并通过招标人验收并签发验收材料，且招标人收到中标人对应金额发票、履约独立保函后15个工作日内，招标人向中标人支付合同总额的40%；招标人在支付第二笔款项前，中标人应按照合同约定向招标人开具内容正确的履约独立",
+          "applicationFailureInfo": {
+            "type": "ValueError"
+          }
+        },
+        "serverFailureInfo": {}
+      },
+      "lastWorkerIdentity": "12680@Admin",
+      "lastAttemptCompleteTime": "2026-07-28T03:50:23.456260038Z",
+      "priority": {}
+    }
+  ],
+  "workflowExtendedInfo": {
+    "runExpirationTime": "0001-01-01T00:00:00Z",
+    "originalStartTime": "2026-07-28T03:48:37.968838898Z",
+    "requestIdInfos": {
+      "7dcd7ad3-9b3f-4669-afa9-aa2695c8ee25": {
+        "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
+        "eventId": "1"
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "Category": "INVOICE_ORIGINAL",
+    "DocumentId": "019fa2cd-f963-7597-9530-2e5af295bd79",
+    "Status": "FAILED",
+    "Version": 1
+  },
+  {
+    "Category": "CONTRACT_ORDER",
+    "DocumentId": "019fa2cd-fb6d-74da-b11d-c26d22a1100d",
+    "Status": "REVIEW_REQUIRED",
+    "Version": 1
+  },
+  {
+    "Category": "RECEIPT_ACCEPTANCE",
+    "DocumentId": "019fa2cd-fc45-71d7-9092-7c29d0f110cf",
+    "Status": "REVIEW_REQUIRED",
+    "Version": 1
+  },
+  {
+    "Category": "SUPPLIER_MASTER",
+    "DocumentId": "019fa2cd-fcf3-7369-8aab-8780e934e731",
+    "Status": "REVIEW_REQUIRED",
+    "Version": 1
+  },
+  {
+    "Category": "AP_LEDGER",
+    "DocumentId": "019fa2cd-fdde-793e-afd5-9f9c4da50576",
+    "Status": "REVIEW_REQUIRED",
+    "Version": 1
+  },
+  {
+    "Category": "BUDGET_PAYMENT_POLICY",
+    "DocumentId": "019fa2cd-fea8-76d4-828e-9fa58474fec4",
+    "Status": "REVIEW_REQUIRED",
+    "Version": 1
+  }
+]

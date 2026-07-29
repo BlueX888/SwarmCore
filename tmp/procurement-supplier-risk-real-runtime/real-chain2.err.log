@@ -1,0 +1,15 @@
+REAL_CHAIN_FAILED: Client error '403 Forbidden' for url 'https://download.ccgp.gov.cn/oss/download?uuid=869FB06B509D37B0D6B74EFA5BC38C'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+Traceback (most recent call last):
+  File "C:\Project\SwarmCore\scripts\run-procurement-supplier-risk-real-chain.py", line 907, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "C:\Project\SwarmCore\scripts\run-procurement-supplier-risk-real-chain.py", line 503, in main
+    public_documents, public_sources = _fetch_public_documents()
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Project\SwarmCore\scripts\run-procurement-supplier-risk-real-chain.py", line 164, in _fetch_public_documents
+    tender_response.raise_for_status()
+  File "C:\Project\SwarmCore\.venv\Lib\site-packages\httpx\_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '403 Forbidden' for url 'https://download.ccgp.gov.cn/oss/download?uuid=869FB06B509D37B0D6B74EFA5BC38C'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403

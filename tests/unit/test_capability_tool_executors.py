@@ -3,8 +3,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import inspect
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -35,6 +37,7 @@ from swarmcore_application import (
 )
 from swarmcore_application.capability_tool_executors import (
     BoundDocumentReadExecutor,
+    BoundEvidenceSearchExecutor,
     DeviationRecorderExecutor,
     PostEvaluationRecorderExecutor,
     deviation_report_render,
@@ -59,6 +62,7 @@ PHASE_SIX_OPERATIONS = {
 
 EXPANDED_POST_EVALUATION_OPERATIONS = {
     "evidence.search",
+    "evidence.search_contextual",
     "document.coverage_check",
     "contract.post_evaluation_merge_domains",
     "contract.post_evaluation_timeline",
@@ -142,6 +146,12 @@ def test_invoice_assurance_tools_match_gateway_executor_contracts() -> None:
         {"documents": [], "domain": "commercial"}
     )
     assert search_evidence([], domain="commercial")["domain"] == "commercial"
+    assert search_evidence([], domain="execution")["domain"] == "execution"
+    contextual_search = builtin_registry().resolve_tool("tool://evidence/search@3")
+    assert contextual_search is not None
+    Draft202012Validator(contextual_search.input_schema).validate(
+        {"documents": [], "domain": "contract"}
+    )
 
 
 def _expanded_payload() -> dict[str, object]:
@@ -245,6 +255,138 @@ def test_expanded_evidence_search_and_coverage_are_deterministic() -> None:
     assert search["hits"][0]["documentVersionId"] == "version-1"
     assert coverage["complete"] is True
     assert coverage["reviewRequired"] is False
+
+
+def test_contextual_search_uses_chunk_windows_and_page_locators() -> None:
+    documents = [
+        {
+            "documentId": "contract-1",
+            "documentVersionId": "version-contract",
+            "name": "Master services agreement",
+            "category": "MASTER_CONTRACT",
+            "data": {
+                "content": {
+                    "textExcerpt": "cover page",
+                    "chunks": [
+                        {
+                            "ordinal": 1,
+                            "pageStart": 42,
+                            "pageEnd": 43,
+                            "text": (
+                                "unrelated preamble "
+                                + ("x" * 900)
+                                + " acceptance criteria and service level "
+                                + ("y" * 900)
+                            ),
+                            "evidenceRefs": [
+                                {
+                                    "page": 42,
+                                    "text": "unrelated preamble",
+                                    "sourceKind": "NATIVE",
+                                },
+                                {
+                                    "page": 43,
+                                    "text": "acceptance criteria and service level",
+                                    "sourceKind": "NATIVE",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+    ]
+
+    result = search_evidence(
+        documents,
+        domain="performance",
+        keywords=["acceptance criteria", "service level"],
+        contextual=True,
+    )
+
+    assert result["contentAvailableDocuments"] == 1
+    assert result["hits"][0]["matchedKeywords"] == [
+        "acceptance criteria",
+        "service level",
+    ]
+    assert result["hits"][0]["locator"]["chunkOrdinal"] == 1
+    assert result["hits"][0]["locator"]["pages"] == [43]
+    assert result["hits"][0]["evidence"] == [
+        {
+            "page": 43,
+            "text": "acceptance criteria and service level",
+            "sourceKind": "NATIVE",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_contextual_search_hydrates_large_content_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import swarmcore_application.capability_tool_executors as executors_module
+
+    tenant_id = uuid4()
+    project_id = uuid4()
+    blob_id = uuid4()
+    object_key = f"{tenant_id}/{project_id}/document-processing/content.json"
+    artifact_path = tmp_path / object_key
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "chunks": [
+                    {
+                        "ordinal": 27,
+                        "pages": [88],
+                        "text": "Supplier shall deliver the milestone by 30 September.",
+                        "evidence": [{"page": 88, "sourceKind": "NATIVE"}],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    session = MagicMock()
+    session.scalar = AsyncMock(
+        return_value=SimpleNamespace(object_key=object_key, status="AVAILABLE")
+    )
+
+    @asynccontextmanager
+    async def fake_transaction(*args: object, **kwargs: object) -> AsyncIterator[MagicMock]:
+        del args, kwargs
+        yield session
+
+    monkeypatch.setattr(executors_module, "tenant_transaction", fake_transaction)
+    context = SimpleNamespace(tenant_id=str(tenant_id), project_id=str(project_id))
+    executor = BoundEvidenceSearchExecutor(
+        None,  # type: ignore[arg-type]
+        artifact_root=tmp_path,
+    )
+
+    result = await executor.execute(
+        {
+            "documents": [
+                {
+                    "documentVersionId": "version-1",
+                    "category": "MASTER_CONTRACT",
+                    "data": {
+                        "contentArtifactRef": f"blob://{blob_id}",
+                        "content": {"textExcerpt": "cover page"},
+                    },
+                }
+            ],
+            "domain": "contract",
+            "keywords": ["milestone", "deliver"],
+            "maxHits": 5,
+        },
+        "effect-search",
+        context,
+    )
+
+    assert result["hits"][0]["locator"]["chunkOrdinal"] == 27
+    assert result["hits"][0]["locator"]["pages"] == [88]
 
 
 def test_coverage_does_not_treat_embedded_metadata_as_readable_content() -> None:

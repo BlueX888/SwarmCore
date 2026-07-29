@@ -35,6 +35,38 @@ def test_reject_unknown_agent() -> None:
         Compiler().compile(strategy, registry_snapshot=REGISTRY, policy_revision="p1")
 
 
+def test_compile_agent_fallback_into_frozen_plan() -> None:
+    strategy = parse_spec(
+        VALID_SPEC.replace(
+            "        agent: researcher",
+            "        agent: researcher\n        fallbackAgent: reviewer",
+            1,
+        )
+    )
+
+    plan = Compiler().compile(strategy, registry_snapshot=REGISTRY, policy_revision="p1")
+
+    research = next(node for node in plan.nodes if node.key == "research")
+    assert research.config["fallbackAgent"] == "reviewer"
+
+
+@pytest.mark.parametrize(
+    ("fallback", "code"),
+    [("missing", "UNKNOWN_FALLBACK_AGENT"), ("researcher", "FALLBACK_AGENT_REUSES_PRIMARY")],
+)
+def test_reject_invalid_agent_fallback(fallback: str, code: str) -> None:
+    strategy = parse_spec(
+        VALID_SPEC.replace(
+            "        agent: researcher",
+            f"        agent: researcher\n        fallbackAgent: {fallback}",
+            1,
+        )
+    )
+
+    with pytest.raises(CompileError, match=code):
+        Compiler().compile(strategy, registry_snapshot=REGISTRY, policy_revision="p1")
+
+
 def test_reject_invalid_json_schema() -> None:
     strategy = parse_spec(VALID_SPEC.replace("type: object", "type: definitely-not-a-type", 1))
     with pytest.raises(CompileError, match="INVALID_JSON_SCHEMA"):

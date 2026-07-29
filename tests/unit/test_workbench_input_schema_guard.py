@@ -19,4 +19,8 @@ def test_schema_requires_non_empty_documents_for_post_evaluation_input() -> None
 def test_selection_provenance_is_frozen_for_invoice_and_deviation_runs() -> None:
     assert WorkbenchService._requires_selection_provenance("invoice-assurance")
     assert WorkbenchService._requires_selection_provenance("deviation-analysis")
+    assert WorkbenchService._requires_selection_provenance("document-structuring")
+    assert WorkbenchService._requires_selection_provenance(
+        "procurement-supplier-risk"
+    )
     assert not WorkbenchService._requires_selection_provenance("contract-integrity")

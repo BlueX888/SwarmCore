@@ -1,0 +1,122 @@
+{
+  "apiVersion": "swarmcore.io/v2",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "contract-performance", "version": "1.0.17"},
+  "spec": {
+    "case": {
+      "type": "contract-performance-case",
+      "schema": "schema://contract-performance/case@1",
+      "subjectsRequired": true,
+      "subjectRoles": [
+        {"key": "contract", "objectType": "contract", "role": "PRIMARY", "min": 1, "max": 1},
+        {"key": "related", "objectType": "contract-related", "role": "RELATED", "min": 0, "max": 20}
+      ]
+    },
+    "inputSchema": "schema://contract-performance/input@1",
+    "outputSchema": "schema://contract-performance/result@1",
+    "strategies": {
+      "execute": "strategy://contract-performance/initialize@13",
+      "operations": {
+        "INITIALIZE": "strategy://contract-performance/initialize@13",
+        "COLLECT": "strategy://contract-performance/collect@10"
+      }
+    },
+    "agents": [
+      "agent://contract-performance/plan-extractor@5",
+      "agent://contract-performance/execution-evidence-analyst@4"
+    ],
+    "tools": [
+      "tool://document/read-versions@1",
+      "tool://document/coverage-check@1",
+      "tool://contract-performance/source-collect@1",
+      "tool://evidence/search@3",
+      "tool://contract-performance/plan-normalize@3",
+      "tool://contract-performance/schedule-build@1",
+      "tool://contract-performance/change-apply@1",
+      "tool://contract-performance/evidence-match@1",
+      "tool://contract-performance/status-calculate@2",
+      "tool://contract-performance/finalize@1",
+      "tool://report/render-contract-performance@1",
+      "tool://workbench/record-contract-performance@1"
+    ],
+    "documents": {
+      "processingProfile": "document-profile://business-default@1",
+      "requirements": [
+        {
+          "key": "master-contract", "category": "MASTER_CONTRACT", "displayName": "主合同",
+          "required": true, "minCount": 1, "maxCount": 1,
+          "classificationLabels": ["MASTER_CONTRACT", "CONTRACT"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "scope-specification", "category": "SCOPE_SPECIFICATION", "displayName": "范围与技术规格",
+          "required": false, "minCount": 0, "maxCount": 20,
+          "classificationLabels": ["SCOPE_SPECIFICATION", "SOW", "TECHNICAL_SPEC"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "acceptance-payment-terms", "category": "ACCEPTANCE_PAYMENT_TERMS", "displayName": "验收与付款条款",
+          "required": false, "minCount": 0, "maxCount": 20,
+          "classificationLabels": ["ACCEPTANCE", "PAYMENT_TERMS", "SLA"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "approved-change", "category": "APPROVED_CHANGE", "displayName": "批准变更",
+          "required": false, "minCount": 0, "maxCount": 50,
+          "classificationLabels": ["APPROVED_CHANGE", "CHANGE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "dispatch-logistics", "category": "DISPATCH_LOGISTICS", "displayName": "发货与物流",
+          "required": false, "minCount": 0, "maxCount": 50,
+          "classificationLabels": ["DISPATCH", "LOGISTICS"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "receipt-arrival", "category": "RECEIPT_ARRIVAL", "displayName": "到货与签收",
+          "required": false, "minCount": 0, "maxCount": 50,
+          "classificationLabels": ["RECEIPT", "ARRIVAL"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "delivery-acceptance", "category": "DELIVERY_ACCEPTANCE", "displayName": "交付与验收",
+          "required": false, "minCount": 0, "maxCount": 50,
+          "classificationLabels": ["DELIVERY_ACCEPTANCE", "ACCEPTANCE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "payment-evidence", "category": "PAYMENT_EVIDENCE", "displayName": "付款证据",
+          "required": false, "minCount": 0, "maxCount": 50,
+          "classificationLabels": ["PAYMENT", "FINANCE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "progress-service", "category": "PROGRESS_SERVICE", "displayName": "进度与服务",
+          "required": false, "minCount": 0, "maxCount": 50,
+          "classificationLabels": ["PROGRESS", "SERVICE", "SLA"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "meeting-correspondence", "category": "MEETING_CORRESPONDENCE", "displayName": "会议与往来",
+          "required": false, "minCount": 0, "maxCount": 50,
+          "classificationLabels": ["MEETING", "CORRESPONDENCE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "supplemental-facts", "category": "SUPPLEMENTAL_FACTS", "displayName": "补充结构化事实",
+          "required": false, "minCount": 0, "maxCount": 50,
+          "classificationLabels": ["SUPPLEMENTAL_FACTS"],
+          "extractionSchema": "schema://document/generic-text@1"
+        }
+      ]
+    },
+    "report": {"template": "report://contract-performance@1"},
+    "permissions": [
+      "case.create", "case.read", "case.assess", "document.read", "evidence.submit",
+      "plan.review", "plan.publish", "milestone.review", "payment-evidence.review",
+      "approval.respond", "change.approve", "contract-performance.audit", "report.read"
+    ],
+    "events": {"namespace": "capability.contract-performance"},
+    "ui": {"viewDefinition": "view://contract-performance/case@1"}
+  }
+}

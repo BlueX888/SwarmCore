@@ -17,6 +17,7 @@ members = [
   "apps/tool-gateway",
   "apps/worker-webhook",
   "apps/sandbox-manager",
+  "apps/repository-verifier",
   "apps/artifact-gateway",
   "apps/model-gateway",
   "packages/spec",
@@ -31,8 +32,12 @@ members = [
   "packages/governance",
   "packages/capability-contract-integrity",
   "packages/capability-contract-post-evaluation",
+  "packages/capability-contract-performance",
+  "packages/capability-document-structuring",
+  "packages/capability-procurement-supplier-risk",
   "packages/capability-deviation-analysis",
   "packages/capability-invoice-assurance",
+  "packages/capability-swarm-calibration",
 ]
 
 [dependency-groups]
@@ -69,6 +74,7 @@ pythonpath = [
   "apps/tool-gateway/src",
   "apps/worker-webhook/src",
   "apps/sandbox-manager/src",
+  "apps/repository-verifier/src",
   "apps/artifact-gateway/src",
   "apps/model-gateway/src",
   "packages/observability/src",
@@ -77,8 +83,12 @@ pythonpath = [
   "packages/governance/src",
   "packages/capability-contract-integrity/src",
   "packages/capability-contract-post-evaluation/src",
+  "packages/capability-contract-performance/src",
+  "packages/capability-document-structuring/src",
+  "packages/capability-procurement-supplier-risk/src",
   "packages/capability-deviation-analysis/src",
   "packages/capability-invoice-assurance/src",
+  "packages/capability-swarm-calibration/src",
 ]
 
 [tool.ruff]
@@ -109,6 +119,7 @@ packages = [
   "swarmcore_tool_gateway_api",
   "swarmcore_worker_webhook",
   "swarmcore_sandbox_manager",
+  "swarmcore_repository_verifier",
   "swarmcore_artifact_gateway",
   "swarmcore_model_gateway",
   "swarmcore_observability",
@@ -117,7 +128,11 @@ packages = [
   "swarmcore_governance",
   "swarmcore_capability_contract_integrity",
   "swarmcore_capability_contract_post_evaluation",
+  "swarmcore_capability_contract_performance",
+  "swarmcore_capability_document_structuring",
+  "swarmcore_capability_procurement_supplier_risk",
   "swarmcore_capability_deviation_analysis",
+  "swarmcore_capability_swarm_calibration",
 ]
 mypy_path = [
   "packages/application/src",
@@ -145,6 +160,10 @@ mypy_path = [
   "packages/governance/src",
   "packages/capability-contract-integrity/src",
   "packages/capability-contract-post-evaluation/src",
+  "packages/capability-contract-performance/src",
+  "packages/capability-document-structuring/src",
+  "packages/capability-procurement-supplier-risk/src",
   "packages/capability-deviation-analysis/src",
   "packages/capability-invoice-assurance/src",
+  "packages/capability-swarm-calibration/src",
 ]

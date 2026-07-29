@@ -45,6 +45,7 @@ export function ActionCenterPage() {
   const approvalItems = approvals.data?.items ?? [];
   const inputItems = inputs.data?.items ?? [];
   const total = (approvals.data?.total ?? 0) + (inputs.data?.total ?? 0);
+  const noticeTone = control.isError ? "error" : "ok";
 
   return <div className="min-w-0 space-y-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -69,7 +70,7 @@ export function ActionCenterPage() {
       </div>
     ) : null}
 
-    {notice ? <p role="status" className="rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">{notice}</p> : null}
+    {notice ? <p role="status" className={noticeTone === "error" ? "rounded-xl border border-error-200 bg-error-50 p-3 text-sm text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300" : "rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300"}>{notice}</p> : null}
     {loading ? <div className="grid gap-4 xl:grid-cols-2"><Skeleton className="h-80" /><Skeleton className="h-80" /></div> : null}
     {error ? <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-error-600">无法加载待办事项</p><p className="text-sm text-gray-500">{error.message}</p><Button onClick={refresh}>重试</Button></CardContent></Card> : null}
     {!loading && !error && total === 0 ? <Card><CardContent className="flex min-h-72 flex-col items-center justify-center gap-3 pt-5 text-center"><span className="grid size-14 place-items-center rounded-2xl bg-success-50 text-success-600 dark:bg-success-500/15"><Inbox /></span><p className="font-medium text-gray-900 dark:text-white">待办已清空</p><p className="max-w-md text-sm text-gray-500">当前没有待审批事项或外部输入请求。</p><Button asChild variant="outline"><Link to={`${workspacePath}/runs`}>打开运行记录</Link></Button></CardContent></Card> : null}
@@ -81,14 +82,10 @@ export function ActionCenterPage() {
           runPath={`${workspacePath}/runs/${request.runId}`}
           busy={control.isPending}
           onApprove={(value) => {
-            if (window.confirm("批准后运行将继续执行，确认吗？")) {
-              control.mutate(() => api.approve(tenantId, projectId, request.approvalId, value));
-            }
+            control.mutate(() => api.approve(tenantId, projectId, request.approvalId, value));
           }}
           onReject={() => {
-            if (window.confirm("拒绝此审批吗？等待中的任务将失败。")) {
-              control.mutate(() => api.reject(tenantId, projectId, request.approvalId, {}));
-            }
+            control.mutate(() => api.reject(tenantId, projectId, request.approvalId, {}));
           }}
         />
       ))}

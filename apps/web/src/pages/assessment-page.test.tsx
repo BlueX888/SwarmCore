@@ -86,6 +86,7 @@ describe("assessment page", () => {
     expect(screen.getByText("合同履约整体良好。")).toBeVisible();
     expect(screen.getByText("需关注项")).toBeVisible();
     expect(screen.getByText("PDF")).toBeVisible();
+    expect(screen.getByRole("button", { name: "下载 PDF" })).toBeDisabled();
     expect(screen.getByText("report-generation")).toBeVisible();
     expect(screen.getByRole("link", { name: "查看技术运行详情" })).toHaveAttribute("href", "/runs/run-1");
   });
@@ -236,6 +237,73 @@ describe("assessment page", () => {
     expect(screen.getAllByText("设备到货延期").length).toBeGreaterThan(0);
     expect(screen.getByText("承包商")).toBeVisible();
     expect(screen.getAllByText("PROPOSED").length).toBeGreaterThan(0);
+  });
+
+  it("renders scheduling-calibration route, quality, sandbox and frozen evidence", async () => {
+    vi.mocked(api.getAssessment).mockResolvedValue(detail({
+      scenarioType: "swarm-calibration-case",
+      result: {
+        schemaVersion: "schema://swarm-calibration/result@1",
+        status: "COMPLETED_DEGRADED",
+        issue: {
+          url: "https://github.com/temporalio/sdk-python/issues/782",
+          objective: "校验任务调度",
+          repository: "temporalio/sdk-python",
+          number: 782,
+          commitSha: "a".repeat(40),
+        },
+        route: {
+          recommendedRoute: "PRIMARY",
+          selectedRoute: "STANDBY",
+          reasonCodes: ["PRIMARY_EXECUTION_FAILED"],
+          runtimeAuthoritative: true,
+          fallback: { used: true, error: "provider unavailable" },
+        },
+        diagnosis: {
+          summary: "调度器在活动完成竞态下丢失唤醒。",
+          rootCause: "状态投影晚于调度决定。",
+          impact: "任务可能延迟。",
+          fixMechanism: "统一状态提交顺序。",
+          verificationPlan: "运行回归测试。",
+        },
+        quality: {
+          decision: "REVIEW_REQUIRED",
+          score: 79,
+          threshold: 85,
+          components: { schema: 20, evidenceCoverage: 25 },
+          hardFailures: ["RUNTIME_UNVERIFIED"],
+          evidenceCoverage: 1,
+          acceptanceCoverage: 1,
+        },
+        sandbox: { status: "UNVERIFIED", reasonCode: "SANDBOX_EXECUTOR_NOT_CONFIGURED" },
+        evidence: [{
+          evidenceId: "ev-001",
+          sourceType: "github_issue",
+          sourceUrl: "https://github.com/temporalio/sdk-python/issues/782",
+          retrievedAt: "2026-07-28T00:00:00Z",
+          contentHash: "b".repeat(64),
+          security: { promptInjectionSuspected: false, handling: "DATA_ONLY" },
+        }],
+        provenance: {
+          evidenceManifestHash: "c".repeat(64),
+          generatedAt: "2026-07-28T00:00:00Z",
+          externalWritePerformed: false,
+        },
+        resultHash: "d".repeat(64),
+      } as never,
+    }));
+
+    renderPage();
+
+    expect(await screen.findByText("调度与质量门")).toBeVisible();
+    expect(screen.getByText("已切换备用 Agent")).toBeVisible();
+    expect(screen.getByText("调度器在活动完成竞态下丢失唤醒。")).toBeVisible();
+    expect(screen.getByText("真实数据证据链")).toBeVisible();
+    expect(screen.getByRole("link", { name: "查看来源" })).toHaveAttribute(
+      "href",
+      "https://github.com/temporalio/sdk-python/issues/782",
+    );
+    expect(screen.getByText(/RUNTIME_UNVERIFIED/)).toBeVisible();
   });
 
   it("shows load failure state", async () => {

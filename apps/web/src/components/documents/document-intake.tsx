@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, CircleAlert, LoaderCircle, Upload, X } from "lucide-react";
+import { Check, CircleAlert, Download, FileText, LoaderCircle, Table2, Upload, X } from "lucide-react";
 import { ApiError, api } from "@/api/client";
 import type {
   DocumentRequirementSnapshot,
@@ -172,7 +173,7 @@ export function DocumentUploadPanel({
               已选择 {files.length} 个文件：{files.map((file) => file.name).join("、")}
             </span>
           ) : (
-            <span className="mt-2 block text-xs text-gray-500">支持 TXT、Markdown、PDF、DOCX、XLSX 和常见图片</span>
+            <span className="mt-2 block text-xs text-gray-500">支持 ODT、ODS、ODP、PDF、DOCX、XLSX、PPTX、CSV、JSON、文本和常见图片</span>
           )}
         </label>
         <UploadBatchProgress batch={batch} items={progress} />
@@ -265,6 +266,34 @@ export function DocumentProcessingStatus({
     },
     retry: false,
   });
+  const events = useQuery({
+    queryKey: ["document-processing-events", tenantId, projectId, documentId],
+    queryFn: () => api.getDocumentProcessingEvents(tenantId, projectId, documentId),
+    enabled: Boolean(processing.data),
+    refetchInterval: () => {
+      const status = processing.data?.status;
+      return status && ["READY", "FAILED", "CANCELLED", "REVIEW_REQUIRED"].includes(status) ? false : 2000;
+    },
+    retry: false,
+  });
+  const result = useQuery({
+    queryKey: ["document-processing-result", tenantId, projectId, documentId],
+    queryFn: () => api.getDocumentProcessingResult(tenantId, projectId, documentId),
+    enabled: Boolean(processing.data && ["READY", "REVIEW_REQUIRED"].includes(processing.data.status)),
+    retry: false,
+  });
+  const structured = useQuery({
+    queryKey: ["document-structured-package", tenantId, projectId, documentId],
+    queryFn: () => api.getDocumentStructuredPackage(tenantId, projectId, documentId),
+    enabled: processing.data?.status === "READY",
+    retry: false,
+  });
+  const cancel = useMutation({
+    mutationFn: () => api.cancelDocumentProcessing(tenantId, projectId, documentId),
+    onSuccess: async () => {
+      await Promise.all([processing.refetch(), events.refetch()]);
+    },
+  });
   if (processing.isError) {
     return <p className="text-sm text-gray-500">暂无处理进度。</p>;
   }
@@ -272,15 +301,124 @@ export function DocumentProcessingStatus({
     return <p className="inline-flex items-center gap-2 text-sm text-gray-500"><LoaderCircle className="size-4 animate-spin" />加载处理状态…</p>;
   }
   const Icon = processing.data.status === "READY" ? Check : processing.data.status === "FAILED" ? CircleAlert : LoaderCircle;
+  const plan = (
+    processing.data.provenance?.processingPlan
+    && typeof processing.data.provenance.processingPlan === "object"
+  ) ? processing.data.provenance.processingPlan as Record<string, unknown> : null;
+  const content = result.data?.result.content;
+  const packageResult = structured.data?.result;
+  const artifacts = packageResult?.artifacts ?? result.data?.result.artifacts ?? [];
   return (
-    <div className="rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-800">
-      <p className="inline-flex items-center gap-2 font-medium text-gray-800 dark:text-gray-200">
-        <Icon className={`size-4 ${!["READY", "FAILED", "CANCELLED", "REVIEW_REQUIRED"].includes(processing.data.status) ? "animate-spin" : ""}`} />
-        {processing.data.stageLabel}
-      </p>
-      <p className="mt-1 text-xs text-gray-500">第 {processing.data.attempt} 次处理{processing.data.errorDetail ? ` · ${processing.data.errorDetail}` : ""}</p>
+    <div className="space-y-4 rounded-lg border border-gray-200 p-4 text-sm dark:border-gray-800">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="inline-flex items-center gap-2 font-medium text-gray-800 dark:text-gray-200">
+            <Icon className={`size-4 ${!["READY", "FAILED", "CANCELLED", "REVIEW_REQUIRED"].includes(processing.data.status) ? "animate-spin" : ""}`} />
+            {processing.data.stageLabel}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            第 {processing.data.attempt} 次处理 · {processing.data.profileRef}
+            {processing.data.errorDetail ? ` · ${processing.data.errorDetail}` : ""}
+          </p>
+        </div>
+        {!["READY", "FAILED", "CANCELLED", "REVIEW_REQUIRED"].includes(processing.data.status) ? (
+          <Button
+            size="sm"
+            variant="outline"
+            loading={cancel.isPending}
+            onClick={() => cancel.mutate()}
+          >
+            <X />取消处理
+          </Button>
+        ) : null}
+      </div>
+      {cancel.isError ? <p role="alert" className="text-xs text-error-600">{cancel.error.message}</p> : null}
+      {plan ? (
+        <div className="grid gap-2 sm:grid-cols-4">
+          <Metric label="处理路径" value={plan.largeDocument ? "大文件分片" : "普通文件"} />
+          <Metric label="页数" value={displayScalar(plan.pageCount)} />
+          <Metric label="页组" value={displayScalar(plan.groupCount ?? (Array.isArray(plan.pageBatches) ? plan.pageBatches.length : undefined))} />
+          <Metric label="最大并行" value={displayScalar(plan.maxParallelism)} />
+        </div>
+      ) : null}
+      {events.data?.items.length ? (
+        <div>
+          <p className="mb-2 font-medium text-gray-800 dark:text-gray-200">处理过程与依据</p>
+          <ol className="space-y-2 border-l border-gray-200 pl-4 dark:border-gray-700">
+            {events.data.items.slice(-12).map((event) => (
+              <li key={event.eventId}>
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {event.eventSeq}. {event.type} · {event.stage}
+                </p>
+                <p className="mt-0.5 text-[11px] text-gray-500">
+                  {event.toolRef || "系统"}
+                  {event.outputHash ? ` · 输出 ${event.outputHash.slice(0, 12)}…` : ""}
+                  {` · ${new Date(event.occurredAt).toLocaleString()}`}
+                </p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
+      {content ? (
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Metric icon={<FileText className="size-4" />} label="章节 / 切片" value={`${content.sections?.length ?? 0} / ${content.chunks?.length ?? 0}`} />
+          <Metric icon={<Table2 className="size-4" />} label="表格 / 工作表" value={`${content.tables?.length ?? 0} / ${content.sheets?.length ?? 0}`} />
+          <Metric label="质量标记" value={String(result.data?.result.qualityFlags?.length ?? 0)} />
+        </div>
+      ) : null}
+      {artifacts.length ? (
+        <div>
+          <p className="mb-2 font-medium text-gray-800 dark:text-gray-200">结构化产物</p>
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {artifacts.map((artifact, index) => {
+              const artifactId = typeof artifact.artifactId === "string" ? artifact.artifactId : null;
+              const filename = typeof artifact.filename === "string"
+                ? artifact.filename
+                : (typeof artifact.kind === "string" ? artifact.kind : `产物 ${index + 1}`);
+              const artifactRef = typeof artifact.artifactRef === "string" ? artifact.artifactRef : "";
+              return (
+                <li key={`${artifactId ?? filename}-${index}`} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900">
+                  <span className="truncate text-xs">{filename}</span>
+                  {artifactId ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        void api.downloadArtifact(tenantId, projectId, artifactId).then((blob) => {
+                          const url = URL.createObjectURL(blob);
+                          const anchor = document.createElement("a");
+                          anchor.href = url;
+                          anchor.download = filename;
+                          anchor.click();
+                          URL.revokeObjectURL(url);
+                        });
+                      }}
+                    >
+                      <Download />下载
+                    </Button>
+                  ) : <span className="text-xs text-gray-400">{artifactRef}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function Metric({ label, value, icon }: { label: string; value: string; icon?: ReactNode }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900">
+      <p className="flex items-center gap-1 text-xs text-gray-500">{icon}{label}</p>
+      <p className="mt-1 font-medium text-gray-900 dark:text-white">{value}</p>
+    </div>
+  );
+}
+
+function displayScalar(value: unknown): string {
+  return typeof value === "string" || typeof value === "number" ? String(value) : "—";
 }
 
 export function DocumentClassificationReview({

@@ -20,14 +20,32 @@ def test_outbox_claim_uses_skip_locked_and_destination() -> None:
 
 
 def test_temporal_claim_excludes_unfinished_earlier_commands() -> None:
-    sql = str(pending_temporal_outbox_query(limit=10).compile(dialect=postgresql.dialect())).upper()
+    sql = str(
+        pending_temporal_outbox_query(limit=10).compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    ).upper()
     assert "NOT (EXISTS" in sql
     assert "COMMAND_SEQ" in sql
+    assert "DOCUMENT.PROCESSING.CANCEL.REQUESTED" in sql
+    assert "DOCUMENT-TEMPORAL" in sql
     assert "FOR UPDATE OF OUTBOX_EVENTS SKIP LOCKED" in sql
+    assert "DELIVERING" in sql
+    assert "LOCKED_UNTIL" in sql
 
 
 def test_nats_claim_excludes_unpublished_earlier_events() -> None:
-    sql = str(pending_nats_outbox_query(limit=10).compile(dialect=postgresql.dialect())).upper()
+    sql = str(
+        pending_nats_outbox_query(limit=10).compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    ).upper()
     assert "NOT (EXISTS" in sql
     assert "EVENT_SEQ" in sql
     assert "DELIVERED_AT IS NULL" in sql
+    assert "LEFT OUTER JOIN" in sql
+    assert "PARTITION_KEY" in sql
+    assert "DELIVERING" in sql
+    assert "LOCKED_UNTIL" in sql

@@ -75,7 +75,8 @@ export interface ModelProviderConfiguration {
 export interface ModelProviderConfigurationRequest {
   logicalModel: string; providerUrl: string; modelName: string; apiKey?: string; displayName?: string;
 }
-export interface ModelProviderTestResult { connected: boolean; modelName: string; latencyMs: number; }
+export interface ModelProviderApiKeySnapshot { apiKey: string; }
+export interface ModelProviderTestResult { connected: boolean; modelName: string; latencyMs: number; readinessUpdated: boolean; }
 export interface CapabilityPreset {
   presetId: string; kind: "agent" | "tool" | "model"; name: string; capabilityRef: string;
   parameters: Record<string, unknown>; revision: number; readiness: CapabilityReadiness | null;
@@ -305,6 +306,28 @@ export interface DocumentProcessingRunSnapshot {
   errorDetail: string | null;
   startedAt: string;
   completedAt: string | null;
+  provenance: Record<string, unknown>;
+}
+
+export interface DocumentProcessingEventSnapshot {
+  eventId: string;
+  eventSeq: number;
+  processingRunId: string;
+  businessDocumentVersionId: string;
+  type: string;
+  stage: string;
+  payload: Record<string, unknown>;
+  inputHash: string | null;
+  outputHash: string | null;
+  toolRef: string | null;
+  actorId: string;
+  traceId: string | null;
+  occurredAt: string;
+}
+
+export interface DocumentProcessingEventListResponse {
+  items: DocumentProcessingEventSnapshot[];
+  nextAfter: number;
 }
 
 export interface DocumentProcessingResultSnapshot {
@@ -328,6 +351,11 @@ export interface DocumentProcessingResultSnapshot {
     content?: {
       textExcerpt?: string;
       pages?: Array<Record<string, unknown>>;
+      sections?: Array<Record<string, unknown>>;
+      chunks?: Array<Record<string, unknown>>;
+      tables?: Array<Record<string, unknown>>;
+      sheets?: Array<Record<string, unknown>>;
+      layout?: Record<string, unknown>;
       warnings?: string[];
     };
     extractions?: Array<{
@@ -340,8 +368,13 @@ export interface DocumentProcessingResultSnapshot {
       evidenceRefs: Array<Record<string, unknown>>;
       machineValue: unknown;
       confirmedValue: unknown;
+      critical?: boolean;
+      qualityFlags?: string[];
     }>;
     evidence?: Array<Record<string, unknown>>;
+    quality?: Record<string, unknown>;
+    organization?: Record<string, unknown>;
+    artifacts?: Array<Record<string, unknown>>;
     qualityFlags?: string[];
     warnings?: string[];
     provenance?: Record<string, unknown>;
@@ -532,6 +565,114 @@ export interface InvoiceRuleTrendSnapshot {
     outcomes: Record<string, number>;
   }>;
   topRules: Array<{ ruleId: string; status: string; count: number }>;
+}
+
+export interface ContractPerformanceCaseSnapshot {
+  caseId: string;
+  contractObjectId: string;
+  status: string;
+  timezone: string;
+  currency: string;
+  activePlanVersionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContractPerformancePlanSnapshot {
+  planVersionId: string;
+  caseId: string;
+  version: number;
+  status: string;
+  originalBaseline: Record<string, unknown>;
+  currentBaseline: Record<string, unknown>;
+  coverage: Record<string, unknown>;
+  changeHistory: Record<string, unknown>;
+  reviewDecisions: Array<Record<string, unknown>>;
+  planHash: string;
+  effectiveAt: string | null;
+  publishedBy: string | null;
+}
+
+export interface ContractPerformanceSnapshot {
+  snapshotId: string;
+  caseId: string;
+  planVersionId: string;
+  asOf: string;
+  status: string;
+  collectionStatus: "COMPLETE" | "PARTIAL" | "FAILED";
+  result: Record<string, unknown>;
+  resultHash: string;
+  ganttHash: string;
+  createdAt: string;
+}
+
+export interface ContractPerformanceEvidenceList {
+  items: Array<Record<string, unknown>>;
+  total: number;
+}
+
+export interface SupplierRiskMonitorSnapshot {
+  monitorId: string;
+  caseId: string;
+  supplierName: string;
+  supplierCreditCode: string;
+  status: string;
+  cadence: "HOURLY" | "DAILY" | "WEEKLY";
+  sources: Array<Record<string, unknown>>;
+  nextCheckAt: string | null;
+  lastCheckedAt: string | null;
+  lastSnapshotId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupplierRiskHistoryResponse {
+  items: Array<{
+    snapshotId: string;
+    evaluationId: string;
+    asOf: string;
+    decision: string;
+    riskLevel: string;
+    riskScore: number;
+    sourceCoverage: Record<string, unknown>;
+    changeSummary: Record<string, unknown>;
+    resultHash: string;
+    result: Record<string, unknown>;
+  }>;
+}
+
+export interface SupplierRiskAlertListResponse {
+  items: Array<{
+    alertId: string;
+    monitorId: string;
+    snapshotId: string;
+    alertType: string;
+    severity: string;
+    status: string;
+    title: string;
+    details: Record<string, unknown>;
+    evidence: Array<Record<string, unknown>>;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+}
+
+export interface SupplierRiskWorkOrderSnapshot {
+  workOrderId: string;
+  alertId: string;
+  status: string;
+  priority: string;
+  assignee: string | null;
+  dueAt: string | null;
+  resolution: Record<string, unknown> | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  actions: Array<Record<string, unknown>>;
+}
+
+export interface SupplierRiskWorkOrderListResponse {
+  items: SupplierRiskWorkOrderSnapshot[];
 }
 
 export interface AssessmentDetailSnapshot {

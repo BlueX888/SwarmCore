@@ -377,7 +377,7 @@ URI、runtime、Schema、Provider Route、依赖图放入高级详情。
 3. 一次只实施一个 Phase，不跨阶段顺手重构。
 4. 行为变更先补测试或同步补测试，不得只改 UI 文案。
 5. 不得把占位 executor、静态假健康状态或空 Schema 标记为 READY。
-6. 不得把 API Key 写入源码、Preset、数据库普通 JSON 或前端状态。
+6. 不得把 API Key 写入源码、Preset、数据库普通 JSON或浏览器持久化状态；配置页仅可通过项目范围、`no-store` 的专用接口按需短暂读取并显示。
 7. 不得建立 REST/MCP 两套实现。
 8. 不得绕过 Temporal、状态机、幂等、Outbox、审计、策略和多租户过滤。
 9. 未执行的测试必须明确记录，未通过对应测试不得标记 VERIFIED。

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -100,9 +100,7 @@ class InitiateDocumentRequest(BusinessModel):
     size_bytes: int = Field(alias="sizeBytes", gt=0)
     sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
     business_object_ids: list[UUID] = Field(default_factory=list, alias="businessObjectIds")
-    business_work_keys: list[str] = Field(
-        default_factory=list, alias="businessWorkKeys"
-    )
+    business_work_keys: list[str] = Field(default_factory=list, alias="businessWorkKeys")
     retention_days: int = Field(default=365, alias="retentionDays", ge=1, le=3650)
     document_id: UUID | None = Field(default=None, alias="documentId")
 
@@ -152,6 +150,28 @@ class DocumentProcessingRunSnapshot(BusinessModel):
     error_detail: str | None = Field(default=None, alias="errorDetail")
     started_at: datetime = Field(alias="startedAt")
     completed_at: datetime | None = Field(default=None, alias="completedAt")
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+
+class DocumentProcessingEventSnapshot(BusinessModel):
+    event_id: UUID = Field(alias="eventId")
+    event_seq: int = Field(alias="eventSeq")
+    processing_run_id: UUID = Field(alias="processingRunId")
+    business_document_version_id: UUID = Field(alias="businessDocumentVersionId")
+    type: str
+    stage: str
+    payload: dict[str, Any]
+    input_hash: str | None = Field(default=None, alias="inputHash")
+    output_hash: str | None = Field(default=None, alias="outputHash")
+    tool_ref: str | None = Field(default=None, alias="toolRef")
+    actor_id: str = Field(alias="actorId")
+    trace_id: str | None = Field(default=None, alias="traceId")
+    occurred_at: datetime = Field(alias="occurredAt")
+
+
+class DocumentProcessingEventListResponse(BusinessModel):
+    items: list[DocumentProcessingEventSnapshot]
+    next_after: int = Field(alias="nextAfter")
 
 
 class DocumentProcessingResultSnapshot(BusinessModel):
@@ -211,9 +231,7 @@ class DocumentRequirementSnapshot(BusinessModel):
     min_count: int = Field(default=1, alias="minCount")
     max_count: int | None = Field(default=None, alias="maxCount")
     accepted_media_types: list[str] = Field(default_factory=list, alias="acceptedMediaTypes")
-    classification_labels: list[str] = Field(
-        default_factory=list, alias="classificationLabels"
-    )
+    classification_labels: list[str] = Field(default_factory=list, alias="classificationLabels")
     processing_profile_ref: str | None = Field(default=None, alias="processingProfileRef")
     extraction_schema_ref: str | None = Field(default=None, alias="extractionSchemaRef")
     category: str | None = None
@@ -258,12 +276,8 @@ class DocumentSnapshot(BusinessModel):
     current_version: int = Field(alias="currentVersion")
     updated_at: datetime = Field(alias="updatedAt")
     current: DocumentVersionSnapshot | None = None
-    business_object_ids: list[UUID] = Field(
-        default_factory=list, alias="businessObjectIds"
-    )
-    business_work_keys: list[str] = Field(
-        default_factory=list, alias="businessWorkKeys"
-    )
+    business_object_ids: list[UUID] = Field(default_factory=list, alias="businessObjectIds")
+    business_work_keys: list[str] = Field(default_factory=list, alias="businessWorkKeys")
     versions: list[DocumentVersionSnapshot] = Field(default_factory=list)
 
 
@@ -494,9 +508,7 @@ class BusinessWorkSnapshot(BusinessModel):
     configuration: dict[str, Any] = Field(default_factory=dict)
     work_item_type: str | None = Field(default=None, alias="workItemType")
     case_based: bool = Field(default=False, alias="caseBased")
-    bound_strategy_version_id: UUID | None = Field(
-        default=None, alias="boundStrategyVersionId"
-    )
+    bound_strategy_version_id: UUID | None = Field(default=None, alias="boundStrategyVersionId")
     bound_strategy_name: str | None = Field(default=None, alias="boundStrategyName")
     bound_strategy_version: int | None = Field(default=None, alias="boundStrategyVersion")
 
@@ -578,3 +590,191 @@ class InvoiceRuleTrendSnapshot(BusinessModel):
     outcomes: dict[str, int]
     buckets: list[InvoiceRuleTrendBucket]
     top_rules: list[InvoiceRuleTrendItem] = Field(alias="topRules")
+
+
+class CreateContractPerformanceCaseRequest(BusinessModel):
+    contract_object_id: UUID = Field(alias="contractObjectId")
+    timezone: str = Field(default="Asia/Shanghai", min_length=1, max_length=128)
+    currency: str = Field(default="CNY", pattern=r"^[A-Z]{3}$")
+
+
+class ContractPerformanceCaseSnapshot(BusinessModel):
+    case_id: UUID = Field(alias="caseId")
+    contract_object_id: UUID = Field(alias="contractObjectId")
+    status: str
+    timezone: str
+    currency: str
+    active_plan_version_id: UUID | None = Field(default=None, alias="activePlanVersionId")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+
+class InitializeContractPerformanceRequest(BusinessModel):
+    as_of: date = Field(alias="asOf")
+    candidates: dict[str, Any]
+    coverage: dict[str, Any] = Field(default_factory=dict)
+    selection_manifest_hash: str | None = Field(default=None, alias="selectionManifestHash")
+    configuration_hash: str | None = Field(default=None, alias="configurationHash")
+
+
+class PublishContractPerformancePlanRequest(BusinessModel):
+    approval_id: UUID = Field(alias="approvalId")
+    confirmations: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ContractPerformancePlanSnapshot(BusinessModel):
+    plan_version_id: UUID = Field(alias="planVersionId")
+    case_id: UUID = Field(alias="caseId")
+    version: int
+    status: str
+    original_baseline: dict[str, Any] = Field(alias="originalBaseline")
+    current_baseline: dict[str, Any] = Field(alias="currentBaseline")
+    coverage: dict[str, Any]
+    change_history: dict[str, Any] = Field(alias="changeHistory")
+    review_decisions: list[dict[str, Any]] = Field(alias="reviewDecisions")
+    plan_hash: str = Field(alias="planHash")
+    effective_at: datetime | None = Field(default=None, alias="effectiveAt")
+    published_by: str | None = Field(default=None, alias="publishedBy")
+
+
+class CollectContractPerformanceRequest(BusinessModel):
+    as_of: date = Field(alias="asOf")
+    evidence: list[dict[str, Any]] = Field(default_factory=list, max_length=1000)
+    candidate_links: list[dict[str, Any]] = Field(default_factory=list, alias="candidateLinks")
+    sources: list[dict[str, Any]] = Field(default_factory=list, max_length=5)
+    manual_documents: list[UUID] = Field(default_factory=list, alias="manualDocuments")
+    collection_status: Literal["COMPLETE", "PARTIAL", "FAILED"] = Field(
+        default="COMPLETE", alias="collectionStatus"
+    )
+    approved_exceptions: list[str] = Field(default_factory=list, alias="approvedExceptions")
+
+
+class ContractPerformanceSnapshotResponse(BusinessModel):
+    snapshot_id: UUID = Field(alias="snapshotId")
+    case_id: UUID = Field(alias="caseId")
+    plan_version_id: UUID = Field(alias="planVersionId")
+    as_of: datetime = Field(alias="asOf")
+    status: str
+    collection_status: str = Field(alias="collectionStatus")
+    result: dict[str, Any]
+    result_hash: str = Field(alias="resultHash")
+    gantt_hash: str = Field(alias="ganttHash")
+    created_at: datetime = Field(alias="createdAt")
+
+
+class ContractPerformanceEvidenceListResponse(BusinessModel):
+    items: list[dict[str, Any]]
+    total: int
+
+
+class SwarmCalibrationSandboxRequest(BusinessModel):
+    enabled: bool = True
+    test_command: list[str] = Field(alias="testCommand", min_length=1, max_length=32)
+
+
+class RunSwarmCalibrationRequest(BusinessModel):
+    title: str = Field(min_length=1, max_length=256)
+    issue_url: str = Field(
+        alias="issueUrl",
+        pattern=r"^https://(?:www\.)?github\.com/[^/]+/[^/]+/issues/[1-9][0-9]*/?$",
+    )
+    objective: str = Field(min_length=1, max_length=4000)
+    acceptance_criteria: list[str] = Field(
+        alias="acceptanceCriteria",
+        min_length=1,
+        max_length=20,
+    )
+    sandbox: SwarmCalibrationSandboxRequest
+    budget: dict[str, Any] = Field(default_factory=dict)
+    owner: str | None = Field(default=None, max_length=256)
+
+
+class CreateSupplierRiskMonitorRequest(BusinessModel):
+    case_id: UUID = Field(alias="caseId")
+    supplier_name: str = Field(alias="supplierName", min_length=1, max_length=512)
+    supplier_credit_code: str = Field(
+        alias="supplierCreditCode", min_length=1, max_length=64
+    )
+    cadence: Literal["HOURLY", "DAILY", "WEEKLY"] = "DAILY"
+    sources: list[dict[str, Any]] = Field(min_length=1, max_length=10)
+
+
+class SupplierRiskMonitorSnapshot(BusinessModel):
+    monitor_id: UUID = Field(alias="monitorId")
+    case_id: UUID = Field(alias="caseId")
+    supplier_name: str = Field(alias="supplierName")
+    supplier_credit_code: str = Field(alias="supplierCreditCode")
+    status: str
+    cadence: str
+    sources: list[dict[str, Any]]
+    next_check_at: datetime | None = Field(default=None, alias="nextCheckAt")
+    last_checked_at: datetime | None = Field(default=None, alias="lastCheckedAt")
+    last_snapshot_id: UUID | None = Field(default=None, alias="lastSnapshotId")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+
+class SupplierRiskHistoryItem(BusinessModel):
+    snapshot_id: UUID = Field(alias="snapshotId")
+    evaluation_id: UUID = Field(alias="evaluationId")
+    as_of: datetime = Field(alias="asOf")
+    decision: str
+    risk_level: str = Field(alias="riskLevel")
+    risk_score: int = Field(alias="riskScore")
+    source_coverage: dict[str, Any] = Field(alias="sourceCoverage")
+    change_summary: dict[str, Any] = Field(alias="changeSummary")
+    result_hash: str = Field(alias="resultHash")
+    result: dict[str, Any]
+
+
+class SupplierRiskHistoryResponse(BusinessModel):
+    items: list[SupplierRiskHistoryItem]
+
+
+class SupplierRiskAlertSnapshot(BusinessModel):
+    alert_id: UUID = Field(alias="alertId")
+    monitor_id: UUID = Field(alias="monitorId")
+    snapshot_id: UUID = Field(alias="snapshotId")
+    alert_type: str = Field(alias="alertType")
+    severity: str
+    status: str
+    title: str
+    details: dict[str, Any]
+    evidence: list[dict[str, Any]]
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+
+class SupplierRiskAlertListResponse(BusinessModel):
+    items: list[SupplierRiskAlertSnapshot]
+
+
+class CreateSupplierRiskWorkOrderRequest(BusinessModel):
+    priority: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "HIGH"
+    assignee: str | None = Field(default=None, max_length=256)
+    due_at: datetime | None = Field(default=None, alias="dueAt")
+
+
+class UpdateSupplierRiskWorkOrderRequest(BusinessModel):
+    status: Literal["OPEN", "IN_PROGRESS", "RESOLVED", "REJECTED", "CLOSED"]
+    assignee: str | None = Field(default=None, max_length=256)
+    resolution: dict[str, Any] | None = None
+    comment: str | None = Field(default=None, max_length=2048)
+
+
+class SupplierRiskWorkOrderSnapshot(BusinessModel):
+    work_order_id: UUID = Field(alias="workOrderId")
+    alert_id: UUID = Field(alias="alertId")
+    status: str
+    priority: str
+    assignee: str | None = None
+    due_at: datetime | None = Field(default=None, alias="dueAt")
+    resolution: dict[str, Any] | None = None
+    created_by: str = Field(alias="createdBy")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+    actions: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SupplierRiskWorkOrderListResponse(BusinessModel):
+    items: list[SupplierRiskWorkOrderSnapshot]

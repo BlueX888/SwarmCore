@@ -1,0 +1,8 @@
+REAL_CHAIN_FAILED: run ended with status FAILED
+Traceback (most recent call last):
+  File "C:\Project\SwarmCore\scripts\run-contract-performance-real-chain.py", line 394, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "C:\Project\SwarmCore\scripts\run-contract-performance-real-chain.py", line 336, in main
+    raise ChainError(f"run ended with status {run['status']}")
+ChainError: run ended with status FAILED

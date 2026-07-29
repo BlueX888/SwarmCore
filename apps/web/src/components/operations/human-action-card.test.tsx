@@ -39,7 +39,6 @@ describe("HumanApprovalCard", () => {
   it("explains what to do and submits approved=true without showing English field keys", () => {
     const onApprove = vi.fn();
     const onReject = vi.fn();
-    window.confirm = vi.fn();
 
     render(
       <MemoryRouter>
@@ -73,5 +72,27 @@ describe("HumanApprovalCard", () => {
       comment: "已核对，可发布",
       confirmations: ["已核对候选计划", "已核对甘特基准"],
     });
+  });
+
+  it("shows a processing banner when a command was accepted but not applied yet", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <HumanApprovalCard
+          request={{ ...publishReview, handledBy: "local-user" }}
+          runPath="/runs/019fa704-bd47-7def-970f-a92796a1a20c"
+          busy={false}
+          onApprove={vi.fn()}
+          onReject={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("命令已受理");
+    const approve = container.querySelector('button[type="submit"]');
+    const reject = Array.from(container.querySelectorAll('button[type="button"]')).find((button) =>
+      button.textContent?.includes("拒绝"),
+    );
+    expect(approve).toBeDisabled();
+    expect(reject).toBeDisabled();
   });
 });

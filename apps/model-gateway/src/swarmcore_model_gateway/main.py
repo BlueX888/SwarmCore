@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, cast
+from urllib.error import HTTPError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from uuid import UUID
@@ -25,6 +28,7 @@ from swarmcore_governance import (
     PolicySubject,
     RolePolicyEngine,
     SecretError,
+    SecretProvider,
     SecretScanner,
     VaultSecretProvider,
     WorkloadTls,
@@ -48,6 +52,8 @@ from swarmcore_registry import (
     runtime_provider_name,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SWARMCORE_", env_file=".env", extra="ignore")
@@ -56,6 +62,8 @@ class Settings(BaseSettings):
     model_capability_secret: str = "development-model-capability-secret-32-bytes"
     model_routes: dict[str, str] = {
         "model://general": "openai/gpt-4o-mini",
+        "model://contract-performance-reasoning": "openai/gpt-4o-mini",
+        "model://document-nlp": "openai/gpt-4o",
         "model://deepseek-v4-flash": "DeepSeek-V4-Flash",
         "model://deepseek-v4-pro": "DeepSeek-V4-Pro",
         "model://kimi-k2.5": "kimi-k2.5",
@@ -280,6 +288,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         json.dumps(result, ensure_ascii=False).encode()
                     )
         except Exception as exc:
+            logger.error(
+                "model_provider_failed logical_model=%s error=%s",
+                capability.logical_model,
+                exc,
+            )
             metrics.model_requests.add(
                 1,
                 {"provider": provider, "model": capability.logical_model, "status": "failed"},
@@ -428,11 +441,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "apiKeyConfigured": False,
                 "displayName": "",
             }
+        api_key_configured = await _api_key_configured(secrets, saved[2])
         return {
             "logicalModel": logical_model,
             "providerUrl": saved[0],
             "modelName": saved[1],
-            "apiKeyConfigured": bool(saved[2]),
+            "apiKeyConfigured": api_key_configured,
             "displayName": saved[3] or saved[1],
         }
 
@@ -443,7 +457,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: HttpRequest,
         x_tenant_id: TenantHeader,
     ) -> dict[str, Any]:
-        if is_project_model_ref(body.logical_model) and parse_project_model_id(body.logical_model) is None:
+        if (
+            is_project_model_ref(body.logical_model)
+            and parse_project_model_id(body.logical_model) is None
+        ):
             raise HTTPException(status_code=422, detail="project model id must be a UUID")
         if body.api_key and (not configured.vault_token or secrets is None):
             raise HTTPException(status_code=503, detail="Vault is required to store the API key")
@@ -455,6 +472,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             project_id=project_id,
             logical_model=body.logical_model,
         )
+        existing_api_key_configured = (
+            await _api_key_configured(secrets, existing[2]) if existing is not None else False
+        )
         if body.api_key:
             await asyncio.to_thread(
                 _vault_write_api_key,
@@ -464,7 +484,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 body.api_key,
                 configured.litellm_timeout_seconds,
             )
-        elif existing is None or not existing[2]:
+            if not await _api_key_configured(secrets, secret_ref):
+                raise HTTPException(
+                    status_code=502,
+                    detail="Vault write completed but the API key could not be verified",
+                )
+        elif not existing_api_key_configured:
             raise HTTPException(status_code=422, detail="API key is required")
         display_name = (body.display_name or "").strip() or body.model_name.strip()
         async with tenant_transaction(
@@ -503,6 +528,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "apiKeyConfigured": True,
             "displayName": display_name,
         }
+
+    @app.post("/internal/v1/projects/{project_id}/model-provider:key")
+    async def reveal_model_provider_api_key(
+        project_id: UUID,
+        request: HttpRequest,
+        logical_model: str,
+        x_tenant_id: TenantHeader,
+    ) -> dict[str, str]:
+        saved = await _saved_runtime_provider(
+            request.app.state.database,
+            tenant_id=x_tenant_id,
+            project_id=project_id,
+            logical_model=logical_model,
+        )
+        api_key = await _read_api_key(secrets, saved[2] if saved is not None else "")
+        if api_key is None:
+            raise HTTPException(status_code=404, detail="saved API key is unavailable")
+        return {"apiKey": api_key}
 
     @app.post("/internal/v1/projects/{project_id}/model-provider:test")
     async def test_model_provider(
@@ -545,10 +588,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise ValueError("provider returned no model choices")
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"model connection failed: {exc}") from exc
+        readiness_updated = await _mark_runtime_provider_verified(
+            request.app.state.database,
+            secrets,
+            tenant_id=x_tenant_id,
+            project_id=project_id,
+            body=body,
+            tested_api_key=api_key,
+        )
         return {
             "connected": True,
             "modelName": body.model_name,
             "latencyMs": round((asyncio.get_running_loop().time() - started) * 1000),
+            "readinessUpdated": readiness_updated,
         }
 
     @app.post("/v1/chat/completions")
@@ -849,6 +901,98 @@ async def _runtime_provider_configuration(
     return provider_url, api_key, model_name
 
 
+async def _mark_runtime_provider_verified(
+    database: Database,
+    secrets: SecretProvider | None,
+    *,
+    tenant_id: UUID,
+    project_id: UUID,
+    body: ModelProviderConfigurationBody,
+    tested_api_key: str,
+) -> bool:
+    saved = await _saved_runtime_provider(
+        database,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        logical_model=body.logical_model,
+    )
+    if saved is None:
+        return False
+    provider_url, model_name, secret_ref, _display_name = saved
+    saved_api_key = await _read_api_key(secrets, secret_ref)
+    if not _tested_provider_matches(
+        provider_url=provider_url,
+        model_name=model_name,
+        saved_api_key=saved_api_key,
+        body=body,
+        tested_api_key=tested_api_key,
+    ):
+        return False
+    async with tenant_transaction(
+        database.sessions, tenant_id=tenant_id, project_id=project_id
+    ) as session:
+        row = await session.scalar(
+            select(ProjectConfiguration).where(
+                ProjectConfiguration.tenant_id == tenant_id,
+                ProjectConfiguration.project_id == project_id,
+                ProjectConfiguration.kind == "model",
+                ProjectConfiguration.name == _model_runtime_name(body.logical_model),
+            )
+        )
+        if row is None:
+            return False
+        document = row.configuration if isinstance(row.configuration, dict) else {}
+        if (
+            str(document.get("providerUrl", "")).rstrip("/") != provider_url.rstrip("/")
+            or str(document.get("modelName", "")).strip() != model_name.strip()
+            or str(document.get("secretRef", "")).strip() != secret_ref
+        ):
+            return False
+        row.configuration = {
+            **document,
+            "connectionVerifiedAt": datetime.now(UTC).isoformat(),
+        }
+        row.updated_by = "model-provider-connectivity-test"
+    return True
+
+
+def _tested_provider_matches(
+    *,
+    provider_url: str,
+    model_name: str,
+    saved_api_key: str | None,
+    body: ModelProviderConfigurationBody,
+    tested_api_key: str,
+) -> bool:
+    return (
+        provider_url.rstrip("/") == str(body.provider_url).rstrip("/")
+        and model_name.strip() == body.model_name.strip()
+        and saved_api_key is not None
+        and hmac.compare_digest(saved_api_key, tested_api_key)
+    )
+
+
+async def _api_key_configured(
+    secrets: SecretProvider | None,
+    secret_ref: str,
+) -> bool:
+    return await _read_api_key(secrets, secret_ref) is not None
+
+
+async def _read_api_key(
+    secrets: SecretProvider | None,
+    secret_ref: str,
+) -> str | None:
+    if secrets is None or not secret_ref:
+        return None
+    try:
+        async with secrets.lease(secret_ref) as lease:
+            api_key = lease.values.get("apiKey")
+            return api_key if isinstance(api_key, str) and bool(api_key) else None
+    except SecretError:
+        return None
+
+
 def _vault_write_api_key(
     address: str,
     token: str,
@@ -920,8 +1064,27 @@ def _litellm(
         headers=headers,
         method="POST",
     )
-    with urlopen(request, timeout=timeout_seconds) as response:
-        return _decode_openai_response(response.read(4 * 1024 * 1024))
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            return _decode_openai_response(response.read(4 * 1024 * 1024))
+    except HTTPError as exc:
+        detail = _provider_error_detail(exc.read(64 * 1024))
+        raise RuntimeError(f"provider HTTP {exc.code}: {detail}") from exc
+
+
+def _provider_error_detail(payload: bytes) -> str:
+    try:
+        document = json.loads(payload.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        document = payload.decode("utf-8", errors="replace")
+    if isinstance(document, dict):
+        error = document.get("error")
+        if isinstance(error, dict):
+            document = error.get("message") or error.get("code") or "unknown provider error"
+        else:
+            document = document.get("message") or document.get("msg") or "unknown provider error"
+    detail = " ".join(str(document).split())
+    return detail[:1000] or "empty provider error"
 
 
 def _portal_capability_invoke(
@@ -1008,6 +1171,7 @@ def _decode_openai_response(raw: bytes) -> dict[str, Any]:
         raise ValueError("model provider returned neither JSON nor OpenAI-compatible SSE")
 
     messages: dict[int, dict[str, Any]] = {}
+    tool_calls: dict[int, dict[int, dict[str, Any]]] = {}
     finish_reasons: dict[int, Any] = {}
     usage: dict[str, Any] = {}
     for chunk in chunks:
@@ -1028,6 +1192,28 @@ def _decode_openai_response(raw: bytes) -> dict[str, Any]:
                 for field in ("content", "reasoning_content"):
                     if isinstance(delta.get(field), str):
                         message[field] += delta[field]
+                for raw_call in delta.get("tool_calls", []):
+                    if not isinstance(raw_call, dict):
+                        continue
+                    call_index = int(raw_call.get("index", 0))
+                    call = tool_calls.setdefault(index, {}).setdefault(
+                        call_index,
+                        {
+                            "id": "",
+                            "type": "function",
+                            "function": {"name": "", "arguments": ""},
+                        },
+                    )
+                    if isinstance(raw_call.get("id"), str):
+                        call["id"] = raw_call["id"]
+                    if isinstance(raw_call.get("type"), str):
+                        call["type"] = raw_call["type"]
+                    function = raw_call.get("function")
+                    if isinstance(function, dict):
+                        if isinstance(function.get("name"), str):
+                            call["function"]["name"] += function["name"]
+                        if isinstance(function.get("arguments"), str):
+                            call["function"]["arguments"] += function["arguments"]
             if choice.get("finish_reason") is not None:
                 finish_reasons[index] = choice["finish_reason"]
 
@@ -1035,6 +1221,10 @@ def _decode_openai_response(raw: bytes) -> dict[str, Any]:
     for index, message in sorted(messages.items()):
         if not message["reasoning_content"]:
             message.pop("reasoning_content")
+        if index in tool_calls:
+            message["tool_calls"] = [
+                call for _, call in sorted(tool_calls[index].items())
+            ]
         choices.append(
             {
                 "index": index,

@@ -299,7 +299,17 @@ class PostgresTransitionProjector:
             return
         request_id = UUID(request_id_text)
         if event_type == "approval.requested":
-            if await session.get(ApprovalRequest, request_id) is None:
+            existing = await session.get(ApprovalRequest, request_id)
+            if existing is None:
+                existing = await session.scalar(
+                    select(ApprovalRequest)
+                    .where(
+                        ApprovalRequest.run_id == run_id,
+                        ApprovalRequest.node_key == str(data["nodeKey"]),
+                    )
+                    .with_for_update()
+                )
+            if existing is None:
                 session.add(
                     ApprovalRequest(
                         id=request_id,
@@ -324,6 +334,33 @@ class PostgresTransitionProjector:
                             data.get("requiresDistinctApprover", False)
                         ),
                     )
+                )
+            else:
+                existing.id = request_id
+                existing.prompt = str(data["prompt"])
+                existing.input_schema = dict(
+                    data.get("inputSchema", {"type": "object"})
+                )
+                existing.status = "PENDING"
+                existing.requested_by = str(data.get("requestedBy", "workflow"))
+                existing.handled_by = None
+                existing.decision = None
+                existing.response = None
+                existing.handler_command_id = None
+                existing.created_at = occurred_at
+                existing.handled_at = None
+                existing.task_execution_id = data.get("taskExecutionId")
+                existing.tool_ref = data.get("toolRef")
+                existing.tool_version = data.get("toolVersion")
+                existing.canonical_input_hash = data.get("canonicalInputHash")
+                existing.policy_revision = data.get("policyRevision")
+                existing.expires_at = (
+                    datetime.fromisoformat(str(data["expiresAt"]))
+                    if data.get("expiresAt")
+                    else None
+                )
+                existing.requires_distinct_approver = bool(
+                    data.get("requiresDistinctApprover", False)
                 )
             return
         if event_type == "input.requested":

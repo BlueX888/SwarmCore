@@ -26,9 +26,12 @@ class Settings(BaseSettings):
 
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"
+    agent_task_queue: str = "agent-general"
     models: dict[str, str] = Field(
         default_factory=lambda: {
             "model://general": "openai:gpt-4o-mini",
+            "model://contract-performance-reasoning": "openai:gpt-4o-mini",
+            "model://document-nlp": "openai:gpt-4o",
             "model://deepseek-v4-flash": "DeepSeek-V4-Flash",
             "model://deepseek-v4-pro": "DeepSeek-V4-Pro",
             "model://kimi-k2.5": "kimi-k2.5",
@@ -41,7 +44,7 @@ class Settings(BaseSettings):
     tool_gateway_url: str = "http://localhost:8090"
     model_gateway_url: str = "http://localhost:8093"
     model_gateway_timeout_seconds: float = 300
-    agent_model_max_output_tokens: int = Field(default=8192, ge=1024, le=65536)
+    agent_model_max_output_tokens: int = Field(default=16384, ge=1024, le=65536)
     model_capability_secret: str = "development-model-capability-secret-32-bytes"
     agent_readiness_host: str = "127.0.0.1"
     agent_readiness_port: int = 8094
@@ -61,6 +64,8 @@ class Settings(BaseSettings):
     def validate_production_boundary(self) -> Settings:
         self.workload_tls().validate(required=self.deployment_mode == "production")
         if self.deployment_mode == "production":
+            if self.use_fake_agent:
+                raise ValueError("production Agent Worker cannot use the fake agent")
             if self.model_capability_secret.startswith("development-"):
                 raise ValueError("production Agent Worker requires a managed capability secret")
             if not self.tool_gateway_url.startswith("https://"):
@@ -103,12 +108,12 @@ async def serve() -> None:
     activities = AgentActivities(adapter, SwarmMetrics.create("worker-agent"))
     worker = Worker(
         temporal,
-        task_queue="agent-general",
+        task_queue=settings.agent_task_queue,
         activities=[activities.execute_agent, activities.execute_team],
     )
     readiness_server = uvicorn.Server(
         uvicorn.Config(
-            create_readiness_app(adapter),
+            create_readiness_app(adapter, model_refs=tuple(sorted(settings.models))),
             host=settings.agent_readiness_host,
             port=settings.agent_readiness_port,
             log_level="warning",
@@ -123,7 +128,9 @@ async def serve() -> None:
         telemetry.shutdown()
 
 
-def create_readiness_app(adapter: Any) -> FastAPI:
+def create_readiness_app(
+    adapter: Any, *, model_refs: tuple[str, ...] = ()
+) -> FastAPI:
     app = FastAPI(title="SwarmCore Agent Adapter Readiness")
 
     @app.get("/internal/v1/readiness")
@@ -136,7 +143,8 @@ def create_readiness_app(adapter: Any) -> FastAPI:
                     else "agno",
                     "healthy": True,
                 }
-            ]
+            ],
+            "modelRefs": list(model_refs),
         }
 
     return app

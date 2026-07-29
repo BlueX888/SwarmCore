@@ -10,9 +10,13 @@ members = [
     "swarmcore-application",
     "swarmcore-artifact-gateway",
     "swarmcore-capability-contract-integrity",
+    "swarmcore-capability-contract-performance",
     "swarmcore-capability-contract-post-evaluation",
     "swarmcore-capability-deviation-analysis",
+    "swarmcore-capability-document-structuring",
     "swarmcore-capability-invoice-assurance",
+    "swarmcore-capability-procurement-supplier-risk",
+    "swarmcore-capability-swarm-calibration",
     "swarmcore-command-dispatcher",
     "swarmcore-compiler",
     "swarmcore-domain",
@@ -23,6 +27,7 @@ members = [
     "swarmcore-persistence",
     "swarmcore-projection-reconciler",
     "swarmcore-registry",
+    "swarmcore-repository-verifier",
     "swarmcore-runtime-temporal",
     "swarmcore-sandbox-manager",
     "swarmcore-spec",
@@ -1245,9 +1250,13 @@ dependencies = [
     { name = "pyjwt", extra = ["crypto"] },
     { name = "swarmcore-application" },
     { name = "swarmcore-capability-contract-integrity" },
+    { name = "swarmcore-capability-contract-performance" },
     { name = "swarmcore-capability-contract-post-evaluation" },
     { name = "swarmcore-capability-deviation-analysis" },
+    { name = "swarmcore-capability-document-structuring" },
     { name = "swarmcore-capability-invoice-assurance" },
+    { name = "swarmcore-capability-procurement-supplier-risk" },
+    { name = "swarmcore-capability-swarm-calibration" },
     { name = "swarmcore-compiler" },
     { name = "swarmcore-domain" },
     { name = "swarmcore-governance" },
@@ -1266,9 +1275,13 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], specifier = "==2.10.1" },
     { name = "swarmcore-application", editable = "packages/application" },
     { name = "swarmcore-capability-contract-integrity", editable = "packages/capability-contract-integrity" },
+    { name = "swarmcore-capability-contract-performance", editable = "packages/capability-contract-performance" },
     { name = "swarmcore-capability-contract-post-evaluation", editable = "packages/capability-contract-post-evaluation" },
     { name = "swarmcore-capability-deviation-analysis", editable = "packages/capability-deviation-analysis" },
+    { name = "swarmcore-capability-document-structuring", editable = "packages/capability-document-structuring" },
     { name = "swarmcore-capability-invoice-assurance", editable = "packages/capability-invoice-assurance" },
+    { name = "swarmcore-capability-procurement-supplier-risk", editable = "packages/capability-procurement-supplier-risk" },
+    { name = "swarmcore-capability-swarm-calibration", editable = "packages/capability-swarm-calibration" },
     { name = "swarmcore-compiler", editable = "packages/compiler" },
     { name = "swarmcore-domain", editable = "packages/domain" },
     { name = "swarmcore-governance", editable = "packages/governance" },
@@ -1284,6 +1297,7 @@ name = "swarmcore-application"
 version = "0.1.0"
 source = { editable = "packages/application" }
 dependencies = [
+    { name = "httpx" },
     { name = "jsonschema" },
     { name = "pydantic" },
     { name = "pypdf" },
@@ -1297,6 +1311,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = "==0.28.1" },
     { name = "jsonschema", specifier = "==4.25.0" },
     { name = "pydantic", specifier = "==2.11.7" },
     { name = "pypdf", specifier = "==6.1.1" },
@@ -1339,6 +1354,11 @@ version = "0.1.0"
 source = { editable = "packages/capability-contract-integrity" }
 
 [[package]]
+name = "swarmcore-capability-contract-performance"
+version = "0.1.0"
+source = { editable = "packages/capability-contract-performance" }
+
+[[package]]
 name = "swarmcore-capability-contract-post-evaluation"
 version = "0.1.0"
 source = { editable = "packages/capability-contract-post-evaluation" }
@@ -1349,9 +1369,24 @@ version = "0.1.0"
 source = { editable = "packages/capability-deviation-analysis" }
 
 [[package]]
+name = "swarmcore-capability-document-structuring"
+version = "0.1.0"
+source = { editable = "packages/capability-document-structuring" }
+
+[[package]]
 name = "swarmcore-capability-invoice-assurance"
 version = "0.1.0"
 source = { editable = "packages/capability-invoice-assurance" }
+
+[[package]]
+name = "swarmcore-capability-procurement-supplier-risk"
+version = "0.1.0"
+source = { editable = "packages/capability-procurement-supplier-risk" }
+
+[[package]]
+name = "swarmcore-capability-swarm-calibration"
+version = "0.1.0"
+source = { editable = "packages/capability-swarm-calibration" }
 
 [[package]]
 name = "swarmcore-command-dispatcher"
@@ -1528,6 +1563,11 @@ dependencies = [
 requires-dist = [{ name = "pydantic", specifier = "==2.11.7" }]
 
 [[package]]
+name = "swarmcore-repository-verifier"
+version = "0.1.0"
+source = { editable = "apps/repository-verifier" }
+
+[[package]]
 name = "swarmcore-runtime-temporal"
 version = "0.1.0"
 source = { editable = "packages/runtime-temporal" }
@@ -1669,6 +1709,8 @@ version = "0.1.0"
 source = { editable = "apps/worker-control" }
 dependencies = [
     { name = "pydantic-settings" },
+    { name = "pypdf" },
+    { name = "swarmcore-application" },
     { name = "swarmcore-domain" },
     { name = "swarmcore-observability" },
     { name = "swarmcore-persistence" },
@@ -1680,6 +1722,8 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "pydantic-settings", specifier = "==2.14.2" },
+    { name = "pypdf", specifier = "==6.1.1" },
+    { name = "swarmcore-application", editable = "packages/application" },
     { name = "swarmcore-domain", editable = "packages/domain" },
     { name = "swarmcore-observability", editable = "packages/observability" },
     { name = "swarmcore-persistence", editable = "packages/persistence" },

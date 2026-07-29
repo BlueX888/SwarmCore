@@ -41,3 +41,21 @@ def test_initial_run_lifecycle_events_include_execution_metadata_without_input()
         },
     }
     assert "must-not-be-copied" not in repr(payloads)
+
+
+def test_initial_run_lifecycle_uses_frozen_control_queue() -> None:
+    payloads = SwarmRunWorkflow._initial_run_event_payloads(
+        {
+            "planHash": "a" * 64,
+            "controlTaskQueue": "swarm-control-document-verification",
+        },
+        {
+            "nodes": [],
+            "budget": {"maxParallelism": 1},
+        },
+    )
+
+    assert (
+        payloads["run.queued"]["taskQueue"]
+        == "swarm-control-document-verification"
+    )

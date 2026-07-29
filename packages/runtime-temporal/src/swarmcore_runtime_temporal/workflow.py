@@ -47,10 +47,16 @@ class SwarmRunWorkflow:
         self._used_cost_usd = 0.0
         self._budget_warned = False
         self._compensation_stack: list[dict[str, Any]] = []
+        self._control_queue = _CONTROL_QUEUE
+        self._agent_queue = _AGENT_QUEUE
+        self._tool_queue = _TOOL_QUEUE
 
     @workflow.run
     async def run(self, run_input: dict[str, Any]) -> dict[str, Any]:
         self._run_input = run_input
+        self._control_queue = str(run_input.get("controlTaskQueue") or _CONTROL_QUEUE)
+        self._agent_queue = str(run_input.get("agentTaskQueue") or _AGENT_QUEUE)
+        self._tool_queue = str(run_input.get("toolTaskQueue") or _TOOL_QUEUE)
         start_command = run_input.get("startCommand")
         if start_command:
             sequence = int(start_command["commandSeq"])
@@ -63,7 +69,7 @@ class SwarmRunWorkflow:
         plan = await workflow.execute_activity(
             "load_execution_plan",
             run_input,
-            task_queue=_CONTROL_QUEUE,
+            task_queue=self._control_queue,
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=0),
             result_type=dict[str, Any],
@@ -422,13 +428,72 @@ class SwarmRunWorkflow:
             resolved_tools,
             instance_key=instance_key,
         )
-        return await self._run_activity(
-            node,
-            activity_name,
-            queue,
-            payload,
-            instance_key=instance_key,
-        )
+        try:
+            result = await self._run_activity(
+                node,
+                activity_name,
+                queue,
+                payload,
+                instance_key=instance_key,
+            )
+            fallback_agent = node.get("config", {}).get("fallbackAgent")
+            if node["type"] == "agent" and isinstance(fallback_agent, str):
+                return {
+                    **result,
+                    "fallback": {
+                        "used": False,
+                        "primaryAgent": node["config"]["agent"],
+                        "fallbackAgent": fallback_agent,
+                        "reason": None,
+                    },
+                }
+            return result
+        except Exception as primary_error:
+            fallback_agent = node.get("config", {}).get("fallbackAgent")
+            if node["type"] != "agent" or not isinstance(fallback_agent, str):
+                raise
+            fallback_node = {
+                **node,
+                "config": {
+                    **node["config"],
+                    "agent": fallback_agent,
+                    "fallbackAgent": None,
+                },
+            }
+            fallback_instance_key = f"{instance_key}:fallback"
+            await self._project(
+                "agent.fallback.selected",
+                {
+                    "nodeKey": key,
+                    "taskInstanceKey": fallback_instance_key,
+                    "primaryAgent": node["config"]["agent"],
+                    "fallbackAgent": fallback_agent,
+                    "error": self._safe_error(primary_error),
+                },
+            )
+            fallback_activity, fallback_queue, fallback_payload = await self._prepare_activity(
+                fallback_node,
+                resolved_agents,
+                default_model,
+                resolved_tools,
+                instance_key=fallback_instance_key,
+            )
+            result = await self._run_activity(
+                fallback_node,
+                fallback_activity,
+                fallback_queue,
+                fallback_payload,
+                instance_key=fallback_instance_key,
+            )
+            return {
+                **result,
+                "fallback": {
+                    "used": True,
+                    "primaryAgent": node["config"]["agent"],
+                    "fallbackAgent": fallback_agent,
+                    "reason": self._safe_error(primary_error),
+                },
+            }
 
     async def _prepare_activity(
         self,
@@ -695,7 +760,7 @@ class SwarmRunWorkflow:
                 "policyRevision": self._plan["policy_revision"],
                 "action": action,
             },
-            task_queue=_CONTROL_QUEUE,
+            task_queue=self._control_queue,
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
             result_type=str,
@@ -753,6 +818,8 @@ class SwarmRunWorkflow:
         for target in sorted(targets - {selected}):
             if self._states.get(target) == NodeState.PENDING:
                 self._states[target] = NodeState.SKIPPED
+                if workflow.patched("router-skipped-output-v1"):
+                    self._outputs[target] = {}
                 await self._project("task.skipped", {"nodeKey": target, "route": node["key"]})
 
     async def _execute_loop(
@@ -837,7 +904,7 @@ class SwarmRunWorkflow:
                 "type": event_type,
                 "data": data,
             },
-            task_queue=_CONTROL_QUEUE,
+            task_queue=self._control_queue,
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=0),
         )
@@ -859,7 +926,7 @@ class SwarmRunWorkflow:
         )
 
         queued: dict[str, Any] = {
-            "taskQueue": _CONTROL_QUEUE,
+            "taskQueue": str(run_input.get("controlTaskQueue") or _CONTROL_QUEUE),
             "nodeCount": len(plan["nodes"]),
             "maxParallelism": int(budget["maxParallelism"]),
         }
@@ -912,7 +979,7 @@ class SwarmRunWorkflow:
                         "effectId": entry["effectId"],
                         "input": entry["input"],
                     },
-                    task_queue=_TOOL_QUEUE,
+                    task_queue=self._tool_queue,
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                     result_type=dict[str, Any],
@@ -951,15 +1018,14 @@ class SwarmRunWorkflow:
                 return self._outputs[key]
         return self._outputs[next(reversed(self._outputs))]
 
-    @staticmethod
-    def _activity_for(node_type: str) -> tuple[str, str]:
+    def _activity_for(self, node_type: str) -> tuple[str, str]:
         if node_type == "agent":
-            return "execute_agent", _AGENT_QUEUE
+            return "execute_agent", self._agent_queue
         if node_type == "team":
-            return "execute_team", _AGENT_QUEUE
+            return "execute_team", self._agent_queue
         if node_type == "tool":
-            return "execute_tool", _TOOL_QUEUE
-        return "execute_control_node", _CONTROL_QUEUE
+            return "execute_tool", self._tool_queue
+        return "execute_control_node", self._control_queue
 
     @staticmethod
     def _valid_schema(value: Any, schema: dict[str, Any]) -> bool:

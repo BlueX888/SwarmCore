@@ -8,7 +8,7 @@ import { CapabilitiesPage } from "./capabilities-page";
 vi.mock("@/api/client", () => ({ api: {
   getCapabilityCenter: vi.fn(), listPresets: vi.fn(), runCapability: vi.fn(),
   createPreset: vi.fn(), updatePreset: vi.fn(), copyPreset: vi.fn(), deletePreset: vi.fn(),
-  getModelProvider: vi.fn(), saveModelProvider: vi.fn(), testModelProvider: vi.fn(),
+  getModelProvider: vi.fn(), revealModelProviderApiKey: vi.fn(), saveModelProvider: vi.fn(), testModelProvider: vi.fn(),
 } }));
 
 const ready = {
@@ -56,9 +56,9 @@ function AgentConfigurationProbe() {
   return <p>智能体配置入口 {location.search}</p>;
 }
 
-function renderAgentPage() {
+function renderAgentPage(path = "/agents") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/agents"]}><Routes><Route path="/agents" element={<CapabilitiesPage kind="agent" />} /><Route path="/agents/configure" element={<AgentConfigurationProbe />} /></Routes></MemoryRouter></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes><Route path="/agents" element={<CapabilitiesPage kind="agent" />} /><Route path="/agents/configure" element={<AgentConfigurationProbe />} /></Routes></MemoryRouter></QueryClientProvider>);
 }
 
 function renderModelPage() {
@@ -75,6 +75,7 @@ describe("capabilities page", () => {
   afterEach(cleanup);
 
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [ready, notReady] });
     vi.mocked(api.listPresets).mockResolvedValue({ items: [], total: 0 });
     vi.mocked(api.runCapability).mockResolvedValue({ runId: "run-1", status: "PENDING", commandId: "command-1", commandStatus: "PENDING", planHash: "hash" });
@@ -83,8 +84,9 @@ describe("capabilities page", () => {
     vi.mocked(api.copyPreset).mockResolvedValue({ ...preset, presetId: "preset-2", name: "日报检索 副本" });
     vi.mocked(api.deletePreset).mockResolvedValue(undefined);
     vi.mocked(api.getModelProvider).mockResolvedValue({ logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", apiKeyConfigured: true, displayName: "test-model" });
+    vi.mocked(api.revealModelProviderApiKey).mockResolvedValue({ apiKey: "sk-saved-secret" });
     vi.mocked(api.saveModelProvider).mockResolvedValue({ logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", apiKeyConfigured: true, displayName: "test-model" });
-    vi.mocked(api.testModelProvider).mockResolvedValue({ connected: true, modelName: "test-model", latencyMs: 42 });
+    vi.mocked(api.testModelProvider).mockResolvedValue({ connected: true, modelName: "test-model", latencyMs: 42, readinessUpdated: true });
   });
 
   it("shows ready capabilities by default and explains not-ready resources on demand", async () => {
@@ -100,6 +102,53 @@ describe("capabilities page", () => {
     expect(dialog).toBeVisible();
     expect(within(dialog).getByText("缺少执行器")).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "立即运行" })).toBeDisabled();
+  });
+
+  it("opens a linked not-ready agent search from a business-work blocker", async () => {
+    const unavailableAgent = {
+      ...agent,
+      ref: "agent://contract/baseline-analyst@2",
+      name: "合同基准分析智能体",
+      readiness: {
+        status: "NOT_READY" as const,
+        reasons: [{ code: "MODEL_ROUTE_MISSING" as const, message: "missing" }],
+      },
+    };
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({
+      registrySnapshot: "registry:test",
+      items: [agent, unavailableAgent],
+    });
+
+    renderAgentPage("/agents?search=agent%3A%2F%2Fcontract%2Fbaseline-analyst%402&showNotReady=1");
+
+    expect(screen.getByRole("checkbox", { name: "显示未就绪" })).toBeChecked();
+    expect(screen.getByLabelText("搜索智能体")).toHaveValue("合同基准分析智能体");
+    expect(await screen.findByText("合同基准分析智能体")).toBeVisible();
+    expect(screen.queryByText("researcher")).not.toBeInTheDocument();
+  });
+
+  it("shows Chinese names for technical agent roles and refs", async () => {
+    const technicalAgent = {
+      ...agent,
+      ref: "agent://procurement/clause-evidence-analyst@3",
+      name: "procurement-clause-evidence-analyst",
+      description: "有界提取关键招采条款。",
+      readiness: {
+        status: "NOT_READY" as const,
+        reasons: [{ code: "MODEL_ROUTE_MISSING" as const, message: "missing" }],
+      },
+    };
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({
+      registrySnapshot: "registry:test",
+      items: [technicalAgent],
+    });
+
+    renderAgentPage("/agents?search=agent%3A%2F%2Fprocurement%2Fclause-evidence-analyst%403&showNotReady=1");
+
+    expect(screen.getByLabelText("搜索智能体")).toHaveValue("招采条款证据分析智能体");
+    expect(await screen.findByText("招采条款证据分析智能体")).toBeVisible();
+    expect(screen.queryByText("procurement-clause-evidence-analyst")).not.toBeInTheDocument();
+    expect(screen.queryByText("agent://procurement/clause-evidence-analyst@3")).not.toBeInTheDocument();
   });
 
   it("shows source and risk as color-coded badges without repeating the capability kind", async () => {
@@ -200,9 +249,9 @@ describe("capabilities page", () => {
     vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [agent] });
     renderAgentPage();
     expect(await screen.findByRole("button", { name: "创建智能体" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "编辑 researcher 配置" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: /可用 researcher/ }));
-    const dialog = screen.getByRole("dialog", { name: "researcher" });
+    expect(screen.getByRole("button", { name: "编辑 通用研究智能体 配置" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /可用 通用研究智能体/ }));
+    const dialog = screen.getByRole("dialog", { name: "通用研究智能体" });
     expect(within(dialog).getByLabelText("输出语言")).toHaveValue("简体中文");
     expect(within(dialog).getByLabelText("最多参考来源数")).toHaveValue(8);
     expect(within(dialog).getByText(/系统内置版本保持只读/)).toBeVisible();
@@ -249,11 +298,36 @@ describe("capabilities page", () => {
     expect(within(dialog).queryByRole("button", { name: "加入画布" })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "立即运行" })).not.toBeInTheDocument();
     expect(within(dialog).getByText(/提示词在配置智能体或策略节点时填写/)).toBeVisible();
-    fireEvent.click(within(dialog).getByRole("button", { name: "检测连接" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "重新检测" }));
     await waitFor(() => expect(api.testModelProvider).toHaveBeenCalledWith(expect.any(String), expect.any(String), {
       logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", displayName: "test-model",
     }));
     expect(await within(dialog).findByText(/连接成功.*42 ms/)).toBeVisible();
+  });
+
+  it("updates the open model dialog to ready after a verified connectivity test", async () => {
+    const unavailableModel = {
+      ...model,
+      readiness: {
+        status: "NOT_READY" as const,
+        reasons: [{ code: "HEALTH_CHECK_FAILED" as const, message: "failed" }],
+      },
+    };
+    vi.mocked(api.getCapabilityCenter)
+      .mockResolvedValueOnce({ registrySnapshot: "registry:test", items: [unavailableModel] })
+      .mockResolvedValue({ registrySnapshot: "registry:test", items: [model] });
+    renderModelPage();
+    fireEvent.click(screen.getByRole("checkbox", { name: "显示已配置但未就绪" }));
+    fireEvent.click(await screen.findByRole("button", { name: /general/ }));
+    const dialog = screen.getByRole("dialog", { name: "general" });
+    expect(within(dialog).getByText("未就绪")).toBeVisible();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "重新检测" })).toBeEnabled());
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "重新检测" }));
+
+    expect(await within(dialog).findByText(/模型已就绪/)).toBeVisible();
+    await waitFor(() => expect(within(dialog).getByText("可用")).toBeVisible());
+    expect(within(dialog).queryByText("健康检查失败")).not.toBeInTheDocument();
   });
 
   it("shows a visual API key mask when configured and toggles only local typed values", async () => {
@@ -262,15 +336,25 @@ describe("capabilities page", () => {
     fireEvent.click(await screen.findByRole("button", { name: /general/ }));
     const dialog = screen.getByRole("dialog", { name: "general" });
     const apiKeyInput = await within(dialog).findByLabelText("模型 API Key");
-    await waitFor(() => expect(apiKeyInput).toHaveValue("••••••••"));
+    await waitFor(() => expect(apiKeyInput).toHaveAttribute("placeholder", "••••••••"));
+    expect(apiKeyInput).toHaveValue("");
     expect(apiKeyInput).toHaveAttribute("type", "password");
-    expect(within(dialog).getByText(/已有密钥保存在 Vault/)).toBeVisible();
-    const vaultMaskToggle = within(dialog).getByRole("button", { name: "已保存密钥不可回显" });
-    expect(vaultMaskToggle).toBeDisabled();
+    expect(within(dialog).getByText(/API Key 已保存/)).toBeVisible();
+    const vaultMaskToggle = within(dialog).getByRole("button", { name: "显示已保存 API Key" });
+    expect(vaultMaskToggle).toBeEnabled();
     expect(vaultMaskToggle.querySelector("svg.lucide-eye-off")).toBeTruthy();
 
-    fireEvent.focus(apiKeyInput);
-    expect(apiKeyInput).toHaveValue("");
+    fireEvent.click(vaultMaskToggle);
+    await waitFor(() => expect(api.revealModelProviderApiKey).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      "model://general",
+    ));
+    expect(apiKeyInput).toHaveValue("sk-saved-secret");
+    expect(apiKeyInput).toHaveAttribute("type", "text");
+    fireEvent.click(within(dialog).getByRole("button", { name: "隐藏 API Key" }));
+
+    fireEvent.change(apiKeyInput, { target: { value: "" } });
     fireEvent.change(apiKeyInput, { target: { value: "sk-local-secret" } });
     expect(apiKeyInput).toHaveValue("sk-local-secret");
     expect(apiKeyInput).toHaveAttribute("type", "password");
@@ -287,8 +371,35 @@ describe("capabilities page", () => {
 
     fireEvent.change(apiKeyInput, { target: { value: "" } });
     fireEvent.blur(apiKeyInput);
-    await waitFor(() => expect(apiKeyInput).toHaveValue("••••••••"));
-    expect(within(dialog).getByRole("button", { name: "已保存密钥不可回显" })).toBeDisabled();
+    await waitFor(() => expect(apiKeyInput).toHaveAttribute("placeholder", "••••••••"));
+    expect(apiKeyInput).toHaveValue("");
+    expect(within(dialog).getByRole("button", { name: "显示已保存 API Key" })).toBeEnabled();
+  });
+
+  it("automatically verifies a saved model and keeps its API key revealable", async () => {
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [model] });
+    renderModelPage();
+    fireEvent.click(await screen.findByRole("button", { name: /general/ }));
+    const dialog = screen.getByRole("dialog", { name: "general" });
+    const apiKeyInput = await within(dialog).findByLabelText("模型 API Key");
+    await waitFor(() => expect(apiKeyInput).toHaveAttribute("placeholder", "••••••••"));
+
+    fireEvent.change(apiKeyInput, { target: { value: "sk-newly-saved" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存并检测" }));
+
+    expect(await within(dialog).findByText(/配置保存成功.*已就绪/)).toBeVisible();
+    expect(api.testModelProvider).toHaveBeenCalledWith(expect.any(String), expect.any(String), {
+      logicalModel: "model://general",
+      providerUrl: "https://api.example.com/v1",
+      modelName: "test-model",
+      displayName: "test-model",
+      apiKey: "sk-newly-saved",
+    });
+    expect(apiKeyInput).toHaveValue("sk-newly-saved");
+    expect(within(dialog).getByText(/当前 API Key 已载入/)).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "显示 API Key" }));
+    expect(apiKeyInput).toHaveAttribute("type", "text");
+    expect(within(dialog).getByRole("button", { name: "隐藏 API Key" })).toBeVisible();
   });
 
   it("creates a project model from three fields without picking a logical route", async () => {
@@ -319,7 +430,7 @@ describe("capabilities page", () => {
       apiKey: "sk-test",
     });
     expect(request?.logicalModel).toMatch(/^model:\/\/project\/[0-9a-f-]{36}$/);
-    expect(await within(dialog).findByText(/已创建项目模型/)).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建模型配置" })).not.toBeInTheDocument());
   });
 
   it("opens the policy creation flow from the page header", async () => {

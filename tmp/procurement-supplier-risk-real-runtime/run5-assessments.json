@@ -1,0 +1,869 @@
+{
+  "items": [
+    {
+      "evaluationId": "019fa6da-8195-728a-9ab5-5246cec57efe",
+      "workItemId": "019fa6da-80ec-74b7-b466-fde74883006d",
+      "workItemRevisionId": "019fa6da-8153-70df-850a-f3c4355ff0cb",
+      "runId": "019fa6da-819f-7bc2-8643-aa91f5d97500",
+      "status": "SUCCEEDED",
+      "result": {
+        "asOf": "2026-07-28",
+        "risk": {
+          "asOf": "2026-07-28",
+          "decision": "PASS",
+          "supplier": {
+            "name": "上海龙田数码科技有限公司",
+            "aliases": [],
+            "creditCode": "91310116740594799B"
+          },
+          "hardGates": [],
+          "riskLevel": "A",
+          "ruleVersion": "rule://supplier-risk@1",
+          "scoringMode": "EXTERNAL_ONLY",
+          "dataCoverage": 1.0,
+          "observations": [
+            {
+              "active": true,
+              "address": "上海市普陀区中江路879弄17号楼312室",
+              "ordinal": "1",
+              "riskType": "PROCUREMENT_BAN",
+              "fetchedAt": "2026-07-28T11:52:50.731788+08:00",
+              "sourceRef": "official://ccgp/serious-illegal",
+              "violation": "串通情形",
+              "creditCode": "91310116740594799B",
+              "legalBasis": "《中华人民共和国政府采购法》第七十七条第一款第（三）项",
+              "punishedAt": "2026-07-12",
+              "punishment": "罚款5792元，列入不良行为记录名单，一年内禁止参加政府采购活动",
+              "contentHash": "b84202bbaf9553c565ea9c640d45de2e51c5bbe3c837f521c61b0279dc5aca2a",
+              "effectiveTo": "2027-07-12",
+              "publishedAt": "2026-07-21 16:34",
+              "evidenceRefs": [
+                {
+                  "queryUrl": "https://www.ccgp.gov.cn/cr/list",
+                  "fetchedAt": "2026-07-28T11:52:50.731788+08:00",
+                  "sourceUrl": "https://www.ccgp.gov.cn/cr/list/detail?id=2c8382ba9e61ca97019f83cfaaa205a6",
+                  "responseHash": "101db0faff6826f40d725931cfce2af7b6e4389a84f691d92732f5e02c200230"
+                }
+              ],
+              "supplierName": "上海龙田数码科技有限公司",
+              "effectiveFrom": "2026-07-12",
+              "identityMatch": "EXACT_CREDIT_CODE",
+              "sourceRecordId": "2c8382ba9e61ca97019f83cfaaa205a6",
+              "enforcementAuthority": "财政部"
+            }
+          ],
+          "dataFreshness": [
+            {
+              "status": "SUCCEEDED",
+              "fetchedAt": "2026-07-28T11:52:50.731788+08:00",
+              "sourceRef": "official://ccgp/serious-illegal"
+            }
+          ],
+          "reviewRequired": false,
+          "sourceStatuses": [
+            {
+              "status": "SUCCEEDED",
+              "errorCode": null,
+              "fetchedAt": "2026-07-28T11:52:50.731788+08:00",
+              "sourceRef": "official://ccgp/serious-illegal"
+            }
+          ],
+          "dimensionPoints": {
+            "JUDICIAL": 0,
+            "RELATION": 0,
+            "OPERATING": 0,
+            "TAX_ADMIN": 0,
+            "PROCUREMENT": 0
+          },
+          "overallRiskScore": 0.0,
+          "performanceScore": null,
+          "externalRiskScore": 0,
+          "performanceCoverage": 0.0
+        },
+        "caseId": "019fa6da-80ec-74b7-b466-fde74883006d",
+        "review": {
+          "status": "REVIEW_REQUIRED",
+          "summary": "一致性检查中所有BLOCKER和HIGH级别的发现均无任何证据支持（evidenceRefs为空），且风险叙述中存在评分与决策的不一致冲突。此外，供应商绩效数据完全缺失。需人工审查这些未受支持的发现及风险冲突。",
+          "conflicts": [
+            {
+              "type": "SCORE_DECISION_MISMATCH",
+              "description": "存在活跃的政府采购禁令，但外部风险评分为0，决策为PASS，风险等级为A。此不一致可能源于评分模式（EXTERNAL_ONLY）或系统逻辑，需核实是否准确反映了实际风险。"
+            }
+          ],
+          "reviewRequired": true,
+          "unsupportedFindingIds": [
+            "consistency-94dcaf1885d9306dfb24",
+            "consistency-159481d4de3f9f0ae194",
+            "consistency-e7a1206be092c0dbf9f7",
+            "consistency-57c18fee512484e9d374",
+            "consistency-e19d84873a8ef5dc35d7",
+            "consistency-9cf854930ad6ccc9e565",
+            "consistency-b9bccd63c0b80843b049",
+            "consistency-7d3e66f0ce067af291e9",
+            "consistency-2587ff3cfe7e7215e200"
+          ]
+        },
+        "history": {
+          "added": [
+            {
+              "active": true,
+              "address": "上海市普陀区中江路879弄17号楼312室",
+              "ordinal": "1",
+              "riskType": "PROCUREMENT_BAN",
+              "fetchedAt": "2026-07-28T11:52:50.731788+08:00",
+              "sourceRef": "official://ccgp/serious-illegal",
+              "violation": "串通情形",
+              "creditCode": "91310116740594799B",
+              "legalBasis": "《中华人民共和国政府采购法》第七十七条第一款第（三）项",
+              "punishedAt": "2026-07-12",
+              "punishment": "罚款5792元，列入不良行为记录名单，一年内禁止参加政府采购活动",
+              "contentHash": "b84202bbaf9553c565ea9c640d45de2e51c5bbe3c837f521c61b0279dc5aca2a",
+              "effectiveTo": "2027-07-12",
+              "publishedAt": "2026-07-21 16:34",
+              "evidenceRefs": [
+                {
+                  "queryUrl": "https://www.ccgp.gov.cn/cr/list",
+                  "fetchedAt": "2026-07-28T11:52:50.731788+08:00",
+                  "sourceUrl": "https://www.ccgp.gov.cn/cr/list/detail?id=2c8382ba9e61ca97019f83cfaaa205a6",
+                  "responseHash": "101db0faff6826f40d725931cfce2af7b6e4389a84f691d92732f5e02c200230"
+                }
+              ],
+              "supplierName": "上海龙田数码科技有限公司",
+              "effectiveFrom": "2026-07-12",
+              "identityMatch": "EXACT_CREDIT_CODE",
+              "sourceRecordId": "2c8382ba9e61ca97019f83cfaaa205a6",
+              "enforcementAuthority": "财政部"
+            }
+          ],
+          "changed": [],
+          "removed": [],
+          "decisionChange": {
+            "to": "PASS",
+            "from": null
+          },
+          "riskLevelChange": {
+            "to": "A",
+            "from": null
+          },
+          "hasMaterialChange": true,
+          "previousSnapshotHash": null
+        },
+        "approval": {
+          "comment": "真实链路验收：确认官方禁入证据与信用代码精确匹配；确认公开资料缺少投标原件和ERP绩效，保留证据缺口，不覆盖硬门禁。",
+          "approved": true,
+          "assignee": "procurement-risk-reviewer",
+          "decision": "CONFIRM_BLOCK"
+        },
+        "decision": "CONDITIONAL_PASS",
+        "supplier": {
+          "name": "上海龙田数码科技有限公司",
+          "aliases": [],
+          "creditCode": "91310116740594799B"
+        },
+        "monitorId": "019fa6da-811e-7726-9305-6cf7c1fab0ae",
+        "riskLevel": "A",
+        "provenance": {
+          "strategy": "strategy://procurement-supplier-risk/assess@4",
+          "baselineHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "ruleVersions": [
+            "rule://procurement-consistency@1",
+            "rule://supplier-risk@1",
+            "rule://supplier-performance@1"
+          ],
+          "configurationHash": "12dd35a49dd765ce443447dcdf2717c814a1e53c99a14d9a3b7d1f7ba79c3815",
+          "documentContentHash": "5536b2dcd31c6c7bad166f351fb1e1b7c4300dda25062459a148c5f1e88e48fb",
+          "selectionManifestHash": "88d29f8462104ff7569240aae4047b49ae0af334ed6ee5c77e09096c17b1c328",
+          "attachmentManifestHash": "b66e2f94ecb361a346c079c03c9470d8ec7efc027f1d9ac9cb75a9f94fd7b9f8"
+        },
+        "resultHash": "8a1cd009194bfbac71359fb0b642720de74475b519fc10916cbf142de8a0594b",
+        "consistency": {
+          "counts": {
+            "LOW": 0,
+            "HIGH": 3,
+            "MEDIUM": 2,
+            "BLOCKER": 6
+          },
+          "blocking": true,
+          "findings": [
+            {
+              "code": "PROCUREMENT_ADDED",
+              "title": "DATA_SECURITY 条款added",
+              "summary": "合同与采购/中标基线在 DATA_SECURITY 条款上存在added。",
+              "category": "DATA_SECURITY",
+              "matchKey": "DATA_SECURITY:0",
+              "severity": "HIGH",
+              "findingId": "consistency-94dcaf1885d9306dfb24",
+              "changeType": "ADDED",
+              "confidence": 1.0,
+              "evidenceRefs": [],
+              "approvedException": false
+            },
+            {
+              "code": "PROCUREMENT_MISSING",
+              "title": "GUARANTEE 条款missing",
+              "summary": "合同与采购/中标基线在 GUARANTEE 条款上存在missing。",
+              "category": "GUARANTEE",
+              "matchKey": "GUARANTEE:0",
+              "severity": "HIGH",
+              "findingId": "consistency-159481d4de3f9f0ae194",
+              "changeType": "MISSING",
+              "confidence": 1.0,
+              "evidenceRefs": [],
+              "approvedException": false
+            },
+            {
+              "code": "PROCUREMENT_CHANGED",
+              "title": "PARTY 条款changed",
+              "summary": "合同与采购/中标基线在 PARTY 条款上存在changed。",
+              "category": "PARTY",
+              "matchKey": "PARTY:0",
+              "severity": "BLOCKER",
+              "findingId": "consistency-e7a1206be092c0dbf9f7",
+              "changeType": "CHANGED",
+              "confidence": 1.0,
+              "evidenceRefs": [],
+              "approvedException": false
+            },
+            {
+              "code": "PROCUREMENT_MISSING",
+              "title": "PAYMENT 条款missing",
+              "summary": "合同与采购/中标基线在 PAYMENT 条款上存在missing。",
+              "category": "PAYMENT",
+              "matchKey": "PAYMENT:0",
+              "severity": "HIGH",
+              "findingId": "consistency-57c18fee512484e9d374",
+              "changeType": "MISSING",
+              "confidence": 1.0,
+              "evidenceRefs": [],
+              "approvedException": false
+            },
+            {
+              "code": "PROCUREMENT_CHANGED",
+              "title": "PERFORMANCE_PERIOD 条款changed",
+              "summary": "合同与采购/中标基线在 PERFORMANCE_PERIOD 条款上存在changed。",
+              "category": "PERFORMANCE_PERIOD",
+              "matchKey": "PERFORMANCE_PERIOD:0",
+              "severity": "BLOCKER",
+              "findingId": "consistency-e19d84873a8ef5dc35d7",
+              "changeType": "CHANGED",
+              "confidence": 1.0,
+              "evidenceRefs": [],
+              "approvedException": false
+            },
+            {
+              "code": "PROCUREMENT_CHANGED",
+              "title": "PRICE 条款changed",
+              "summary": "合同与采购/中标基线在 PRICE 条款上存在changed。",
+              "category": "PRICE",
+              "matchKey": "PRICE:0",
+              "severity": "BLOCKER",
+              "findingId": "consistency-9cf854930ad6ccc9e565",
+              "changeType": "CHANGED",
+              "confidence": 1.0,
+              "evidenceRefs": [],
+              "approvedException": false
+            },
+            {
+              "code": "PROCUREMENT_ADDED",
+              "title": "QUALITY 条款added",
+              "summary": "合同与采购/中标基线在 QUALITY 条款上存在added。",
+              "category": "QUALITY",
+              "matchKey": "QUALITY:0",
+              "severity": "MEDIUM",
+              "findingId": "consistency-2d206dd857c225fa7882",
+              "changeType": "ADDED",
+              "confidence": 1.0,
+              "evidenceRefs": [],
+              "approvedException": false
+            },
+            {
+              "code": "PROCUREMENT_MISSING",
+              "title": "QUANTITY 条款missing",
+              "summary": "合同与采购/中标基线在 QUANTITY 条款上存在missing。",
+              "category": "QUANTITY",
+              "matchKey": "QUANTITY:0",
+              "severity": "BLOCKER",
+              "findingId": "consistency-b9bccd63c0b80843b049",
+              "changeType": "MISSING",
+              "confidence": 1.0,
+              "evidenceRefs": [],
+              "approvedException": false
+            },
+            {
+              "code": "PROCUREMENT_CHANGED",
+              "title": "SCOPE 条款changed",
+              "summary": "合同与采购/中标基线在 SCOPE 条款上存在changed。",
+              "category": "SCOPE",
+              "matchKey": "SCOPE:0",
+              "severity": "BLOCKER",
+              "findingId": "consistency-7d3e66f0ce067af291e9",
+              "changeType": "CHANGED",
+              "confidence": 1.0,
+              "evidenceRefs": [],
+              "approvedException": false
+            },
+            {
+              "code": "PROCUREMENT_ADDED",
+              "title": "SCOPE 条款added",
+              "summary": "合同与采购/中标基线在 SCOPE 条款上存在added。",
+              "category": "SCOPE",
+              "matchKey": "SCOPE:1",
+              "severity": "MEDIUM",
+              "findingId": "consistency-48f46d4d42e36361408c",
+              "changeType": "ADDED",
+              "confidence": 1.0,
+              "evidenceRefs": [],
+              "approvedException": false
+            },
+            {
+              "code": "PROCUREMENT_MISSING",
+              "title": "SUBJECT 条款missing",
+              "summary": "合同与采购/中标基线在 SUBJECT 条款上存在missing。",
+              "category": "SUBJECT",
+              "matchKey": "SUBJECT:0",
+              "severity": "BLOCKER",
+              "findingId": "consistency-2587ff3cfe7e7215e200",
+              "changeType": "MISSING",
+              "confidence": 1.0,
+              "evidenceRefs": [],
+              "approvedException": false
+            }
+          ],
+          "ruleVersion": "rule://procurement-consistency@1",
+          "clauseLineages": [
+            {
+              "clauses": {
+                "CONTRACT": {
+                  "text": "双方应遵守《中华人民共和国网络安全法》、《中华人民共和国数据安全法》等相关法律法规。",
+                  "clauseId": "contract-data_security-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                }
+              },
+              "category": "DATA_SECURITY",
+              "matchKey": "DATA_SECURITY:0",
+              "changeType": "ADDED"
+            },
+            {
+              "clauses": {
+                "BID": {
+                  "text": "保修（维保）期：3年。",
+                  "clauseId": "bid-guarantee-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                },
+                "TENDER": {
+                  "text": "履约保函要求：银行开立，不可撤销独立保函，金额为合同总金额10%，有效期至2027年6月30日，受益人应为招标人。",
+                  "clauseId": "tender-guarantee-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                }
+              },
+              "category": "GUARANTEE",
+              "matchKey": "GUARANTEE:0",
+              "changeType": "MISSING"
+            },
+            {
+              "clauses": {
+                "BID": {
+                  "text": "中标供应商：上海龙田数码科技有限公司。",
+                  "clauseId": "bid-party-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                },
+                "AWARD": {
+                  "text": "中标供应商：上海龙田数码科技有限公司；地址：上海市普陀区真北路2653号10栋3楼。",
+                  "clauseId": "award-party-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                },
+                "TENDER": {
+                  "text": "招标人：复旦大学附属中山医院；招标代理机构：上海中世建设咨询有限公司。",
+                  "clauseId": "tender-party-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                },
+                "CONTRACT": {
+                  "text": "甲方：复旦大学附属中山医院；乙方：待定（空白）。",
+                  "clauseId": "contract-party-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                }
+              },
+              "category": "PARTY",
+              "matchKey": "PARTY:0",
+              "changeType": "CHANGED"
+            },
+            {
+              "clauses": {
+                "TENDER": {
+                  "text": "支付方式：第一笔：合同生效且收到发票后15个工作日内支付60%；第二笔：硬件设备、成品软件到货并验收签发后，收到发票和履约保函后15个工作日内支付40%。",
+                  "clauseId": "tender-payment-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                }
+              },
+              "category": "PAYMENT",
+              "matchKey": "PAYMENT:0",
+              "changeType": "MISSING"
+            },
+            {
+              "clauses": {
+                "BID": {
+                  "text": "交付时间：合同签订后3个月内完成硬件和成品软件供货，8个月完成定制化软件开发（包含1个月试运行）。",
+                  "clauseId": "bid-performance_period-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                },
+                "CONTRACT": {
+                  "text": "建设周期：合同签订后3个月内完成硬件和成品软件供货，8个月完成定制化软件开发（包含1个月试运行）。",
+                  "clauseId": "contract-performance_period-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                }
+              },
+              "category": "PERFORMANCE_PERIOD",
+              "matchKey": "PERFORMANCE_PERIOD:0",
+              "changeType": "CHANGED"
+            },
+            {
+              "clauses": {
+                "BID": {
+                  "text": "中标金额：人民币388.5万元。",
+                  "clauseId": "bid-price-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                },
+                "AWARD": {
+                  "text": "中标金额：388.5000000万元（人民币）。",
+                  "clauseId": "award-price-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                },
+                "TENDER": {
+                  "text": "预算金额：人民币393万元整，超过预算金额的投标将作无效标处理。",
+                  "clauseId": "tender-price-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                },
+                "CONTRACT": {
+                  "text": "合同金额：空白，以中标金额388.5万元为准。",
+                  "clauseId": "contract-price-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                }
+              },
+              "category": "PRICE",
+              "matchKey": "PRICE:0",
+              "changeType": "CHANGED"
+            },
+            {
+              "clauses": {
+                "CONTRACT": {
+                  "text": "交付质量标准：开发商软件系统、软硬件产品及服务必须符合招标文件要求，以投标文件为准；质量按照国家、行业或企业标准确定，不一致时以最严格为准；硬件产品全新未使用。",
+                  "clauseId": "contract-quality-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                }
+              },
+              "category": "QUALITY",
+              "matchKey": "QUALITY:0",
+              "changeType": "ADDED"
+            },
+            {
+              "clauses": {
+                "AWARD": {
+                  "text": "数量：影像AI存储1台，文件归档存储3台，全闪热存储3台，大数据中间件服务器4台，大数据治理节点服务器4台，国产服务器操作系统50套，泛血管智能体应用软件1套。",
+                  "clauseId": "award-quantity-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                }
+              },
+              "category": "QUANTITY",
+              "matchKey": "QUANTITY:0",
+              "changeType": "MISSING"
+            },
+            {
+              "clauses": {
+                "BID": {
+                  "text": "主要标的：影像AI存储、文件归档存储、全闪热存储、大数据中间件服务器、大数据治理节点服务器、国产服务器操作系统、泛血管智能体应用软件。",
+                  "clauseId": "bid-scope-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                },
+                "AWARD": {
+                  "text": "主要标的信息：影像AI存储（华为OceanStor 5610，1台，单价484700元）、文件归档存储（华为OceanStor Pacific 9520，3台，单价160800元）、全闪热存储（华为OceanStor Pacific 9920，3台，单价480900元）、大数据中间件服务器（宝德PR210K，4台，单价101900元）、大数据治理节点服务器（宝德PR210K，4台，单价101900元）、国产服务器操作系统（麒麟银河高级服务器操作系统V10，50套，单价4200元）、泛血管智能体应用软件（欣忆定制，1套，单价450000元）。",
+                  "clauseId": "award-scope-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                },
+                "TENDER": {
+                  "text": "招标内容：泛血管全栈数智基座与智能体建设，包括影像AI存储、文件归档存储、全闪热存储、大数据中间件服务器、大数据治理节点服务器、国产服务器操作系统、泛血管智能体应用软件。",
+                  "clauseId": "tender-scope-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                },
+                "CONTRACT": {
+                  "text": "实施范围与服务地点：上海市徐汇区枫林路180号复旦大学附属中山医院内。",
+                  "clauseId": "contract-scope-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                }
+              },
+              "category": "SCOPE",
+              "matchKey": "SCOPE:0",
+              "changeType": "CHANGED"
+            },
+            {
+              "clauses": {
+                "CONTRACT": {
+                  "text": "交付内容：乙方完成软件开发、硬件采购和服务，包括开发、安装、部署、集成、测试、人员培训和上线工作，并通过验收（试运行1个月）。",
+                  "clauseId": "contract-scope-2",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                }
+              },
+              "category": "SCOPE",
+              "matchKey": "SCOPE:1",
+              "changeType": "ADDED"
+            },
+            {
+              "clauses": {
+                "TENDER": {
+                  "text": "项目名称：泛血管全栈数智基座与智能体项目；项目编号：招案2026-1952。",
+                  "clauseId": "tender-subject-1",
+                  "evidenceRefs": "",
+                  "normalizedValue": null
+                }
+              },
+              "category": "SUBJECT",
+              "matchKey": "SUBJECT:0",
+              "changeType": "MISSING"
+            }
+          ],
+          "reviewRequired": true
+        },
+        "performance": {
+          "score": null,
+          "status": "INSUFFICIENT_DATA",
+          "metrics": [
+            {
+              "key": "ON_TIME_DELIVERY",
+              "value": null,
+              "weight": 25.0,
+              "available": false
+            },
+            {
+              "key": "QUALITY_FIRST_PASS",
+              "value": null,
+              "weight": 25.0,
+              "available": false
+            },
+            {
+              "key": "ACCEPTANCE_SERVICE",
+              "value": null,
+              "weight": 20.0,
+              "available": false
+            },
+            {
+              "key": "COMMERCIAL_COMPLIANCE",
+              "value": null,
+              "weight": 15.0,
+              "available": false
+            },
+            {
+              "key": "REMEDIATION",
+              "value": null,
+              "weight": 15.0,
+              "available": false
+            }
+          ],
+          "coverage": 0.0,
+          "periodEnd": "2026-07-28",
+          "sampleSize": 0,
+          "periodStart": "2026-01-01",
+          "ruleVersion": "rule://supplier-performance@1",
+          "sourceRecordRefs": []
+        },
+        "assessmentId": "019fa6da-8195-728a-9ab5-5246cec57efe",
+        "snapshotHash": "063a1620a7e9f1ecddd027500b7f4eada0799adab9112d3525ef02f787e3bec9",
+        "schemaVersion": "schema://procurement-supplier-risk/result@1"
+      },
+      "capabilityPackVersionId": "019fa6da-46ad-7b12-b94f-e472ecfb09e2",
+      "ruleSetVersionId": null,
+      "planHash": "16487c493cfafe3f5695bf5fd8a46f775dd26f18f90de81720b10bee0fc60bd6",
+      "attachmentManifestHash": "b66e2f94ecb361a346c079c03c9470d8ec7efc027f1d9ac9cb75a9f94fd7b9f8",
+      "registrySnapshot": {
+        "slots": {
+          "case": {
+            "type": "procurement-supplier-risk-case",
+            "schema": "schema://procurement-supplier-risk/case@1",
+            "subjectRoles": [
+              {
+                "key": "procurement",
+                "max": 1,
+                "min": 1,
+                "role": "PRIMARY",
+                "objectType": "procurement"
+              },
+              {
+                "key": "supplier",
+                "max": 20,
+                "min": 1,
+                "role": "RELATED",
+                "objectType": "supplier"
+              }
+            ],
+            "subjectsRequired": true
+          },
+          "decisions": [],
+          "resources": []
+        },
+        "strategy": {
+          "ref": "strategy://procurement-supplier-risk/assess@4",
+          "tools": [
+            "tool://document/coverage-check@1",
+            "tool://document/read-versions@1",
+            "tool://evidence/search@1",
+            "tool://procurement-supplier-risk/finalize@1",
+            "tool://procurement/consistency-compare@1",
+            "tool://report/render-procurement-supplier-risk@1",
+            "tool://supplier/history-diff@1",
+            "tool://supplier/performance-calculate@1",
+            "tool://supplier/risk-collect@1",
+            "tool://supplier/risk-decide@1",
+            "tool://workbench/record-procurement-supplier-risk@1"
+          ],
+          "agents": [
+            "agent://procurement/clause-evidence-analyst@2",
+            "agent://procurement/evidence-quality-reviewer@1",
+            "agent://supplier/risk-analyst@1"
+          ],
+          "models": [
+            "model://general@1"
+          ],
+          "planHash": "16487c493cfafe3f5695bf5fd8a46f775dd26f18f90de81720b10bee0fc60bd6",
+          "specHash": "270ff4162c449435812bf82b8708360494b754e9a0f43d53727a830858a6a854",
+          "registrySnapshot": "registry:a9dd1b8c2cb75c6e",
+          "strategyVersionId": "019fa6da-4673-7fc2-b42c-e980fd7589b3"
+        },
+        "references": {
+          "tool://evidence/search@1": "tool://evidence/search@1",
+          "tool://supplier/risk-decide@1": "tool://supplier/risk-decide@1",
+          "tool://supplier/history-diff@1": "tool://supplier/history-diff@1",
+          "tool://supplier/risk-collect@1": "tool://supplier/risk-collect@1",
+          "agent://supplier/risk-analyst@1": "agent://supplier/risk-analyst@1",
+          "tool://document/read-versions@1": "tool://document/read-versions@1",
+          "tool://document/coverage-check@1": "tool://document/coverage-check@1",
+          "report://procurement-supplier-risk@1": "report://procurement-supplier-risk@1",
+          "tool://supplier/performance-calculate@1": "tool://supplier/performance-calculate@1",
+          "view://procurement-supplier-risk/case@1": "view://procurement-supplier-risk/case@1",
+          "tool://procurement/consistency-compare@1": "tool://procurement/consistency-compare@1",
+          "schema://procurement-supplier-risk/case@1": "schema://procurement-supplier-risk/case@1",
+          "schema://procurement-supplier-risk/input@1": "schema://procurement-supplier-risk/input@1",
+          "schema://procurement-supplier-risk/result@1": "schema://procurement-supplier-risk/result@1",
+          "tool://procurement-supplier-risk/finalize@1": "tool://procurement-supplier-risk/finalize@1",
+          "agent://procurement/clause-evidence-analyst@2": "agent://procurement/clause-evidence-analyst@2",
+          "strategy://procurement-supplier-risk/assess@4": "strategy://procurement-supplier-risk/assess@4",
+          "agent://procurement/evidence-quality-reviewer@1": "agent://procurement/evidence-quality-reviewer@1",
+          "tool://report/render-procurement-supplier-risk@1": "tool://report/render-procurement-supplier-risk@1",
+          "tool://workbench/record-procurement-supplier-risk@1": "tool://workbench/record-procurement-supplier-risk@1"
+        },
+        "strategies": {
+          "DEFAULT": {
+            "ref": "strategy://procurement-supplier-risk/assess@4",
+            "tools": [
+              "tool://document/coverage-check@1",
+              "tool://document/read-versions@1",
+              "tool://evidence/search@1",
+              "tool://procurement-supplier-risk/finalize@1",
+              "tool://procurement/consistency-compare@1",
+              "tool://report/render-procurement-supplier-risk@1",
+              "tool://supplier/history-diff@1",
+              "tool://supplier/performance-calculate@1",
+              "tool://supplier/risk-collect@1",
+              "tool://supplier/risk-decide@1",
+              "tool://workbench/record-procurement-supplier-risk@1"
+            ],
+            "agents": [
+              "agent://procurement/clause-evidence-analyst@2",
+              "agent://procurement/evidence-quality-reviewer@1",
+              "agent://supplier/risk-analyst@1"
+            ],
+            "models": [
+              "model://general@1"
+            ],
+            "planHash": "16487c493cfafe3f5695bf5fd8a46f775dd26f18f90de81720b10bee0fc60bd6",
+            "specHash": "270ff4162c449435812bf82b8708360494b754e9a0f43d53727a830858a6a854",
+            "registrySnapshot": "registry:a9dd1b8c2cb75c6e",
+            "strategyVersionId": "019fa6da-4673-7fc2-b42c-e980fd7589b3"
+          }
+        },
+        "selectedStrategy": {
+          "ref": "strategy://procurement-supplier-risk/assess@4",
+          "tools": [
+            "tool://document/coverage-check@1",
+            "tool://document/read-versions@1",
+            "tool://evidence/search@1",
+            "tool://procurement-supplier-risk/finalize@1",
+            "tool://procurement/consistency-compare@1",
+            "tool://report/render-procurement-supplier-risk@1",
+            "tool://supplier/history-diff@1",
+            "tool://supplier/performance-calculate@1",
+            "tool://supplier/risk-collect@1",
+            "tool://supplier/risk-decide@1",
+            "tool://workbench/record-procurement-supplier-risk@1"
+          ],
+          "agents": [
+            "agent://procurement/clause-evidence-analyst@2",
+            "agent://procurement/evidence-quality-reviewer@1",
+            "agent://supplier/risk-analyst@1"
+          ],
+          "models": [
+            "model://general@1"
+          ],
+          "planHash": "16487c493cfafe3f5695bf5fd8a46f775dd26f18f90de81720b10bee0fc60bd6",
+          "specHash": "270ff4162c449435812bf82b8708360494b754e9a0f43d53727a830858a6a854",
+          "registrySnapshot": "registry:a9dd1b8c2cb75c6e",
+          "strategyVersionId": "019fa6da-4673-7fc2-b42c-e980fd7589b3"
+        },
+        "bindingConfiguration": {
+          "currency": "CNY",
+          "timezone": "Asia/Shanghai",
+          "documentRequirements": [
+            {
+              "key": "tender-document",
+              "category": "TENDER_DOCUMENT",
+              "maxCount": 20,
+              "minCount": 1,
+              "required": true,
+              "displayName": "招标/采购文件",
+              "extractionSchema": "schema://document/generic-text@1",
+              "acceptedMediaTypes": [
+                "application/pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/json",
+                "text/csv",
+                "text/plain"
+              ],
+              "classificationLabels": [
+                "TENDER_DOCUMENT",
+                "PROCUREMENT_DOCUMENT"
+              ]
+            },
+            {
+              "key": "winning-bid",
+              "category": "WINNING_BID",
+              "maxCount": 20,
+              "minCount": 1,
+              "required": true,
+              "displayName": "中标投标/响应文件",
+              "extractionSchema": "schema://document/generic-text@1",
+              "acceptedMediaTypes": [
+                "application/pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/json",
+                "text/csv",
+                "text/plain"
+              ],
+              "classificationLabels": [
+                "WINNING_BID",
+                "BID_RESPONSE"
+              ]
+            },
+            {
+              "key": "award-notice",
+              "category": "AWARD_NOTICE",
+              "maxCount": 5,
+              "minCount": 1,
+              "required": true,
+              "displayName": "中标/成交通知书",
+              "extractionSchema": "schema://document/generic-text@1",
+              "acceptedMediaTypes": [
+                "application/pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/json",
+                "text/csv",
+                "text/plain"
+              ],
+              "classificationLabels": [
+                "AWARD_NOTICE"
+              ]
+            },
+            {
+              "key": "contract",
+              "category": "MASTER_CONTRACT",
+              "maxCount": 5,
+              "minCount": 1,
+              "required": true,
+              "displayName": "待签或已签合同",
+              "extractionSchema": "schema://document/generic-text@1",
+              "acceptedMediaTypes": [
+                "application/pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/json",
+                "text/csv",
+                "text/plain"
+              ],
+              "classificationLabels": [
+                "MASTER_CONTRACT",
+                "CONTRACT"
+              ]
+            },
+            {
+              "key": "clarification-change",
+              "category": "PROCUREMENT_CHANGE",
+              "maxCount": 30,
+              "minCount": 0,
+              "required": false,
+              "displayName": "澄清、变更和补充协议",
+              "extractionSchema": "schema://document/generic-text@1",
+              "acceptedMediaTypes": [
+                "application/pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/json",
+                "text/csv",
+                "text/plain"
+              ],
+              "classificationLabels": [
+                "CLARIFICATION",
+                "PROCUREMENT_CHANGE",
+                "APPROVED_CHANGE"
+              ]
+            },
+            {
+              "key": "supplier-performance",
+              "category": "SUPPLIER_PERFORMANCE",
+              "maxCount": 100,
+              "minCount": 0,
+              "required": false,
+              "displayName": "供应商履约绩效资料",
+              "extractionSchema": "schema://document/generic-text@1",
+              "acceptedMediaTypes": [
+                "application/pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/json",
+                "text/csv",
+                "text/plain"
+              ],
+              "classificationLabels": [
+                "SUPPLIER_PERFORMANCE",
+                "ACCEPTANCE",
+                "QUALITY",
+                "DELIVERY"
+              ]
+            }
+          ]
+        },
+        "bindingConfigurationHash": "409b000f929e0ba461d88e10b54478615be4ea5ff88f697b1073de6ea1a08adf"
+      },
+      "createdAt": "2026-07-28T03:52:45.7799Z"
+    }
+  ]
+}

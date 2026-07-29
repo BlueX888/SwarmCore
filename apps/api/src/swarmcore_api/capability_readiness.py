@@ -150,14 +150,19 @@ class HttpAgentReadinessPort:
         environment: str,
         registration: AgentRegistration,
     ) -> AgentRuntimeStatus:
-        del tenant_id, project_id, environment
+        del tenant_id, project_id, registration
         payload = await self._client.get()
         rows = payload.get("adapters", []) if payload is not None else []
+        allowed_runtimes = (
+            {"agno", "fake-deterministic"}
+            if environment in {"development", "test"}
+            else {"agno"}
+        )
         row = next(
             (
                 item
                 for item in rows
-                if isinstance(item, dict) and item.get("runtime") == "agno"
+                if isinstance(item, dict) and item.get("runtime") in allowed_runtimes
             ),
             None,
         )

@@ -1,0 +1,17 @@
+{
+  "fixtureNotice": "Synthetic demo policy. Not a real company payment policy.",
+  "asOf": "2026-03-20",
+  "currency": "CNY",
+  "budget": {
+    "costCenter": "DEMO-IT",
+    "availableAmount": 5000.0,
+    "requestedAmount": 1130.0
+  },
+  "paymentPolicy": {
+    "requireInvoiceFaceMatch": true,
+    "requireAcceptedDelivery": true,
+    "requireApprovedSupplierBankAccount": true,
+    "blockDuplicateInvoice": true,
+    "allowPaymentWhenBudgetAvailable": true
+  }
+}

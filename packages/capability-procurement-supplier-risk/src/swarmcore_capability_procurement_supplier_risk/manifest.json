@@ -1,0 +1,86 @@
+{
+  "apiVersion": "swarmcore.io/v2",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "procurement-supplier-risk", "version": "1.0.4"},
+  "spec": {
+    "case": {
+      "type": "procurement-supplier-risk-case",
+      "schema": "schema://procurement-supplier-risk/case@1",
+      "subjectsRequired": true,
+      "subjectRoles": [
+        {"key": "procurement", "objectType": "procurement", "role": "PRIMARY", "min": 1, "max": 1},
+        {"key": "supplier", "objectType": "supplier", "role": "RELATED", "min": 1, "max": 20}
+      ]
+    },
+    "inputSchema": "schema://procurement-supplier-risk/input@1",
+    "outputSchema": "schema://procurement-supplier-risk/result@1",
+    "strategies": {"execute": "strategy://procurement-supplier-risk/assess@5"},
+    "agents": [
+      "agent://procurement/clause-evidence-analyst@3",
+      "agent://supplier/risk-analyst@1",
+      "agent://procurement/evidence-quality-reviewer@1"
+    ],
+    "tools": [
+      "tool://document/read-versions@1",
+      "tool://document/coverage-check@1",
+      "tool://evidence/search@1",
+      "tool://procurement/consistency-compare@1",
+      "tool://supplier/risk-collect@1",
+      "tool://supplier/performance-calculate@1",
+      "tool://supplier/risk-decide@1",
+      "tool://supplier/history-diff@1",
+      "tool://procurement-supplier-risk/finalize@1",
+      "tool://report/render-procurement-supplier-risk@1",
+      "tool://workbench/record-procurement-supplier-risk@1"
+    ],
+    "documents": {
+      "processingProfile": "document-profile://business-default@1",
+      "requirements": [
+        {
+          "key": "tender-document", "category": "TENDER_DOCUMENT", "displayName": "招标/采购文件",
+          "required": true, "minCount": 1, "maxCount": 20,
+          "classificationLabels": ["TENDER_DOCUMENT", "PROCUREMENT_DOCUMENT"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "winning-bid", "category": "WINNING_BID", "displayName": "中标投标/响应文件",
+          "required": true, "minCount": 1, "maxCount": 20,
+          "classificationLabels": ["WINNING_BID", "BID_RESPONSE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "award-notice", "category": "AWARD_NOTICE", "displayName": "中标/成交通知书",
+          "required": true, "minCount": 1, "maxCount": 5,
+          "classificationLabels": ["AWARD_NOTICE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "contract", "category": "MASTER_CONTRACT", "displayName": "待签或已签合同",
+          "required": true, "minCount": 1, "maxCount": 5,
+          "classificationLabels": ["MASTER_CONTRACT", "CONTRACT"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "clarification-change", "category": "PROCUREMENT_CHANGE", "displayName": "澄清、变更和补充协议",
+          "required": false, "minCount": 0, "maxCount": 30,
+          "classificationLabels": ["CLARIFICATION", "PROCUREMENT_CHANGE", "APPROVED_CHANGE"],
+          "extractionSchema": "schema://document/generic-text@1"
+        },
+        {
+          "key": "supplier-performance", "category": "SUPPLIER_PERFORMANCE", "displayName": "供应商履约绩效资料",
+          "required": false, "minCount": 0, "maxCount": 100,
+          "classificationLabels": ["SUPPLIER_PERFORMANCE", "ACCEPTANCE", "QUALITY", "DELIVERY"],
+          "extractionSchema": "schema://document/generic-text@1"
+        }
+      ]
+    },
+    "report": {"template": "report://procurement-supplier-risk@1"},
+    "permissions": [
+      "case.create", "case.read", "case.assess", "document.read", "supplier-risk.read",
+      "supplier-risk.refresh", "supplier-risk.review", "supplier-risk.work-order",
+      "approval.respond", "report.read", "procurement-risk.audit"
+    ],
+    "events": {"namespace": "capability.procurement-supplier-risk"},
+    "ui": {"viewDefinition": "view://procurement-supplier-risk/case@1"}
+  }
+}

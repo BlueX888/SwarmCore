@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://contract-performance/case@1",
+  "type": "object",
+  "required": ["contractObjectId", "timezone", "currency"],
+  "properties": {
+    "contractObjectId": {"type": "string", "format": "uuid"},
+    "timezone": {"type": "string", "default": "Asia/Shanghai"},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$", "default": "CNY"},
+    "activePlanVersionId": {"type": ["string", "null"], "format": "uuid"},
+    "asOf": {"type": "string", "format": "date"}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,19 @@
+{
+  "fixtureNotice": "Synthetic demo record. Not a real receipt or acceptance certificate.",
+  "acceptanceId": "AC-DEMO-001",
+  "contractId": "CT-DEMO-001",
+  "purchaseOrderId": "PO-DEMO-001",
+  "acceptedAt": "2026-03-18",
+  "status": "ACCEPTED",
+  "lines": [
+    {
+      "lineId": "AC-L1",
+      "purchaseOrderLineId": "PO-L1",
+      "description": "演示软件服务",
+      "acceptedQuantity": 1
+    }
+  ],
+  "evidenceRefs": [
+    "fixture:acceptance:v1"
+  ]
+}

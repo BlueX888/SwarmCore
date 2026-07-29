@@ -129,6 +129,7 @@ class NodeBase(StrictModel):
 class AgentNode(NodeBase):
     type: Literal["agent"]
     agent: str
+    fallback_agent: str | None = Field(default=None, alias="fallbackAgent")
 
 
 class TeamNode(NodeBase):

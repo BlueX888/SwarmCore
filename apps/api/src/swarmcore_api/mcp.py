@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from datetime import date, datetime
 from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy import select
 from swarmcore_application import (
     CapabilityCatalogService,
     CapabilityCenterService,
@@ -22,9 +24,17 @@ from swarmcore_application import (
     StrategyService,
 )
 from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2, MANIFEST_V2_1
+from swarmcore_capability_contract_performance import MANIFEST as CONTRACT_PERFORMANCE_MANIFEST
 from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
 from swarmcore_capability_deviation_analysis import MANIFEST as DEVIATION_ANALYSIS_MANIFEST
+from swarmcore_capability_document_structuring import (
+    MANIFEST as DOCUMENT_STRUCTURING_MANIFEST,
+)
 from swarmcore_capability_invoice_assurance import MANIFEST as INVOICE_ASSURANCE_MANIFEST
+from swarmcore_capability_procurement_supplier_risk import (
+    MANIFEST as PROCUREMENT_SUPPLIER_RISK_MANIFEST,
+)
+from swarmcore_capability_swarm_calibration import MANIFEST as SWARM_CALIBRATION_MANIFEST
 from swarmcore_governance import (
     PolicyDenied,
     PolicyError,
@@ -34,20 +44,29 @@ from swarmcore_governance import (
 )
 from swarmcore_persistence import AuditRepository, tenant_transaction
 from swarmcore_persistence.errors import PersistenceConflictError
-from swarmcore_persistence.models import Project
+from swarmcore_persistence.models import BusinessDocumentVersion, Project
 
 from .authentication import AuthenticationError, Identity, JwtAuthenticator
 from .business_routes import (
     _assessment_detail,
     _business_work_snapshot,
+    _contract_performance_plan_snapshot,
+    _contract_performance_snapshot,
+    _evaluation_snapshot,
     _invoice_batch_snapshot,
+    _supplier_risk_alert_snapshot,
+    _supplier_risk_monitor_snapshot,
 )
 from .business_routes import business_objects as _business_objects
 from .business_routes import business_works as _business_works
 from .business_routes import capability_packs as _capability_packs
 from .business_routes import cases as _cases
+from .business_routes import contract_performance as _contract_performance
+from .business_routes import document_processing as _document_processing
+from .business_routes import document_review as _document_review
 from .business_routes import documents as _documents
 from .business_routes import invoice_assurance_operations as _invoice_assurance_operations
+from .business_routes import procurement_supplier_risk as _procurement_supplier_risk
 from .business_routes import workbench as _workbench
 from .schemas import JsonRpcRequest
 
@@ -64,8 +83,12 @@ _capabilities = CapabilityCatalogService(
         MANIFEST_V2,
         MANIFEST_V2_1,
         POST_EVALUATION_MANIFEST,
+        CONTRACT_PERFORMANCE_MANIFEST,
+        PROCUREMENT_SUPPLIER_RISK_MANIFEST,
         DEVIATION_ANALYSIS_MANIFEST,
+        DOCUMENT_STRUCTURING_MANIFEST,
         INVOICE_ASSURANCE_MANIFEST,
+        SWARM_CALIBRATION_MANIFEST,
     )
 )
 _compilation = CompilationService(_strategies)
@@ -237,7 +260,10 @@ _TOOLS = [
     },
     {
         "name": "create_invoice_assurance_batch",
-        "description": "Queue multiple invoice-assurance cases; every invoice remains an independent Case and Assessment.",
+        "description": (
+            "Queue multiple invoice-assurance cases; every invoice remains an independent "
+            "Case and Assessment."
+        ),
         "inputSchema": _business_schema(
             required=("items", "idempotencyKey"),
             properties={
@@ -299,6 +325,208 @@ _TOOLS = [
         "description": "Aggregate historical invoice-assurance outcomes and non-pass rule hits.",
         "inputSchema": _business_schema(
             properties={"bucket": {"enum": ["day", "week", "month"]}},
+        ),
+    },
+    {
+        "name": "contract_performance_initialize",
+        "description": "Create a candidate contract-performance plan from frozen evidence facts.",
+        "inputSchema": _business_schema(
+            required=("caseId", "asOf", "candidates"),
+            properties={
+                "caseId": {"type": "string", "format": "uuid"},
+                "asOf": {"type": "string", "format": "date"},
+                "candidates": {"type": "object"},
+                "coverage": {"type": "object"},
+            },
+        ),
+    },
+    {
+        "name": "contract_performance_collect",
+        "description": "Collect and deterministically evaluate contract execution evidence.",
+        "inputSchema": _business_schema(
+            required=("caseId", "asOf", "idempotencyKey"),
+            properties={
+                "caseId": {"type": "string", "format": "uuid"},
+                "asOf": {"type": "string", "format": "date"},
+                "evidence": {"type": "array", "items": {"type": "object"}},
+                "candidateLinks": {"type": "array", "items": {"type": "object"}},
+                "sources": {"type": "array", "maxItems": 5, "items": {"type": "object"}},
+                "collectionStatus": {"enum": ["COMPLETE", "PARTIAL", "FAILED"]},
+                "approvedExceptions": {"type": "array", "items": {"type": "string"}},
+                "idempotencyKey": {"type": "string", "minLength": 1, "maxLength": 256},
+            },
+        ),
+    },
+    {
+        "name": "contract_performance_get_plan",
+        "description": "Read the active or requested contract-performance plan version.",
+        "inputSchema": _business_schema(
+            required=("caseId",),
+            properties={
+                "caseId": {"type": "string", "format": "uuid"},
+                "version": {"type": "integer", "minimum": 1},
+            },
+        ),
+    },
+    {
+        "name": "contract_performance_get_snapshot",
+        "description": "Read an immutable contract-performance result snapshot.",
+        "inputSchema": _business_schema(
+            required=("caseId", "snapshotId"),
+            properties={
+                "caseId": {"type": "string", "format": "uuid"},
+                "snapshotId": {"type": "string", "format": "uuid"},
+            },
+        ),
+    },
+    {
+        "name": "run_swarm_calibration",
+        "description": (
+            "Run scheduling calibration from a real GitHub issue, linked discussion, fixed "
+            "merge commit, agent diagnosis, sandbox verification, and deterministic quality gate."
+        ),
+        "inputSchema": _business_schema(
+            required=(
+                "title",
+                "issueUrl",
+                "objective",
+                "acceptanceCriteria",
+                "sandbox",
+                "idempotencyKey",
+            ),
+            properties={
+                "title": {"type": "string", "minLength": 1, "maxLength": 256},
+                "issueUrl": {
+                    "type": "string",
+                    "pattern": (
+                        r"^https://(?:www\.)?github\.com/[^/]+/[^/]+/"
+                        r"issues/[1-9][0-9]*/?$"
+                    ),
+                },
+                "objective": {"type": "string", "minLength": 1, "maxLength": 4000},
+                "acceptanceCriteria": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": {"type": "string", "minLength": 1},
+                },
+                "sandbox": {
+                    "type": "object",
+                    "required": ["enabled", "testCommand"],
+                    "properties": {
+                        "enabled": {"type": "boolean"},
+                        "testCommand": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 32,
+                            "items": {"type": "string", "minLength": 1},
+                        },
+                    },
+                },
+                "budget": {"type": "object"},
+                "owner": {"type": "string", "maxLength": 256},
+                "idempotencyKey": {"type": "string", "minLength": 1, "maxLength": 220},
+            },
+        ),
+    },
+    {
+        "name": "supplier_risk_monitor_create",
+        "description": "Create an idempotent supplier risk monitor for an existing case.",
+        "inputSchema": _business_schema(
+            required=(
+                "caseId",
+                "supplierName",
+                "supplierCreditCode",
+                "sources",
+                "idempotencyKey",
+            ),
+            properties={
+                "caseId": {"type": "string", "format": "uuid"},
+                "supplierName": {"type": "string", "minLength": 1},
+                "supplierCreditCode": {"type": "string", "minLength": 1},
+                "cadence": {"enum": ["HOURLY", "DAILY", "WEEKLY"]},
+                "sources": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {"type": "object"},
+                },
+                "idempotencyKey": {"type": "string", "minLength": 1, "maxLength": 256},
+            },
+        ),
+    },
+    {
+        "name": "supplier_risk_monitor_refresh",
+        "description": "Refresh a monitor through the same durable case assessment service.",
+        "inputSchema": _business_schema(
+            required=("monitorId", "idempotencyKey"),
+            properties={
+                "monitorId": {"type": "string", "format": "uuid"},
+                "idempotencyKey": {"type": "string", "minLength": 1, "maxLength": 256},
+            },
+        ),
+    },
+    {
+        "name": "supplier_risk_history_list",
+        "description": "List immutable supplier risk snapshots and material changes.",
+        "inputSchema": _business_schema(
+            required=("monitorId",),
+            properties={
+                "monitorId": {"type": "string", "format": "uuid"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            },
+        ),
+    },
+    {
+        "name": "supplier_risk_alerts_list",
+        "description": "List supplier blacklist, clause deviation, and risk-change alerts.",
+        "inputSchema": _business_schema(
+            properties={
+                "monitorId": {"type": "string", "format": "uuid"},
+                "status": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            },
+        ),
+    },
+    {
+        "name": "supplier_risk_work_order_create",
+        "description": "Open a traceable remediation work order for one supplier risk alert.",
+        "inputSchema": _business_schema(
+            required=("alertId", "idempotencyKey"),
+            properties={
+                "alertId": {"type": "string", "format": "uuid"},
+                "priority": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+                "assignee": {"type": "string"},
+                "dueAt": {"type": "string", "format": "date-time"},
+                "idempotencyKey": {"type": "string", "minLength": 1, "maxLength": 256},
+            },
+        ),
+    },
+    {
+        "name": "supplier_risk_work_order_update",
+        "description": "Transition a supplier risk work order and append an audit action.",
+        "inputSchema": _business_schema(
+            required=("workOrderId", "status"),
+            properties={
+                "workOrderId": {"type": "string", "format": "uuid"},
+                "status": {
+                    "enum": ["OPEN", "IN_PROGRESS", "RESOLVED", "REJECTED", "CLOSED"]
+                },
+                "assignee": {"type": "string"},
+                "resolution": {"type": "object"},
+                "comment": {"type": "string"},
+            },
+        ),
+    },
+    {
+        "name": "supplier_risk_work_orders_list",
+        "description": "List traceable supplier risk work orders and their action history.",
+        "inputSchema": _business_schema(
+            properties={
+                "monitorId": {"type": "string", "format": "uuid"},
+                "status": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            },
         ),
     },
     {
@@ -440,6 +668,55 @@ _TOOLS = [
         "inputSchema": _business_schema(
             required=("evaluationId",),
             properties={"evaluationId": {"type": "string", "format": "uuid"}},
+        ),
+    },
+    {
+        "name": "structure_document",
+        "description": "Start durable multi-format structuring for one library document.",
+        "inputSchema": _business_schema(
+            required=("documentId", "idempotencyKey"),
+            properties={
+                "documentId": {"type": "string", "format": "uuid"},
+                "idempotencyKey": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                },
+                "extractionSchemaRef": {"type": "string"},
+                "classificationLabels": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
+            },
+        ),
+    },
+    {
+        "name": "get_document_processing",
+        "description": "Get the current durable processing stage and provenance.",
+        "inputSchema": _business_schema(
+            required=("documentId",),
+            properties={"documentId": {"type": "string", "format": "uuid"}},
+        ),
+    },
+    {
+        "name": "get_structured_package",
+        "description": "Get the latest published structured package for a document.",
+        "inputSchema": _business_schema(
+            required=("documentId",),
+            properties={"documentId": {"type": "string", "format": "uuid"}},
+        ),
+    },
+    {
+        "name": "confirm_document_fields",
+        "description": "Confirm or correct extracted fields while preserving machine values.",
+        "inputSchema": _business_schema(
+            required=("documentId", "fields"),
+            properties={
+                "documentId": {"type": "string", "format": "uuid"},
+                "fields": {"type": "array", "items": {"type": "object"}},
+                "acceptHighConfidence": {"type": "boolean"},
+                "expectedResultVersion": {"type": "integer", "minimum": 1},
+            },
         ),
     },
     {
@@ -603,6 +880,18 @@ async def _call_tool(
         "create_invoice_assurance_batch": "case.assess",
         "get_invoice_assurance_batch": "case.read",
         "get_invoice_assurance_rule_trends": "case.read",
+        "contract_performance_initialize": "case.assess",
+        "contract_performance_collect": "case.assess",
+        "contract_performance_get_plan": "case.read",
+        "contract_performance_get_snapshot": "case.read",
+        "run_swarm_calibration": "case.assess",
+        "supplier_risk_monitor_create": "case.write",
+        "supplier_risk_monitor_refresh": "case.assess",
+        "supplier_risk_history_list": "case.read",
+        "supplier_risk_alerts_list": "finding.read",
+        "supplier_risk_work_order_create": "finding.write",
+        "supplier_risk_work_order_update": "finding.write",
+        "supplier_risk_work_orders_list": "finding.read",
         "create_work_item": "work-item.write",
         "upsert_business_object": "business-object.write",
         "create_case": "case.write",
@@ -811,9 +1100,7 @@ async def _call_tool(
                             if isinstance(value, dict)
                         ),
                         owner=(
-                            str(raw_item["owner"])
-                            if raw_item.get("owner") is not None
-                            else None
+                            str(raw_item["owner"]) if raw_item.get("owner") is not None else None
                         ),
                     )
                 )
@@ -847,26 +1134,320 @@ async def _call_tool(
                 project_id=project_id,
                 bucket=cast(Literal["day", "week", "month"], bucket),
             )
-        if name == "list_documents":
-            document_rows = await _documents.list_documents(
+        if name == "contract_performance_initialize":
+            plan = await _contract_performance.initialize(
                 session,
                 tenant_id=tenant_id,
                 project_id=project_id,
-                search=(
-                    str(arguments["search"])
-                    if arguments.get("search") is not None
+                case_id=UUID(str(arguments["caseId"])),
+                candidates=dict(arguments["candidates"]),
+                as_of=date.fromisoformat(str(arguments["asOf"])),
+                coverage=dict(arguments.get("coverage") or {}),
+                actor=identity.subject_id,
+            )
+            return _contract_performance_plan_snapshot(plan).model_dump(by_alias=True, mode="json")
+        if name == "contract_performance_collect":
+            snapshot = await _contract_performance.collect(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                case_id=UUID(str(arguments["caseId"])),
+                as_of=date.fromisoformat(str(arguments["asOf"])),
+                evidence=tuple(
+                    item for item in arguments.get("evidence", []) if isinstance(item, dict)
+                ),
+                candidate_links=tuple(
+                    item for item in arguments.get("candidateLinks", []) if isinstance(item, dict)
+                ),
+                sources=tuple(
+                    item for item in arguments.get("sources", []) if isinstance(item, dict)
+                ),
+                collection_status=str(arguments.get("collectionStatus", "COMPLETE")),
+                idempotency_key=str(arguments["idempotencyKey"]),
+                actor=identity.subject_id,
+                approved_exceptions=tuple(
+                    str(item) for item in arguments.get("approvedExceptions", [])
+                ),
+            )
+            return _contract_performance_snapshot(snapshot).model_dump(by_alias=True, mode="json")
+        if name == "contract_performance_get_plan":
+            requested_version = arguments.get("version")
+            plan = await _contract_performance.get_plan(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                case_id=UUID(str(arguments["caseId"])),
+                version=(
+                    int(requested_version) if requested_version is not None else None
+                ),
+            )
+            return _contract_performance_plan_snapshot(plan).model_dump(by_alias=True, mode="json")
+        if name == "contract_performance_get_snapshot":
+            snapshot = await _contract_performance.get_snapshot(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                case_id=UUID(str(arguments["caseId"])),
+                snapshot_id=UUID(str(arguments["snapshotId"])),
+            )
+            return _contract_performance_snapshot(snapshot).model_dump(by_alias=True, mode="json")
+        if name == "run_swarm_calibration":
+            key = str(arguments["idempotencyKey"])
+            payload = {
+                "title": str(arguments["title"]),
+                "issueUrl": str(arguments["issueUrl"]),
+                "objective": str(arguments["objective"]),
+                "acceptanceCriteria": [
+                    str(item) for item in arguments.get("acceptanceCriteria", [])
+                ],
+                "sandbox": dict(arguments["sandbox"]),
+                "budget": dict(arguments.get("budget") or {}),
+            }
+            item, _ = await _business_works.create_work_item(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                work_key="swarm-calibration",
+                payload=payload,
+                owner=(
+                    str(arguments["owner"]) if arguments.get("owner") is not None else None
+                ),
+                idempotency_key=f"{key}:case",
+                actor=identity.subject_id,
+            )
+            evaluation = await _business_works.execute_work_item(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                work_key="swarm-calibration",
+                work_item_id=item.id,
+                idempotency_key=f"{key}:assessment",
+                actor=identity.subject_id,
+                submitted_scopes=identity.scopes,
+                auth_context_hash=identity.context_hash,
+            )
+            return _evaluation_snapshot(evaluation).model_dump(by_alias=True, mode="json")
+        if name == "supplier_risk_monitor_create":
+            monitor = await _procurement_supplier_risk.create_monitor(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                case_id=UUID(str(arguments["caseId"])),
+                supplier_name=str(arguments["supplierName"]),
+                supplier_credit_code=str(arguments["supplierCreditCode"]),
+                cadence=str(arguments.get("cadence", "DAILY")),
+                source_configuration=tuple(
+                    item for item in arguments["sources"] if isinstance(item, dict)
+                ),
+                idempotency_key=str(arguments["idempotencyKey"]),
+                actor=identity.subject_id,
+            )
+            return _supplier_risk_monitor_snapshot(monitor).model_dump(
+                by_alias=True, mode="json"
+            )
+        if name == "supplier_risk_monitor_refresh":
+            monitor = await _procurement_supplier_risk.get_monitor(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                monitor_id=UUID(str(arguments["monitorId"])),
+            )
+            item, revision, _ = await _cases.get(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                case_id=monitor.case_id,
+            )
+            prior_snapshots = await _procurement_supplier_risk.list_snapshots(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                monitor_id=monitor.id,
+                limit=1,
+            )
+            payload = {
+                **revision.payload,
+                "monitorId": str(monitor.id),
+                "supplier": {
+                    **dict(revision.payload.get("supplier") or {}),
+                    "name": monitor.supplier_name,
+                    "creditCode": monitor.supplier_credit_code,
+                },
+                "riskSources": list(monitor.source_configuration),
+                "previousSnapshot": (
+                    dict(prior_snapshots[0].result.get("risk") or {})
+                    if prior_snapshots
                     else None
                 ),
-                category=(
-                    str(arguments["category"])
-                    if arguments.get("category") is not None
-                    else None
+            }
+            refresh_key = str(arguments["idempotencyKey"])[:220]
+            if payload != revision.payload:
+                await _cases.revise(
+                    session,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    case_id=monitor.case_id,
+                    payload=payload,
+                    subjects=None,
+                    owner=item.owner,
+                    expected_revision=item.revision_number,
+                    idempotency_key=f"{refresh_key}:monitor-context",
+                    actor=identity.subject_id,
+                )
+            evaluation = await _cases.assess(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                case_id=monitor.case_id,
+                idempotency_key=f"{refresh_key}:assessment",
+                actor=identity.subject_id,
+                submitted_scopes=effective_scopes,
+                auth_context_hash=identity.context_hash,
+            )
+            return _evaluation_payload(evaluation)
+        if name == "supplier_risk_history_list":
+            snapshots = await _procurement_supplier_risk.list_snapshots(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                monitor_id=UUID(str(arguments["monitorId"])),
+                limit=int(arguments.get("limit", 100)),
+            )
+            return {
+                "items": [
+                    {
+                        "snapshotId": str(value.id),
+                        "evaluationId": str(value.evaluation_id),
+                        "asOf": value.as_of.isoformat(),
+                        "decision": value.decision,
+                        "riskLevel": value.risk_level,
+                        "riskScore": value.risk_score,
+                        "sourceCoverage": value.source_coverage,
+                        "changeSummary": value.change_summary,
+                        "resultHash": value.result_hash,
+                        "result": value.result,
+                    }
+                    for value in snapshots
+                ]
+            }
+        if name == "supplier_risk_alerts_list":
+            requested_monitor = arguments.get("monitorId")
+            alerts = await _procurement_supplier_risk.list_alerts(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                monitor_id=(
+                    UUID(str(requested_monitor)) if requested_monitor is not None else None
                 ),
                 status=(
                     str(arguments["status"])
                     if arguments.get("status") is not None
                     else None
                 ),
+                limit=int(arguments.get("limit", 100)),
+            )
+            return {
+                "items": [
+                    _supplier_risk_alert_snapshot(value).model_dump(
+                        by_alias=True, mode="json"
+                    )
+                    for value in alerts
+                ]
+            }
+        if name == "supplier_risk_work_order_create":
+            raw_due_at = arguments.get("dueAt")
+            work_order = await _procurement_supplier_risk.create_work_order(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                alert_id=UUID(str(arguments["alertId"])),
+                priority=str(arguments.get("priority", "HIGH")),
+                assignee=(
+                    str(arguments["assignee"])
+                    if arguments.get("assignee") is not None
+                    else None
+                ),
+                due_at=(
+                    datetime.fromisoformat(str(raw_due_at).replace("Z", "+00:00"))
+                    if raw_due_at is not None
+                    else None
+                ),
+                idempotency_key=str(arguments["idempotencyKey"]),
+                actor=identity.subject_id,
+            )
+            return await _supplier_risk_work_order_payload(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                value=work_order,
+            )
+        if name == "supplier_risk_work_order_update":
+            work_order = await _procurement_supplier_risk.update_work_order(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                work_order_id=UUID(str(arguments["workOrderId"])),
+                status=str(arguments["status"]),
+                assignee=(
+                    str(arguments["assignee"])
+                    if arguments.get("assignee") is not None
+                    else None
+                ),
+                resolution=(
+                    dict(arguments["resolution"])
+                    if arguments.get("resolution") is not None
+                    else None
+                ),
+                comment=(
+                    str(arguments["comment"])
+                    if arguments.get("comment") is not None
+                    else None
+                ),
+                actor=identity.subject_id,
+            )
+            return await _supplier_risk_work_order_payload(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                value=work_order,
+            )
+        if name == "supplier_risk_work_orders_list":
+            requested_monitor = arguments.get("monitorId")
+            work_orders = await _procurement_supplier_risk.list_work_orders(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                monitor_id=(
+                    UUID(str(requested_monitor)) if requested_monitor is not None else None
+                ),
+                status=(
+                    str(arguments["status"])
+                    if arguments.get("status") is not None
+                    else None
+                ),
+                limit=int(arguments.get("limit", 100)),
+            )
+            return {
+                "items": [
+                    await _supplier_risk_work_order_payload(
+                        session,
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        value=value,
+                    )
+                    for value in work_orders
+                ]
+            }
+        if name == "list_documents":
+            document_rows = await _documents.list_documents(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                search=(str(arguments["search"]) if arguments.get("search") is not None else None),
+                category=(
+                    str(arguments["category"]) if arguments.get("category") is not None else None
+                ),
+                status=(str(arguments["status"]) if arguments.get("status") is not None else None),
             )
             return {
                 "items": [
@@ -894,6 +1475,120 @@ async def _call_tool(
                     }
                     for document, version in document_rows
                 ]
+            }
+        if name == "structure_document":
+            run = await _document_processing.reprocess(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                document_id=UUID(str(arguments["documentId"])),
+                actor=identity.subject_id,
+                idempotency_key=str(arguments["idempotencyKey"]),
+                profile_ref="document-profile://business-structuring@1",
+                candidate_labels=[
+                    {
+                        "label": str(value.get("label") or "UNCLASSIFIED"),
+                        "displayName": str(
+                            value.get("displayName")
+                            or value.get("label")
+                            or "未分类"
+                        ),
+                    }
+                    for value in arguments.get("classificationLabels") or []
+                    if isinstance(value, dict)
+                ],
+                extraction_schema_ref=(
+                    str(arguments["extractionSchemaRef"])
+                    if arguments.get("extractionSchemaRef")
+                    else "schema://document/contract-structure@1"
+                ),
+            )
+            return {
+                "processingRunId": str(run.id),
+                "status": run.status,
+                "currentStage": run.current_stage,
+                "profileRef": run.profile_ref,
+                "provenance": run.provenance,
+            }
+        if name in {"get_document_processing", "get_structured_package"}:
+            document = await _documents.get(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                document_id=UUID(str(arguments["documentId"])),
+            )
+            version = await session.scalar(
+                select(BusinessDocumentVersion).where(
+                    BusinessDocumentVersion.business_document_id == document.id,
+                    BusinessDocumentVersion.version == document.current_version,
+                    BusinessDocumentVersion.tenant_id == tenant_id,
+                    BusinessDocumentVersion.project_id == project_id,
+                )
+            )
+            if version is None:
+                raise LookupError("DOCUMENT_VERSION_NOT_FOUND")
+            if name == "get_document_processing":
+                run = await _document_processing.latest_run_for_version(
+                    session,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    version_id=version.id,
+                )
+                if run is None:
+                    raise LookupError("PROCESSING_RUN_NOT_FOUND")
+                return {
+                    "processingRunId": str(run.id),
+                    "status": run.status,
+                    "currentStage": run.current_stage,
+                    "profileRef": run.profile_ref,
+                    "parserRef": run.parser_ref,
+                    "classifierRef": run.classifier_ref,
+                    "extractorRefs": run.extractor_refs,
+                    "provenance": run.provenance,
+                }
+            result = await _document_processing.latest_result(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                version_id=version.id,
+                result_type="STRUCTURED_PACKAGE",
+            )
+            if result is None:
+                raise LookupError("STRUCTURED_PACKAGE_NOT_FOUND")
+            return {
+                "resultId": str(result.id),
+                "resultVersion": result.result_version,
+                "status": result.status,
+                "result": result.result,
+                "evidence": result.evidence,
+            }
+        if name == "confirm_document_fields":
+            result = await _document_review.confirm_fields(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                document_id=UUID(str(arguments["documentId"])),
+                fields=[
+                    dict(value)
+                    for value in arguments["fields"]
+                    if isinstance(value, dict)
+                ],
+                accept_high_confidence=bool(
+                    arguments.get("acceptHighConfidence", False)
+                ),
+                actor=identity.subject_id,
+                expected_result_version=(
+                    int(arguments["expectedResultVersion"])
+                    if arguments.get("expectedResultVersion") is not None
+                    else None
+                ),
+            )
+            return {
+                "resultId": str(result.id),
+                "resultVersion": result.result_version,
+                "status": result.status,
+                "result": result.result,
+                "evidence": result.evidence,
             }
         if name == "create_work_item":
             item, revision = await _workbench.create_work_item(
@@ -988,7 +1683,6 @@ async def _call_tool(
                 project_id=project_id,
                 case_id=case_id,
             )
-            from sqlalchemy import select
             from swarmcore_persistence.models import Evaluation
 
             latest_evaluation = await session.scalar(
@@ -1208,4 +1902,44 @@ def _finding_payload(finding: Any) -> dict[str, Any]:
         "title": finding.title,
         "detail": finding.detail,
         "evidence": finding.evidence,
+    }
+
+
+async def _supplier_risk_work_order_payload(
+    session: Any,
+    *,
+    tenant_id: UUID,
+    project_id: UUID,
+    value: Any,
+) -> dict[str, Any]:
+    actions = await _procurement_supplier_risk.list_work_order_actions(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        work_order_id=value.id,
+    )
+    return {
+        "workOrderId": str(value.id),
+        "alertId": str(value.alert_id),
+        "status": value.status,
+        "priority": value.priority,
+        "assignee": value.assignee,
+        "dueAt": value.due_at.isoformat() if value.due_at else None,
+        "resolution": value.resolution,
+        "createdBy": value.created_by,
+        "createdAt": value.created_at.isoformat(),
+        "updatedAt": value.updated_at.isoformat(),
+        "actions": [
+            {
+                "actionId": str(item.id),
+                "action": item.action,
+                "fromStatus": item.from_status,
+                "toStatus": item.to_status,
+                "comment": item.comment,
+                "actor": item.actor,
+                "metadata": item.metadata_,
+                "createdAt": item.created_at.isoformat(),
+            }
+            for item in actions
+        ],
     }

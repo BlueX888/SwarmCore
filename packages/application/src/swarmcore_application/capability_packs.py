@@ -175,8 +175,16 @@ class CapabilityPackService:
                 )
             )
         parsed, resolved = resolve_manifest(manifest, catalog)
-        strategy_version: StrategyVersion | None = None
-        raw_strategy: dict[str, Any] | None = None
+        operation_refs = {
+            "DEFAULT": parsed.spec.strategies.execute,
+            **parsed.spec.strategies.operations,
+        }
+        if strategy_version_id is not None and len(operation_refs) > 1:
+            raise ValueError("CUSTOM_STRATEGY_OPERATIONS_NOT_SUPPORTED")
+        unique_refs = tuple(dict.fromkeys(operation_refs.values()))
+        strategy_versions: dict[str, StrategyVersion | None] = {}
+        snapshots_by_ref: dict[str, dict[str, Any]] = {}
+        raw_strategies: dict[str, dict[str, Any]] = {}
         if strategy_version_id is not None:
             selected = await session.scalar(
                 select(StrategyVersion)
@@ -192,40 +200,63 @@ class CapabilityPackService:
                 raise LookupError("published strategy version not found")
             if parsed.spec.strategies.execute.rsplit("@", 1)[-1] != str(selected.version):
                 raise ValueError("CAPABILITY_STRATEGY_VERSION_MISMATCH")
-            strategy_version = selected
-            strategy_snapshot = self._strategy_version_snapshot(
+            strategy_versions[parsed.spec.strategies.execute] = selected
+            snapshots_by_ref[parsed.spec.strategies.execute] = self._strategy_version_snapshot(
                 parsed.spec.strategies.execute,
                 selected,
             )
         else:
-            raw_strategy = self.strategy_definition(parsed.spec.strategies.execute)
-            strategy_snapshot = self._strategy_snapshot(parsed.spec.strategies.execute)
+            for reference in unique_refs:
+                raw_strategies[reference] = self.strategy_definition(reference)
+                snapshots_by_ref[reference] = self._strategy_snapshot(reference)
+                strategy_versions[reference] = None
+        strategy_snapshots = {
+            operation: deepcopy(snapshots_by_ref[reference])
+            for operation, reference in operation_refs.items()
+        }
         declared_agents = set(parsed.spec.agents)
-        actual_agents = set(strategy_snapshot["agents"])
+        actual_agents = {
+            str(reference)
+            for snapshot in strategy_snapshots.values()
+            for reference in snapshot["agents"]
+        }
         declared_tools = set(parsed.spec.tools)
-        actual_tools = set(strategy_snapshot["tools"])
+        actual_tools = {
+            str(reference)
+            for snapshot in strategy_snapshots.values()
+            for reference in snapshot["tools"]
+        }
         if declared_agents != actual_agents or declared_tools != actual_tools:
             raise CapabilityPackDependencyError(
-                strategy_ref=parsed.spec.strategies.execute,
+                strategy_ref=",".join(operation_refs.values()),
                 declared_agents=declared_agents,
                 actual_agents=actual_agents,
                 declared_tools=declared_tools,
                 actual_tools=actual_tools,
             )
-        if strategy_version is None:
-            if raw_strategy is None:
-                raise RuntimeError("capability pack strategy definition is missing")
-            strategy_version = await self._strategies.ensure_trusted_version(
-                session,
-                tenant_id=tenant_id,
-                project_id=project_id,
-                reference=parsed.spec.strategies.execute,
-                raw_spec=raw_strategy,
-                registry_snapshot=str(strategy_snapshot["registrySnapshot"]),
-                policy_revision="capability-pack-publish",
-                actor=actor,
-            )
-            strategy_snapshot["strategyVersionId"] = str(strategy_version.id)
+        for reference in unique_refs:
+            strategy_version = strategy_versions.get(reference)
+            if strategy_version is None:
+                raw_strategy = raw_strategies.get(reference)
+                if raw_strategy is None:
+                    raise RuntimeError("capability pack strategy definition is missing")
+                strategy_version = await self._strategies.ensure_trusted_version(
+                    session,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    reference=reference,
+                    raw_spec=raw_strategy,
+                    registry_snapshot=str(snapshots_by_ref[reference]["registrySnapshot"]),
+                    policy_revision="capability-pack-publish",
+                    actor=actor,
+                )
+                strategy_versions[reference] = strategy_version
+            snapshots_by_ref[reference]["strategyVersionId"] = str(strategy_version.id)
+        strategy_snapshots = {
+            operation: deepcopy(snapshots_by_ref[reference])
+            for operation, reference in operation_refs.items()
+        }
+        strategy_snapshot = strategy_snapshots["DEFAULT"]
         normalized = normalize_manifest(parsed)
         digest = hash_manifest(parsed)
         pack = await session.scalar(
@@ -265,6 +296,7 @@ class CapabilityPackService:
             dependency_snapshot={
                 "references": resolved,
                 "strategy": strategy_snapshot,
+                "strategies": strategy_snapshots,
                 "slots": {
                     "case": (
                         parsed.spec.case.model_dump(mode="json", by_alias=True)
@@ -714,12 +746,16 @@ class CapabilityPackService:
                 {"ref": reference, "reasons": ["DEPENDENCY_NOT_READY"]} for reference in required
             )
         elif required and self._readiness is not None:
+            # Pass session so project-verified model overrides reconcile the same
+            # way as Capability Center; otherwise agents look READY there while
+            # business-work blockers still report DEPENDENCY_NOT_READY.
             summaries = {
                 item.ref: item
                 for item in await self._readiness.list(
                     tenant_id=tenant_id,
                     project_id=project_id,
                     environment=self._environment,
+                    session=session,
                 )
             }
             for reference in required:

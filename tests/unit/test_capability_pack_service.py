@@ -13,6 +13,15 @@ from swarmcore_application import (
     CapabilityPackService,
 )
 from swarmcore_capability_contract_integrity import MANIFEST, REFERENCES, STRATEGIES
+from swarmcore_capability_contract_performance import (
+    MANIFEST as CONTRACT_PERFORMANCE_MANIFEST,
+)
+from swarmcore_capability_contract_performance import (
+    REFERENCES as CONTRACT_PERFORMANCE_REFERENCES,
+)
+from swarmcore_capability_contract_performance import (
+    STRATEGIES as CONTRACT_PERFORMANCE_STRATEGIES,
+)
 from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
 from swarmcore_persistence.models import CapabilityPackVersion
 from swarmcore_registry import CapabilityReferenceCatalog
@@ -21,6 +30,26 @@ from swarmcore_registry import CapabilityReferenceCatalog
 class MissingCapabilities:
     async def list(self, **_: Any):
         return ()
+
+
+class TrackingCapabilities:
+    def __init__(self, items: tuple[Any, ...] = ()) -> None:
+        self.items = items
+        self.kwargs: dict[str, Any] | None = None
+
+    async def list(self, **kwargs: Any):
+        self.kwargs = kwargs
+        return self.items
+
+
+def _ready_summary(ref: str) -> MagicMock:
+    readiness = MagicMock()
+    readiness.status.value = "READY"
+    readiness.reasons = ()
+    summary = MagicMock()
+    summary.ref = ref
+    summary.readiness = readiness
+    return summary
 
 
 def _version() -> MagicMock:
@@ -127,6 +156,52 @@ async def test_document_requirements_do_not_require_legacy_resource_bindings() -
 
 
 @pytest.mark.asyncio
+async def test_blockers_for_version_forwards_session_to_capability_center() -> None:
+    tracker = TrackingCapabilities()
+    service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(REFERENCES))
+    service.attach_readiness(
+        cast(CapabilityCenterService, tracker), environment="development"
+    )
+    session = MagicMock()
+    tenant_id = uuid4()
+    project_id = uuid4()
+
+    await service.blockers_for_version(
+        tenant_id=tenant_id,
+        project_id=project_id,
+        version=_version(),
+        session=session,
+    )
+
+    assert tracker.kwargs is not None
+    assert tracker.kwargs["session"] is session
+    assert tracker.kwargs["tenant_id"] == tenant_id
+    assert tracker.kwargs["project_id"] == project_id
+    assert tracker.kwargs["environment"] == "development"
+
+
+@pytest.mark.asyncio
+async def test_blockers_for_version_clears_when_session_scoped_readiness_is_ready() -> None:
+    required = (*MANIFEST["spec"]["agents"], *MANIFEST["spec"]["tools"])
+    tracker = TrackingCapabilities(tuple(_ready_summary(ref) for ref in required))
+    service = CapabilityPackService(CapabilityReferenceCatalog.from_iterable(REFERENCES))
+    service.attach_readiness(
+        cast(CapabilityCenterService, tracker), environment="development"
+    )
+
+    blockers = await service.blockers_for_version(
+        tenant_id=uuid4(),
+        project_id=uuid4(),
+        version=_version(),
+        session=MagicMock(),
+    )
+
+    assert blockers == []
+    assert tracker.kwargs is not None
+    assert tracker.kwargs["session"] is not None
+
+
+@pytest.mark.asyncio
 async def test_publish_rejects_manifest_dependencies_that_differ_from_strategy_plan() -> None:
     service = CapabilityPackService(
         CapabilityReferenceCatalog.from_iterable(REFERENCES),
@@ -146,6 +221,43 @@ async def test_publish_rejects_manifest_dependencies_that_differ_from_strategy_p
 
     assert captured.value.actual_tools == set(MANIFEST["spec"]["tools"])
     assert captured.value.declared_tools == set(invalid_manifest["spec"]["tools"])
+
+
+@pytest.mark.asyncio
+async def test_publish_freezes_every_operation_strategy_and_dependency_union() -> None:
+    service = CapabilityPackService(
+        CapabilityReferenceCatalog.from_iterable(CONTRACT_PERFORMANCE_REFERENCES),
+        trusted_strategies=CONTRACT_PERFORMANCE_STRATEGIES,
+    )
+    initialize_version = MagicMock(id=uuid4())
+    collect_version = MagicMock(id=uuid4())
+    ensure = AsyncMock(side_effect=[initialize_version, collect_version])
+    service._strategies.ensure_trusted_version = ensure  # type: ignore[method-assign]
+    session = MagicMock()
+    session.scalar = AsyncMock(side_effect=[None, None])
+    session.flush = AsyncMock()
+
+    saved = await service.publish(
+        session,
+        tenant_id=uuid4(),
+        project_id=uuid4(),
+        manifest=CONTRACT_PERFORMANCE_MANIFEST,
+        actor="test",
+    )
+
+    assert saved.dependency_snapshot["strategy"]["ref"] == (
+        "strategy://contract-performance/initialize@13"
+    )
+    assert saved.dependency_snapshot["strategies"]["INITIALIZE"]["strategyVersionId"] == str(
+        initialize_version.id
+    )
+    assert saved.dependency_snapshot["strategies"]["COLLECT"]["strategyVersionId"] == str(
+        collect_version.id
+    )
+    assert [call.kwargs["reference"] for call in ensure.await_args_list] == [
+        "strategy://contract-performance/initialize@13",
+        "strategy://contract-performance/collect@10",
+    ]
 
 
 @pytest.mark.asyncio

@@ -4,8 +4,8 @@ import { Boxes, Check, Cpu, Files, Play, RefreshCw, Settings2, Workflow } from "
 import { Link, useParams } from "react-router";
 import { api } from "@/api/client";
 import type { BusinessWorkSnapshot, DocumentSnapshot } from "@/api/types";
+import { BusinessWorkPageHeader } from "@/components/business-works/business-work-page-header";
 import { Badge } from "@/components/ui/badge";
-import { BackLink } from "@/components/ui/back-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -163,32 +163,24 @@ function SettingsContent({
     [availableCategoryCounts, requiredDocuments],
   );
 
-  return <div className="min-w-0 space-y-6">
-    <header>
-      <BackLink to={`${workspacePath}/business-works/${work.workKey}`}>返回业务工作</BackLink>
-      <div className="mt-5 flex flex-col gap-5 rounded-[24px] border border-gray-200/80 bg-white/90 p-6 shadow-theme-card md:flex-row md:items-start md:justify-between dark:border-gray-800 dark:bg-white/[0.035]">
-        <div className="flex min-w-0 items-start gap-4">
-          <span className="grid size-13 shrink-0 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400">
-            <Settings2 className="size-6" />
-          </span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-medium text-brand-500">项目配置</p>
-              <Badge color={work.status === "runnable" ? "success" : "warning"}>{work.statusLabel}</Badge>
-              {work.packVersion ? <Badge color="primary">v{work.packVersion}</Badge> : null}
-            </div>
-            <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{work.name}</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-500">{pageDescription}</p>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {work.status === "runnable" ? (
-            <Button asChild><Link to={`${workspacePath}/business-works/${work.workKey}/workbench`}><Play />进入工作台</Link></Button>
-          ) : null}
-          <Button variant="outline" onClick={onRefresh} loading={refreshing}><RefreshCw />刷新</Button>
-        </div>
-      </div>
-    </header>
+  return <div className="min-w-0 space-y-5">
+    <BusinessWorkPageHeader
+      backTo={`${workspacePath}/business-works/${work.workKey}`}
+      icon={Settings2}
+      meta={<>
+        <p className="text-sm font-medium text-brand-500">项目配置</p>
+        <Badge color={work.status === "runnable" ? "success" : "warning"}>{work.statusLabel}</Badge>
+        {work.packVersion ? <Badge color="primary">v{work.packVersion}</Badge> : null}
+      </>}
+      title={work.name}
+      description={pageDescription}
+      actions={<>
+        {work.status === "runnable" ? (
+          <Button asChild className="w-full justify-center"><Link to={`${workspacePath}/business-works/${work.workKey}/workbench`}><Play />进入工作台</Link></Button>
+        ) : null}
+        <Button className="w-full justify-center" variant="outline" onClick={onRefresh} loading={refreshing}><RefreshCw />刷新</Button>
+      </>}
+    />
 
     <section className="grid gap-3 md:grid-cols-3" aria-label="业务配置进度">
       <SummaryCard label="可用状态" value={work.statusLabel} detail={work.enabled ? "已启用执行策略" : "尚未启用"} icon={Boxes} />

@@ -1,0 +1,74 @@
+{
+  "fields": [
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "document.title",
+      "machineValue": "Digital Outcomes and Specialists 4 Framework Agreement\nCall-Off Contract",
+      "qualityFlags": [],
+      "reviewStatus": "AUTO_ACCEPTED"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.reference",
+      "machineValue": "RM1043.6",
+      "qualityFlags": [],
+      "reviewStatus": "AUTO_ACCEPTED"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.buyer",
+      "machineValue": "and Supplier details",
+      "qualityFlags": [],
+      "reviewStatus": "AUTO_ACCEPTED"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.supplier",
+      "machineValue": null,
+      "qualityFlags": [],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.value",
+      "machineValue": null,
+      "qualityFlags": [],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.partA",
+      "machineValue": "Part A - Order Form",
+      "qualityFlags": [],
+      "reviewStatus": "AUTO_ACCEPTED"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.partB",
+      "machineValue": "Part B – Terms and conditions",
+      "qualityFlags": [],
+      "reviewStatus": "AUTO_ACCEPTED"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.partC",
+      "machineValue": null,
+      "qualityFlags": [],
+      "reviewStatus": "PENDING"
+    }
+  ],
+  "qualityFlags": [
+    "AGENT_DOCUMENT_RESULT_MISSING",
+    "AGENT_OUTPUT_SCHEMA_INVALID"
+  ],
+  "reviewRequired": false,
+  "status": "READY"
+}

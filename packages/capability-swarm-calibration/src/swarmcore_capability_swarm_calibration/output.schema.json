@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://swarm-calibration/result@1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "status", "issue", "route", "diagnosis",
+    "quality", "sandbox", "evidence", "provenance", "resultHash"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "schema://swarm-calibration/result@1"},
+    "status": {
+      "enum": ["COMPLETED", "COMPLETED_DEGRADED", "REVIEW_REQUIRED", "FAILED_QUALITY", "FAILED_EXECUTION"]
+    },
+    "issue": {
+      "type": "object",
+      "required": ["url", "objective", "repository", "number", "commitSha"],
+      "properties": {
+        "url": {"type": "string", "format": "uri"},
+        "objective": {"type": "string"},
+        "repository": {"type": "string"},
+        "number": {"type": "integer", "minimum": 1},
+        "commitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      },
+      "additionalProperties": false
+    },
+    "route": {"type": "object"},
+    "diagnosis": {"type": "object"},
+    "quality": {
+      "type": "object",
+      "required": ["decision", "score", "threshold", "components", "hardFailures"],
+      "properties": {
+        "decision": {"enum": ["PASS", "REVIEW_REQUIRED", "FAIL"]},
+        "score": {"type": "number", "minimum": 0, "maximum": 100},
+        "threshold": {"type": "number"},
+        "components": {"type": "object"},
+        "hardFailures": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "sandbox": {"type": "object"},
+    "evidence": {"type": "array", "minItems": 3, "items": {"type": "object"}},
+    "provenance": {"type": "object"},
+    "resultHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}

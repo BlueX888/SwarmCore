@@ -1,0 +1,74 @@
+{
+  "executionConfig": {
+    "taskQueue": {
+      "name": "swarm-control",
+      "kind": "TASK_QUEUE_KIND_NORMAL"
+    },
+    "defaultWorkflowTaskTimeout": "10s"
+  },
+  "workflowExecutionInfo": {
+    "execution": {
+      "workflowId": "swarm:00000000-0000-0000-0000-000000000001:019fa6cb-65df-719a-93aa-d6f5b2e671af",
+      "runId": "019fa6cb-6697-7a4b-9b8c-514f2685b6bb"
+    },
+    "type": {
+      "name": "SwarmRunWorkflow"
+    },
+    "startTime": "2026-07-28T03:36:15.767675538Z",
+    "status": "WORKFLOW_EXECUTION_STATUS_RUNNING",
+    "historyLength": "419",
+    "executionTime": "2026-07-28T03:36:15.767675538Z",
+    "memo": {},
+    "searchAttributes": {
+      "indexedFields": {
+        "BuildIds": {
+          "metadata": {
+            "encoding": "anNvbi9wbGFpbg==",
+            "type": "S2V5d29yZExpc3Q="
+          },
+          "data": "WyJ1bnZlcnNpb25lZCIsInVudmVyc2lvbmVkOmMwYjVmNWNlOWYyYzRiYTU5NWQ5MjhlYzFjYzlhNThmIl0="
+        },
+        "TemporalChangeVersion": {
+          "metadata": {
+            "encoding": "anNvbi9wbGFpbg==",
+            "type": "S2V5d29yZExpc3Q="
+          },
+          "data": "WyJpbml0aWFsLXJ1bi1ldmVudC1tZXRhZGF0YS12MSIsInRyYW5zaXRpdmUtZmFpbHVyZS1ibG9ja2luZy12MSJd"
+        }
+      }
+    },
+    "autoResetPoints": {
+      "points": [
+        {
+          "buildId": "c0b5f5ce9f2c4ba595d928ec1cc9a58f",
+          "runId": "019fa6cb-6697-7a4b-9b8c-514f2685b6bb",
+          "firstWorkflowTaskCompletedId": "4",
+          "createTime": "2026-07-28T03:36:15.820405393Z",
+          "resettable": true
+        }
+      ]
+    },
+    "taskQueue": "swarm-control",
+    "stateTransitionCount": "322",
+    "historySizeBytes": "4378451",
+    "mostRecentWorkerVersionStamp": {
+      "buildId": "c0b5f5ce9f2c4ba595d928ec1cc9a58f"
+    },
+    "rootExecution": {
+      "workflowId": "swarm:00000000-0000-0000-0000-000000000001:019fa6cb-65df-719a-93aa-d6f5b2e671af",
+      "runId": "019fa6cb-6697-7a4b-9b8c-514f2685b6bb"
+    },
+    "firstRunId": "019fa6cb-6697-7a4b-9b8c-514f2685b6bb",
+    "priority": {}
+  },
+  "workflowExtendedInfo": {
+    "runExpirationTime": "0001-01-01T00:00:00Z",
+    "originalStartTime": "2026-07-28T03:36:15.767675538Z",
+    "requestIdInfos": {
+      "d41cc7d5-a3b8-470d-8539-8963fac8d4cd": {
+        "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
+        "eventId": "1"
+      }
+    }
+  }
+}

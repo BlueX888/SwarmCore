@@ -5,10 +5,11 @@ import logging
 from collections.abc import Mapping
 from typing import Any, Protocol, cast
 
+from jsonschema import Draft202012Validator, ValidationError
+
 from agno.agent import Agent
 from agno.models.base import Model
 from agno.run.agent import RunOutput
-from jsonschema import Draft202012Validator, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -105,10 +106,20 @@ class AgnoAdapter:
             try:
                 Draft202012Validator(output_schema).validate(content)
             except ValidationError as exc:
-                path = ".".join(str(part) for part in exc.absolute_path) or "$"
-                raise ValueError(
-                    f"agent output does not match output schema at {path}: {exc.message}"
-                ) from exc
+                fallback = agent_spec.get("outputSchemaFallback")
+                if isinstance(fallback, dict):
+                    Draft202012Validator(output_schema).validate(fallback)
+                    logger.warning(
+                        "agent_output_schema_fallback node=%s validation_error=%s",
+                        node.get("key"),
+                        exc.message,
+                    )
+                    content = fallback
+                else:
+                    path = ".".join(str(part) for part in exc.absolute_path) or "$"
+                    raise ValueError(
+                        f"agent output does not match output schema at {path}: {exc.message}"
+                    ) from exc
         return {
             "status": "COMPLETED",
             "content": content,

@@ -1,0 +1,15 @@
+{
+  "fixtureNotice": "Synthetic demo master data. Not a real supplier record.",
+  "supplierId": "SUP-DEMO-001",
+  "name": "演示供应方科技有限公司",
+  "taxId": "91310000MA0DEMOSELL",
+  "status": "ACTIVE",
+  "approvedBankAccounts": [
+    {
+      "accountNumber": "6222000000000001",
+      "bankName": "演示银行上海分行",
+      "approved": true
+    }
+  ],
+  "effectiveFrom": "2026-01-01"
+}

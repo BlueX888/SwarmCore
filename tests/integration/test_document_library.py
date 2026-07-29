@@ -4,12 +4,17 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import text, update
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
-from swarmcore_application import DocumentLibraryService
+from swarmcore_application import DocumentLibraryService, DocumentProcessingService
 from swarmcore_persistence import Database, tenant_transaction
-from swarmcore_persistence.models import BusinessDocumentVersion
+from swarmcore_persistence.models import (
+    BusinessDocumentVersion,
+    DocumentProcessingEvent,
+    DocumentProcessingRun,
+    OutboxEvent,
+)
 
 
 @pytest.mark.asyncio
@@ -54,6 +59,7 @@ async def test_document_library_enforces_scope_and_immutable_versions() -> None:
 
     database = Database(database_url)
     documents = DocumentLibraryService()
+    processing = DocumentProcessingService()
     digest = "a" * 64
     async with tenant_transaction(
         database.sessions, tenant_id=tenant_id, project_id=project_id
@@ -92,6 +98,49 @@ async def test_document_library_enforces_scope_and_immutable_versions() -> None:
         assert version.sha256 == digest
         assert version.size_bytes == 42
         version_id = version.id
+        run = DocumentProcessingRun(
+            tenant_id=tenant_id,
+            project_id=project_id,
+            business_document_version_id=version.id,
+            profile_ref="document-profile://business-structuring@1",
+            status="PARSING",
+            current_stage="PARSING",
+            provenance={"actor": "integration"},
+        )
+        session.add(run)
+        await session.flush()
+        cancelled = await processing.cancel(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            document_id=document.id,
+            actor="integration",
+            idempotency_key="document-integration-cancel",
+        )
+        replay = await processing.cancel(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            document_id=document.id,
+            actor="integration",
+            idempotency_key="document-integration-cancel",
+        )
+        assert cancelled.id == replay.id == run.id
+        assert cancelled.status == "CANCELLED"
+        event = await session.scalar(
+            select(DocumentProcessingEvent).where(
+                DocumentProcessingEvent.processing_run_id == run.id,
+                DocumentProcessingEvent.type == "document.processing.cancelled",
+            )
+        )
+        command = await session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_id == run.id,
+                OutboxEvent.type == "document.processing.cancel.requested",
+            )
+        )
+        assert event is not None and event.event_seq == 1
+        assert command is not None and command.destination == "temporal"
 
     async with tenant_transaction(
         database.sessions, tenant_id=other_tenant_id, project_id=other_project_id

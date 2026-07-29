@@ -1,4 +1,4 @@
-# ruff: noqa: E501, RUF001
+# ruff: noqa: RUF001
 from __future__ import annotations
 
 from copy import deepcopy
@@ -106,10 +106,16 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         category="foundation",
         summary="统一接入基础 AI 能力，并用样本、规则、置信度和人工复核建立质量闭环。",
         functions=(
-            BusinessWorkFunction("基础能力接入", "封装 LLM、Embedding、Vision、OCR、NLP、文档解析和结构化抽取。"),
+            BusinessWorkFunction(
+                "基础能力接入", "封装 LLM、Embedding、Vision、OCR、NLP、文档解析和结构化抽取。"
+            ),
             BusinessWorkFunction("检索与问答", "提供向量检索、知识库索引和带证据的知识问答能力。"),
-            BusinessWorkFunction("规则与提示词", "版本化管理规则、Prompt、输出 Schema 和任务参数。"),
-            BusinessWorkFunction("置信度校准", "基于样本指标校准置信度，设置自动通过、降级和拦截阈值。"),
+            BusinessWorkFunction(
+                "规则与提示词", "版本化管理规则、Prompt、输出 Schema 和任务参数。"
+            ),
+            BusinessWorkFunction(
+                "置信度校准", "基于样本指标校准置信度，设置自动通过、降级和拦截阈值。"
+            ),
             BusinessWorkFunction("人工复核", "对低置信度、证据不足和高风险结果发起人工确认。"),
             BusinessWorkFunction("样本评测", "管理评测样本、指标、基线、回归结果和质量变化。"),
         ),
@@ -120,13 +126,18 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         short_name="文件结构化",
         category="foundation",
         summary="把多格式、大体量文件转换为可检索、可追溯、可人工确认的结构化数据。",
+        pack_name="document-structuring",
         functions=(
             BusinessWorkFunction("格式自适应识别", "识别文件类型、编码、版式和处理路径。"),
-            BusinessWorkFunction("ODF 与办公文档解析", "解析 ODF、PDF、Word、Excel 等常见文档格式。"),
+            BusinessWorkFunction(
+                "ODF 与办公文档解析", "解析 ODF、PDF、Word、Excel 等常见文档格式。"
+            ),
             BusinessWorkFunction("大文件处理", "按页或分片并行处理，支持断点、重试和结果合并。"),
             BusinessWorkFunction("OCR 与 NLP 抽取", "提取文字、实体、字段、关系及其原文证据。"),
             BusinessWorkFunction("切片与表格提取", "生成语义切片，恢复表格结构并保留页码和坐标。"),
-            BusinessWorkFunction("自动整理与确认", "按业务 Schema 整理结果，并把疑点提交人工确认。"),
+            BusinessWorkFunction(
+                "自动整理与确认", "按业务 Schema 整理结果，并把疑点提交人工确认。"
+            ),
         ),
     ),
     BusinessWorkDefinition(
@@ -138,7 +149,9 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         pack_name="contract-integrity",
         functions=(
             BusinessWorkFunction("资料清单匹配", "按合同类型、阶段和项目规则匹配应提交资料清单。"),
-            BusinessWorkFunction("多维完整性检查", "检查缺失、版本、签章、日期、附件和跨文件关联。"),
+            BusinessWorkFunction(
+                "多维完整性检查", "检查缺失、版本、签章、日期、附件和跨文件关联。"
+            ),
             BusinessWorkFunction("缺失预警追踪", "形成缺失项、责任人、期限、提醒和闭环状态。"),
             BusinessWorkFunction("规则可视化配置", "配置清单、条件、阈值、例外和人工复核要求。"),
             BusinessWorkFunction("校验报告", "输出结论、缺失明细、证据引用和整改建议。"),
@@ -150,10 +163,13 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         short_name="履约计划与采集",
         category="business",
         summary="从合同提取履约计划，并持续采集执行证据、里程碑状态和变更历史。",
+        pack_name="contract-performance",
         functions=(
             BusinessWorkFunction("合同义务提取", "提取工期、交付、付款、服务标准和验收要求。"),
             BusinessWorkFunction("里程碑与甘特图", "生成里程碑、依赖关系、计划日期和甘特视图。"),
-            BusinessWorkFunction("执行资料采集", "采集验收单、发货单、到货单、付款凭证和会议纪要。"),
+            BusinessWorkFunction(
+                "执行资料采集", "采集验收单、发货单、到货单、付款凭证和会议纪要。"
+            ),
             BusinessWorkFunction("状态更新", "把执行证据关联至义务和里程碑并更新完成状态。"),
             BusinessWorkFunction("变更历史", "记录计划调整、合同变更、责任主体和版本差异。"),
         ),
@@ -166,10 +182,16 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         summary="识别发票事实，并与合同、订单、履约和付款条件执行一致性及合规检查。",
         pack_name="invoice-assurance",
         functions=(
-            BusinessWorkFunction("发票信息识别", "提取购买方、销售方、税号、金额、税率、品项和日期。"),
-            BusinessWorkFunction("多维一致性校验", "与合同、订单、收货、验收和付款计划进行交叉核验。"),
+            BusinessWorkFunction(
+                "发票信息识别", "提取购买方、销售方、税号、金额、税率、品项和日期。"
+            ),
+            BusinessWorkFunction(
+                "多维一致性校验", "与合同、订单、收货、验收和付款计划进行交叉核验。"
+            ),
             BusinessWorkFunction("合规性检查", "检查票面规范、重复发票、异常税率和关键字段风险。"),
-            BusinessWorkFunction("付款前置条件", "判断验收、交付、审批和资料完整性是否满足付款条件。"),
+            BusinessWorkFunction(
+                "付款前置条件", "判断验收、交付、审批和资料完整性是否满足付款条件。"
+            ),
             BusinessWorkFunction("报告与风险预警", "输出差异证据、风险等级、处置建议和校验报告。"),
         ),
     ),
@@ -185,7 +207,9 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
             BusinessWorkFunction("内容偏差", "比对约定范围、交付内容、质量要求和实际完成情况。"),
             BusinessWorkFunction("成本偏差", "分析合同金额、变更、支付和实际成本之间的差异。"),
             BusinessWorkFunction("AI 根因分析", "结合证据生成结构化根因、影响和纠正建议。"),
-            BusinessWorkFunction("趋势与责任归属", "展示偏差趋势并记录责任主体、确认意见和处理状态。"),
+            BusinessWorkFunction(
+                "趋势与责任归属", "展示偏差趋势并记录责任主体、确认意见和处理状态。"
+            ),
         ),
     ),
     BusinessWorkDefinition(
@@ -210,7 +234,9 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         summary="围绕合同履约全过程聚合资料、履约、偏差、发票与风险事实，完成七维评价并生成可追溯报告。",
         pack_name="contract-post-evaluation",
         functions=(
-            BusinessWorkFunction("资料与履约采集", "匹配合同、履约、偏差、发票和供应商等业务资料。"),
+            BusinessWorkFunction(
+                "资料与履约采集", "匹配合同、履约、偏差、发票和供应商等业务资料。"
+            ),
             BusinessWorkFunction("七维评价", "按七大评价维度计算指标、分值、结论和改进项。"),
             BusinessWorkFunction("风险与偏差分析", "识别履约偏差、发票差异和供应商风险关注项。"),
             BusinessWorkFunction("综合结论", "输出总分、等级、风险等级和是否需要复核。"),
@@ -223,12 +249,17 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         short_name="调度校准",
         category="governance",
         summary="监督多智能体任务的数据流和输出质量，为调度、降级与切换提供校准建议。",
+        pack_name="swarm-calibration",
         functions=(
             BusinessWorkFunction("任务编排", "定义任务依赖、并行关系、输入输出和人工等待节点。"),
-            BusinessWorkFunction("智能体数据流转", "校验上游输出 Schema，向下游传递冻结数据和证据。"),
+            BusinessWorkFunction(
+                "智能体数据流转", "校验上游输出 Schema，向下游传递冻结数据和证据。"
+            ),
             BusinessWorkFunction("结果质量校验", "检查结构、证据、置信度、规则结果和交叉一致性。"),
             BusinessWorkFunction("备用智能体切换", "按策略建议重试、降级或切换备用 Agent 与模型。"),
-            BusinessWorkFunction("执行日志与监控", "查看运行状态、任务耗时、异常、成本和完整链路日志。"),
+            BusinessWorkFunction(
+                "执行日志与监控", "查看运行状态、任务耗时、异常、成本和完整链路日志。"
+            ),
         ),
     ),
     BusinessWorkDefinition(
@@ -237,13 +268,22 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         short_name="招采与供应商风控",
         category="business",
         summary="比对招投标与合同条款，结合多源风险和绩效数据持续识别供应商风险。",
+        pack_name="procurement-supplier-risk",
         functions=(
-            BusinessWorkFunction("招采合同深度比对", "对招标文件、投标文件、中标结果和合同条款进行语义比对。"),
+            BusinessWorkFunction(
+                "招采合同深度比对", "对招标文件、投标文件、中标结果和合同条款进行语义比对。"
+            ),
             BusinessWorkFunction("分级差异清单", "按影响和风险输出新增、缺失、冲突及弱化条款。"),
-            BusinessWorkFunction("多源风险数据", "接入工商、司法、舆情、制裁和内部履约等风险数据。"),
+            BusinessWorkFunction(
+                "多源风险数据", "接入工商、司法、舆情、制裁和内部履约等风险数据。"
+            ),
             BusinessWorkFunction("黑名单预警", "实时检查黑名单、关联方和高风险状态并触发预警。"),
-            BusinessWorkFunction("绩效与风控工单", "评估供应商绩效，形成责任明确、可跟踪的风控工单。"),
-            BusinessWorkFunction("历史变化追溯", "保留风险事实、评分、处置和供应商状态的版本历史。"),
+            BusinessWorkFunction(
+                "绩效与风控工单", "评估供应商绩效，形成责任明确、可跟踪的风控工单。"
+            ),
+            BusinessWorkFunction(
+                "历史变化追溯", "保留风险事实、评分、处置和供应商状态的版本历史。"
+            ),
         ),
     ),
 )
@@ -525,9 +565,7 @@ class BusinessWorkService:
         await self._capability_packs.ensure_trusted(
             session, tenant_id=tenant_id, project_id=project_id
         )
-        pack_index = await self._pack_index(
-            session, tenant_id=tenant_id, project_id=project_id
-        )
+        pack_index = await self._pack_index(session, tenant_id=tenant_id, project_id=project_id)
         candidates = pack_index.get(definition.pack_name, [])
         # Template prefers complete document requirements; binding prefers enabled config.
         template_row = self._select_pack_template(candidates)
@@ -582,9 +620,7 @@ class BusinessWorkService:
         manifest = self._manifest_for_strategy(
             template=template_version.manifest,
             pack_name=definition.pack_name,
-            pack_version=self._next_pack_version(
-                [version.version for _, version, _ in candidates]
-            ),
+            pack_version=self._next_pack_version([version.version for _, version, _ in candidates]),
             strategy_id=strategy.id,
             strategy_version_number=strategy_version.version,
             agents=list(snapshot["agents"]),
@@ -621,7 +657,9 @@ class BusinessWorkService:
         *,
         tenant_id: UUID,
         project_id: UUID,
-    ) -> dict[str, list[tuple[CapabilityPack, CapabilityPackVersion, ProjectCapabilityBinding | None]]]:
+    ) -> dict[
+        str, list[tuple[CapabilityPack, CapabilityPackVersion, ProjectCapabilityBinding | None]]
+    ]:
         rows = await self._capability_packs.list_project(
             session, tenant_id=tenant_id, project_id=project_id
         )
@@ -759,9 +797,7 @@ class BusinessWorkService:
                     "minCount": item.min_count,
                     "maxCount": item.max_count,
                     "acceptedMediaTypes": list(item.accepted_media_types),
-                    "classificationLabels": list(
-                        item.classification_labels or (item.category,)
-                    ),
+                    "classificationLabels": list(item.classification_labels or (item.category,)),
                     "processingProfile": item.processing_profile
                     or manifest.spec.document_processing_profile(),
                     "extractionSchema": item.extraction_schema,
@@ -769,8 +805,7 @@ class BusinessWorkService:
                 for item in manifest.spec.document_requirements()
             ),
             decision_slots=tuple(
-                {"slot": item.slot, "required": item.required}
-                for item in manifest.spec.decisions
+                {"slot": item.slot, "required": item.required} for item in manifest.spec.decisions
             ),
             functions=definition.functions,
             configuration=configuration,
@@ -858,13 +893,9 @@ class BusinessWorkService:
             documents = spec.get("documents") if isinstance(spec, dict) else None
             if isinstance(documents, dict):
                 requirements = documents.get("requirements")
-                has_documents = (
-                    1 if isinstance(requirements, list) and len(requirements) > 0 else 0
-                )
+                has_documents = 1 if isinstance(requirements, list) and len(requirements) > 0 else 0
             else:
-                has_documents = (
-                    1 if isinstance(documents, list) and len(documents) > 0 else 0
-                )
+                has_documents = 1 if isinstance(documents, list) and len(documents) > 0 else 0
             return (has_documents, version.version)
 
         return sorted(candidates, key=sort_key, reverse=True)[0]

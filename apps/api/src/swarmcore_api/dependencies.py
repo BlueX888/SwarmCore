@@ -131,6 +131,16 @@ def _rest_action(method: str, path: str) -> str:
         return "case.read" if method == "GET" else "case.assess"
     if path.endswith("/business-works/invoice-assurance/rule-trends"):
         return "case.read"
+    if path.endswith("/swarm-calibration:run"):
+        return "case.assess"
+    if "/contract-performance/" in path:
+        if method == "GET":
+            return "case.read"
+        if path.endswith(":publish"):
+            return "approval.decide"
+        if path.endswith(":collect"):
+            return "case.assess"
+        return "case.write"
     if "/business-works" in path:
         return "capability.read" if method == "GET" else "capability.manage"
     if "/rule-set" in path:

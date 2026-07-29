@@ -8,7 +8,11 @@ from typing import Any, Literal
 
 from jsonschema import Draft202012Validator, SchemaError
 from pydantic import BaseModel, ConfigDict, Field
-from swarmcore_registry import RegistrySnapshot, builtin_registry, synthesize_project_model_registration
+from swarmcore_registry import (
+    RegistrySnapshot,
+    builtin_registry,
+    synthesize_project_model_registration,
+)
 from swarmcore_spec import ExpressionError, validate_condition
 from swarmcore_spec.models import (
     AgentNode,
@@ -299,6 +303,25 @@ class Compiler:
                     message=f"agent {node.agent!r} is not declared",
                 )
             )
+        if isinstance(node, AgentNode) and node.fallback_agent is not None:
+            if node.fallback_agent not in strategy.spec.agents:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="UNKNOWN_FALLBACK_AGENT",
+                        path=f"{path}.fallbackAgent",
+                        message=f"agent {node.fallback_agent!r} is not declared",
+                    )
+                )
+            elif node.fallback_agent == node.agent:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="FALLBACK_AGENT_REUSES_PRIMARY",
+                        path=f"{path}.fallbackAgent",
+                        message="fallbackAgent must differ from the primary agent",
+                    )
+                )
         if isinstance(node, ToolNode) and self._registry.resolve_tool(node.tool) is None:
             diagnostics.append(
                 Diagnostic(

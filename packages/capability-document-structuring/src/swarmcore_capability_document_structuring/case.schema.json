@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://document-structuring/case@1",
+  "type": "object",
+  "required": ["title"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1},
+    "language": {"type": "string", "default": "zh-CN"},
+    "notes": {"type": "string"}
+  },
+  "additionalProperties": true
+}

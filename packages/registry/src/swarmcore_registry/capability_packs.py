@@ -42,6 +42,20 @@ class CapabilityPackMetadata(PackModel):
 
 class CapabilityPackStrategies(PackModel):
     execute: str
+    operations: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("operations")
+    @classmethod
+    def operation_keys_are_normalized(cls, value: dict[str, str]) -> dict[str, str]:
+        normalized = {str(key).strip().upper(): reference for key, reference in value.items()}
+        if not all(normalized):
+            raise ValueError("strategy operation keys must not be empty")
+        if len(normalized) != len(value):
+            raise ValueError("strategy operation keys must be unique case-insensitively")
+        return normalized
+
+    def references(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys((self.execute, *self.operations.values())))
 
 
 class CapabilityPackRules(PackModel):
@@ -200,7 +214,7 @@ class CapabilityPackSpec(PackModel):
         refs = [
             self.input_schema,
             self.output_schema,
-            self.strategies.execute,
+            *self.strategies.references(),
             *self.agents,
             *self.tools,
             self.report.template,

@@ -1,0 +1,9 @@
+INFO:     Started server process [24240]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8093 (Press CTRL+C to quit)
+{"timestamp":"2026-07-28T01:18:25.811629+00:00","level":"ERROR","service":"opentelemetry.exporter.otlp.proto.grpc.exporter","trace_id":null,"run_id":null,"task_id":null,"event":"opentelemetry.exporter.otlp.proto.grpc.exporter","message":"Failed to export metrics to localhost:4317, error code: StatusCode.UNIMPLEMENTED"}
+{"timestamp":"2026-07-28T01:18:55.829346+00:00","level":"ERROR","service":"opentelemetry.exporter.otlp.proto.grpc.exporter","trace_id":null,"run_id":null,"task_id":null,"event":"opentelemetry.exporter.otlp.proto.grpc.exporter","message":"Failed to export metrics to localhost:4317, error code: StatusCode.UNIMPLEMENTED"}
+{"timestamp":"2026-07-28T01:19:25.843465+00:00","level":"ERROR","service":"opentelemetry.exporter.otlp.proto.grpc.exporter","trace_id":null,"run_id":null,"task_id":null,"event":"opentelemetry.exporter.otlp.proto.grpc.exporter","message":"Failed to export metrics to localhost:4317, error code: StatusCode.UNIMPLEMENTED"}
+{"timestamp":"2026-07-28T01:19:55.849947+00:00","level":"ERROR","service":"opentelemetry.exporter.otlp.proto.grpc.exporter","trace_id":null,"run_id":null,"task_id":null,"event":"opentelemetry.exporter.otlp.proto.grpc.exporter","message":"Failed to export metrics to localhost:4317, error code: StatusCode.UNIMPLEMENTED"}
+{"timestamp":"2026-07-28T01:20:25.862451+00:00","level":"ERROR","service":"opentelemetry.exporter.otlp.proto.grpc.exporter","trace_id":null,"run_id":null,"task_id":null,"event":"opentelemetry.exporter.otlp.proto.grpc.exporter","message":"Failed to export metrics to localhost:4317, error code: StatusCode.UNIMPLEMENTED"}

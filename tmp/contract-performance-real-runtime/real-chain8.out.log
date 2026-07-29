@@ -1,0 +1,9 @@
+run 019fa658-7a17-7a31-809b-fb7f242d6388: ACCEPTED
+run 019fa658-7a17-7a31-809b-fb7f242d6388: RUNNING
+run 019fa658-7a17-7a31-809b-fb7f242d6388: WAITING_APPROVAL
+approved dd4ae6fa-4768-482c-a4b5-0c38ced01d87
+run 019fa658-7a17-7a31-809b-fb7f242d6388: RUNNING
+run 019fa658-7a17-7a31-809b-fb7f242d6388: WAITING_APPROVAL
+approved d9a19ebf-1c91-42ab-a157-5a4891a178ab
+run 019fa658-7a17-7a31-809b-fb7f242d6388: SUCCEEDED
+{"status": "SUCCEEDED", "runId": "019fa658-7a17-7a31-809b-fb7f242d6388", "caseId": "019fa658-798f-785b-99dd-b3aa4cce05d5", "documentId": "019fa658-7709-7b4d-af84-eebb16d1a439", "evidence": "C:\\Project\\SwarmCore\\output\\contract-performance-real-chain\\real-chain-20260728T013042Z-a1757719e4.json"}

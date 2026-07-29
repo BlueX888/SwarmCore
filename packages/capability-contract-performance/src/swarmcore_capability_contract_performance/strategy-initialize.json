@@ -1,0 +1,140 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "SwarmStrategy",
+  "metadata": {"name": "contract-performance-initialize-v13"},
+  "spec": {
+    "inputSchema": {"type": "object"},
+    "outputSchema": {"type": "object"},
+    "defaults": {
+      "timeout": "PT5M",
+      "retryPolicy": {"maxAttempts": 3, "initialInterval": "PT1S", "maximumInterval": "PT1M", "backoffCoefficient": 2}
+    },
+    "budget": {
+      "maxDuration": "PT30M", "maxTokens": 180000, "maxCostUsd": 2,
+      "maxAgents": 4, "maxParallelism": 4, "onExhausted": "wait_for_budget_approval"
+    },
+    "agents": {
+      "plan-extractor": {"ref": "agent://contract-performance/plan-extractor@5"}
+    },
+    "graph": {
+      "entrypoint": "read-documents",
+      "nodes": {
+        "read-documents": {
+          "type": "tool", "tool": "tool://document/read-versions@1",
+          "input": {"evaluationId": "{{ input.evaluationId }}", "documents": "{{ input.documents }}"}
+        },
+        "coverage-check": {
+          "type": "tool", "tool": "tool://document/coverage-check@1", "dependsOn": ["read-documents"],
+          "input": {"documents": "{{ tasks.read-documents.output.content.documents }}", "requirements": "{{ input.configuration.documentRequirements }}"}
+        },
+        "search-contract": {
+          "type": "tool", "tool": "tool://evidence/search@3", "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "domain": "contract",
+            "keywords": ["contract", "agreement", "supplier", "authority", "term", "start date", "end date", "funding", "value", "party"],
+            "maxHits": 8
+          }
+        },
+        "search-plan": {
+          "type": "tool", "tool": "tool://evidence/search@3", "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "domain": "performance",
+            "keywords": ["delivery", "milestone", "programme", "schedule", "obligation", "outcome", "evidence", "payment", "service period", "completion"],
+            "maxHits": 8
+          }
+        },
+        "search-quality": {
+          "type": "tool", "tool": "tool://evidence/search@3", "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "domain": "performance",
+            "keywords": ["质量", "验收", "测试", "缺陷", "标准", "quality", "acceptance", "performance", "performance measure", "target", "KPI", "service level", "timely", "accurate", "complete", "reporting", "trajectory", "audit", "verification"],
+            "maxHits": 12
+          }
+        },
+        "search-finance-change": {
+          "type": "tool", "tool": "tool://evidence/search@3", "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "domain": "finance",
+            "keywords": ["付款", "金额", "发票", "变更", "payment", "invoice", "amount", "change", "variation", "fee", "price", "approval", "effective", "retention"],
+            "maxHits": 8
+          }
+        },
+        "extract-plan": {
+          "type": "agent", "agent": "plan-extractor",
+          "dependsOn": ["coverage-check", "search-contract", "search-plan", "search-quality", "search-finance-change"],
+          "input": {
+            "_contextMode": "node_only", "payload": "{{ input.payload }}",
+            "coverage": "{{ tasks.coverage-check.output.content }}",
+            "contractEvidence": "{{ tasks.search-contract.output.content }}",
+            "planEvidence": "{{ tasks.search-plan.output.content }}",
+            "qualityEvidence": "{{ tasks.search-quality.output.content }}",
+            "financeChangeEvidence": "{{ tasks.search-finance-change.output.content }}"
+          }
+        },
+        "normalize-plan": {
+          "type": "tool", "tool": "tool://contract-performance/plan-normalize@3", "dependsOn": ["extract-plan"],
+          "input": {"candidates": "{{ tasks.extract-plan.output.content }}", "configuration": "{{ input.configuration }}"}
+        },
+        "apply-changes": {
+          "type": "tool", "tool": "tool://contract-performance/change-apply@1", "dependsOn": ["normalize-plan"],
+          "input": {"plan": "{{ tasks.normalize-plan.output.content.plan }}", "changes": "{{ tasks.normalize-plan.output.content.plan.changes }}", "asOf": "{{ input.payload.asOf }}"}
+        },
+        "build-schedule": {
+          "type": "tool", "tool": "tool://contract-performance/schedule-build@1", "dependsOn": ["apply-changes"],
+          "input": {"plan": "{{ tasks.apply-changes.output.content.currentBaseline }}", "originalPlan": "{{ tasks.apply-changes.output.content.originalBaseline }}", "asOf": "{{ input.payload.asOf }}"}
+        },
+        "publish-review": {
+          "type": "approval", "dependsOn": ["coverage-check", "normalize-plan", "build-schedule"],
+          "prompt": "请核对合同履约候选计划、证据定位、冲突和甘特基准后发布。",
+          "inputSchema": {
+            "type": "object",
+            "required": ["approved"],
+            "properties": {
+              "approved": {
+                "type": "boolean",
+                "title": "确认批准",
+                "description": "勾选表示你已核对材料并同意发布。"
+              },
+              "confirmations": {
+                "type": "array",
+                "title": "核对说明",
+                "description": "可选。每条说明记录你核对过的内容。"
+              },
+              "comment": {
+                "type": "string",
+                "title": "审批意见",
+                "description": "可选。说明批准或关注点。"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "finalize": {
+          "type": "tool", "tool": "tool://contract-performance/finalize@1",
+          "dependsOn": ["publish-review", "build-schedule"],
+          "input": {
+            "operation": "INITIALIZE", "caseId": "{{ input.workItemId }}", "asOf": "{{ input.payload.asOf }}",
+            "plan": "{{ tasks.apply-changes.output.content.currentBaseline }}",
+            "gantt": "{{ tasks.build-schedule.output.content }}",
+            "approval": "{{ tasks.publish-review.output }}",
+            "provenance": {"selectionManifestHash": "{{ input.selectionManifestHash }}", "configurationHash": "{{ input.configurationHash }}"}
+          }
+        },
+        "report": {
+          "type": "tool", "tool": "tool://report/render-contract-performance@1", "dependsOn": ["finalize"],
+          "input": {"result": "{{ tasks.finalize.output.content }}"}
+        },
+        "record": {
+          "type": "tool", "tool": "tool://workbench/record-contract-performance@1", "dependsOn": ["finalize", "report"],
+          "input": {"evaluationId": "{{ input.evaluationId }}", "result": "{{ tasks.finalize.output.content }}", "report": "{{ tasks.report.output.content }}"}
+        }
+      },
+      "output": {"result": "{{ tasks.finalize.output.content }}"}
+    },
+    "$defs": {}
+  }
+}

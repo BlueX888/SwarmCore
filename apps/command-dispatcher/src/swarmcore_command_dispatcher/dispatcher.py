@@ -7,9 +7,14 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from swarmcore_observability import SwarmMetrics
-from swarmcore_persistence.models import OutboxEvent, Run, RunCommand
+from swarmcore_persistence.models import (
+    DocumentProcessingRun,
+    OutboxEvent,
+    Run,
+    RunCommand,
+)
 from swarmcore_persistence.repositories import EventRepository, pending_temporal_outbox_query
-from swarmcore_runtime_temporal import SwarmRunWorkflow
+from swarmcore_runtime_temporal import DocumentProcessingWorkflow, SwarmRunWorkflow
 from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -26,12 +31,18 @@ class CommandDispatcher:
         temporal: Client,
         *,
         worker_id: str,
+        task_queue: str = "swarm-control",
+        agent_task_queue: str = "agent-general",
+        tool_task_queue: str = "tool-trusted",
         batch_size: int = 50,
         metrics: SwarmMetrics | None = None,
     ) -> None:
         self._sessions = sessions
         self._temporal = temporal
         self._worker_id = worker_id
+        self._task_queue = task_queue
+        self._agent_task_queue = agent_task_queue
+        self._tool_task_queue = tool_task_queue
         self._batch_size = batch_size
         self._events = EventRepository()
         self._metrics = metrics
@@ -54,7 +65,7 @@ class CommandDispatcher:
             pending = int(
                 await session.scalar(
                     select(func.count(OutboxEvent.id)).where(
-                        OutboxEvent.destination == "temporal",
+                        OutboxEvent.destination.in_(("temporal", "document-temporal")),
                         OutboxEvent.status == "PENDING",
                     )
                 )
@@ -90,6 +101,12 @@ class CommandDispatcher:
             outbox = await session.get(OutboxEvent, outbox_id)
             if outbox is None or outbox.status != "DELIVERING":
                 return
+            if outbox.type in {
+                "document.processing.requested",
+                "document.processing.cancel.requested",
+            }:
+                await self._deliver_document_processing(outbox)
+                return
             command = await session.get(RunCommand, outbox.source_id)
             if command is None:
                 await self._dead(outbox_id, "source RunCommand does not exist")
@@ -117,6 +134,9 @@ class CommandDispatcher:
                     "submittedScopes": run.submitted_scopes,
                     "authContextHash": run.auth_context_hash,
                     "policyRevision": run.policy_revision,
+                    "controlTaskQueue": self._task_queue,
+                    "agentTaskQueue": self._agent_task_queue,
+                    "toolTaskQueue": self._tool_task_queue,
                     "startCommand": command_payload,
                 }
                 try:
@@ -124,7 +144,7 @@ class CommandDispatcher:
                         SwarmRunWorkflow.run,
                         run_input,
                         id=run.temporal_workflow_id,
-                        task_queue="swarm-control",
+                        task_queue=self._task_queue,
                         id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
                     )
                     temporal_run_id = handle.first_execution_run_id
@@ -146,12 +166,60 @@ class CommandDispatcher:
                     command_payload,
                     id=str(command.request_id),
                     result_type=dict[str, Any],
+                    rpc_timeout=timedelta(seconds=20),
                 )
                 temporal_run_id = None
             else:
                 await self._dead(outbox_id, f"unknown command type: {command.type}")
                 return
         await self._complete(outbox_id, result, temporal_run_id=temporal_run_id)
+
+    async def _deliver_document_processing(self, outbox: OutboxEvent) -> None:
+        payload = dict(outbox.payload)
+        workflow_id = f"document-processing/{payload['processingRunId']}"
+        temporal_run_id: str | None = None
+        if outbox.type == "document.processing.requested":
+            try:
+                handle = await self._temporal.start_workflow(
+                    DocumentProcessingWorkflow.run,
+                    payload,
+                    id=workflow_id,
+                    task_queue=self._task_queue,
+                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                )
+                temporal_run_id = handle.first_execution_run_id
+            except WorkflowAlreadyStartedError:
+                pass
+        else:
+            handle = self._temporal.get_workflow_handle(workflow_id)
+            await handle.cancel()
+        now = datetime.now(UTC)
+        async with self._sessions() as session, session.begin():
+            current = await session.get(OutboxEvent, outbox.id, with_for_update=True)
+            if current is None:
+                return
+            current.status = "DELIVERED"
+            current.delivered_at = now
+            current.locked_by = None
+            current.locked_until = None
+            processing = await session.get(
+                DocumentProcessingRun,
+                UUID(str(payload["processingRunId"])),
+                with_for_update=True,
+            )
+            if processing is not None:
+                processing.provenance = {
+                    **processing.provenance,
+                    "temporalWorkflowId": workflow_id,
+                    **(
+                        {
+                            "temporalRunId": temporal_run_id,
+                            "dispatchedAt": now.isoformat(),
+                        }
+                        if outbox.type == "document.processing.requested"
+                        else {"cancelDispatchedAt": now.isoformat()}
+                    ),
+                }
 
     async def _complete(
         self, outbox_id: UUID, result: dict[str, Any], *, temporal_run_id: str | None

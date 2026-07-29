@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://procurement-supplier-risk/case@1",
+  "type": "object",
+  "required": ["title", "projectNo", "lotNo", "procurementType", "asOf", "supplier"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1, "maxLength": 512},
+    "projectNo": {"type": "string", "minLength": 1, "maxLength": 128},
+    "lotNo": {"type": "string", "minLength": 1, "maxLength": 128},
+    "procurementType": {
+      "enum": ["GOVERNMENT_GOODS", "GOVERNMENT_SERVICES", "GOVERNMENT_WORKS", "ENTERPRISE"]
+    },
+    "asOf": {"type": "string", "format": "date"},
+    "supplier": {
+      "type": "object",
+      "required": ["name", "creditCode"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "creditCode": {"type": "string", "pattern": "^[0-9A-Z]{18}$"},
+        "aliases": {"type": "array", "items": {"type": "string"}},
+        "jointVentureMembers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "creditCode"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "creditCode": {"type": "string", "pattern": "^[0-9A-Z]{18}$"}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "monitorId": {"type": ["string", "null"], "format": "uuid"},
+    "riskSources": {"type": "array", "items": {"type": "object"}},
+    "performance": {"type": "object"},
+    "clauses": {"type": "object"},
+    "semanticProposals": {"type": "array", "items": {"type": "object"}},
+    "approvedExceptionKeys": {"type": "array", "items": {"type": "string"}},
+    "previousSnapshot": {"type": ["object", "null"]}
+  },
+  "additionalProperties": true
+}
+

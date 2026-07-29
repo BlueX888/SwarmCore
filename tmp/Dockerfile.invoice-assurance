@@ -1,0 +1,8 @@
+FROM swarmcore-crossrail-app:2026-07-27.3
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-wqy-zenhei \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . /workspace
+RUN uv sync --all-packages --frozen --no-dev

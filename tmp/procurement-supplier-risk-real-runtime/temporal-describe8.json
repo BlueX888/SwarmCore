@@ -1,0 +1,107 @@
+{
+  "executionConfig": {
+    "taskQueue": {
+      "name": "swarm-control",
+      "kind": "TASK_QUEUE_KIND_NORMAL"
+    },
+    "defaultWorkflowTaskTimeout": "10s"
+  },
+  "workflowExecutionInfo": {
+    "execution": {
+      "workflowId": "swarm:00000000-0000-0000-0000-000000000001:019fa6ea-1ba8-7a88-ba66-9a0b3fca6d50",
+      "runId": "019fa6ea-1d46-7dab-b40a-121ff51f7aac"
+    },
+    "type": {
+      "name": "SwarmRunWorkflow"
+    },
+    "startTime": "2026-07-28T04:09:48.614897360Z",
+    "status": "WORKFLOW_EXECUTION_STATUS_RUNNING",
+    "historyLength": "327",
+    "executionTime": "2026-07-28T04:09:48.614897360Z",
+    "memo": {},
+    "searchAttributes": {
+      "indexedFields": {
+        "BuildIds": {
+          "metadata": {
+            "encoding": "anNvbi9wbGFpbg==",
+            "type": "S2V5d29yZExpc3Q="
+          },
+          "data": "WyJ1bnZlcnNpb25lZCIsInVudmVyc2lvbmVkOjA4MThmMTZjNWM4N2JjMWIyMzAxNzNlZTlkYWRkNDQ5Il0="
+        },
+        "TemporalChangeVersion": {
+          "metadata": {
+            "encoding": "anNvbi9wbGFpbg==",
+            "type": "S2V5d29yZExpc3Q="
+          },
+          "data": "WyJpbml0aWFsLXJ1bi1ldmVudC1tZXRhZGF0YS12MSIsInRyYW5zaXRpdmUtZmFpbHVyZS1ibG9ja2luZy12MSJd"
+        }
+      }
+    },
+    "autoResetPoints": {
+      "points": [
+        {
+          "buildId": "0818f16c5c87bc1b230173ee9dadd449",
+          "runId": "019fa6ea-1d46-7dab-b40a-121ff51f7aac",
+          "firstWorkflowTaskCompletedId": "4",
+          "createTime": "2026-07-28T04:09:48.686892697Z",
+          "resettable": true
+        }
+      ]
+    },
+    "taskQueue": "swarm-control",
+    "stateTransitionCount": "252",
+    "historySizeBytes": "3920948",
+    "mostRecentWorkerVersionStamp": {
+      "buildId": "0818f16c5c87bc1b230173ee9dadd449"
+    },
+    "rootExecution": {
+      "workflowId": "swarm:00000000-0000-0000-0000-000000000001:019fa6ea-1ba8-7a88-ba66-9a0b3fca6d50",
+      "runId": "019fa6ea-1d46-7dab-b40a-121ff51f7aac"
+    },
+    "firstRunId": "019fa6ea-1d46-7dab-b40a-121ff51f7aac",
+    "priority": {}
+  },
+  "pendingActivities": [
+    {
+      "activityId": "49",
+      "activityType": {
+        "name": "execute_agent"
+      },
+      "state": "PENDING_ACTIVITY_STATE_STARTED",
+      "heartbeatDetails": [
+        {
+          "nodeKey": "clause-analysis",
+          "stage": "running"
+        }
+      ],
+      "lastHeartbeatTime": "2026-07-28T04:14:12.027989223Z",
+      "lastStartedTime": "2026-07-28T04:13:47.995983822Z",
+      "attempt": 3,
+      "maximumAttempts": 3,
+      "scheduledTime": "2026-07-28T04:13:47.991018279Z",
+      "lastFailure": {
+        "message": "Failure exceeds size limit.",
+        "cause": {
+          "message": "agent output does not match output schema at $: '{\\n  \"clauses\": {\\n    \"TENDER\": [\\n      {\\n        \"clauseId\": \"TENDER-PARTY-001\",\\n        \"matchKey\": \"PARTY\",\\n        \"category\": \"PARTY\",\\n        \"text\": \"招标人：复旦大学附属中山医院；招标代理机构：上海中世建设咨询有限公司\",\\n        \"evidenceRefs\": [\\n          {\\n            \"documentId\": \"019fa6ea-168e-76ed-b336-d61ea5f732b6\",\\n            \"documentVersionId\": \"019fa6ea-176e-7e7b-a125-f460d9ed0403\",\\n            \"category\": \"TENDER_DOCUMENT\",\\n            \"text\": \"招标人：复旦大学附属中山医院\"\\n          }\\n        ]\\n      },\\n      {\\n        \"clauseId\": \"TENDER-SUBJECT-001\",\\n        \"matchKey\": \"SUBJECT\",\\n        \"category\": \"SUBJECT\",\\n        \"text\": \"项目名称：泛血管全栈数智基座与智能体项目\",\\n        \"evidenceRefs\": [\\n          {\\n            \"documentId\": \"019fa6ea-168e-76ed-b336-d61ea5f732b6\",\\n            \"documentVersionId\": \"019fa6ea-176e-7e7b-a125-f460d9ed0403\",\\n            \"category\": \"TENDER_DOCUMENT\",\\n            \"text\": \"项目名称：泛血管全栈数智基座与智能体项目\"\\n          }\\n        ]\\n      },\\n      {\\n        \"clauseId\": \"TENDER-PRICE-001\",\\n        \"matchKey\": \"PRICE\",\\n        \"category\": \"PRICE\",\\n        \"text\": \"预算金额：人民币393万元整\",\\n        \"evidenceRefs\": [\\n          {\\n            \"documentId\": \"019fa6ea-168e-76ed-b336-d61ea5f732b6\",\\n            \"documentVersionId\": \"019fa6ea-176e-7e7b-a125-f460d9ed0403\",\\n            \"category\": \"TENDER_DOCUMENT\",\\n            \"text\": \"预算金额：人民币393万元整\"\\n          }\\n        ]\\n      },\\n      {\\n        \"clauseId\": \"TENDER-PAYMENT-001\",\\n        \"matchKey\": \"PAYMENT\",\\n        \"category\": \"PAYMENT\",\\n        \"text\": \"第一笔付款：合同生效后15个工作日内付60%；第二笔：到货验收后付40%\",\\n        \"evidenceRefs\": [\\n          {\\n            \"documentId\": \"019fa6ea-168e-76ed-b336-d61ea5f732b6\",\\n            \"documentVersionId\": \"019fa6ea-176e-7e7b-a125-f460d9ed0403\",\\n            \"category\": \"TENDER_DOCUMENT\",\\n            \"text\": \"第一笔付款：合同生效且招标人收到中标人对应金额发票后的15个工作日内，招标人向中标人支付合同总额的60%\"\\n          }\\n        ]\\n      },\\n      {\\n        \"clauseId\": \"TENDER-SCOPE-001\",\\n        \"matchKey\": \"SCOPE\",\\n        \"category\": \"SCOPE\",\\n        \"text\": \"招标内容：影像AI存储、文件归档存储、全闪热存储、大数据中间件服务器、大数据治理节点服务器、国产服务器操作系统、泛血管智能体应用软件\",\\n        \"evidenceRefs\": [\\n          {\\n            \"documentId\": \"019fa6ea-168e-76ed-b336-d61ea5f732b6\",\\n            \"documentVersionId\": \"019fa6ea-176e-7e7b-a125-f460d9ed0403\",\\n            \"category\": \"TENDER_DOCUMENT\",\\n            \"text\": \"招标内容：泛血管全栈数智基座与智能体建设，包括影像AI存储、文件归档存储、全闪热存储、大数据中间件服务器、大数据治理节点服务器、国产服务器操作系统、泛血管智能体应用软件\"\\n          }\\n        ]\\n      }\\n    ],\\n    \"BID\": [\\n      {\\n        \"clauseId\": \"BID-PERFORMANCE_PERIOD-001\",\\n        \"matchKey\": \"PERFORMANCE_PERIOD\",\\n        \"category\": \"PERFORMANCE_PERIOD\",\\n        \"text\": \"交付时间：合同签订后3个月内完成硬件和成品软件供货，8个月完成定制化软件开发（含1个月试运行）\",\\n        \"evidenceRefs\": [\\n          {\\n            \"documentId\": \"019fa6ea-1866-700f-9512-6767b5b5e13b\",\\n            \"documentVersionId\": \"019fa6ea-18cb-71c8-a55d-05e0eddf01c0\",\\n            \"category\": \"WINNING_BID\",\\n            \"text\": \"交付时间：合同签订后3个月内完成硬件和成品软件供货，8个月完成定制化软件开发（包含1个月试运行）\"\\n          }\\n        ]\\n      }\\n    ],\\n    \"AWARD\": [\\n      {\\n        \"clauseId\": \"AWARD-PARTY-001\",\\n        \"matchKey\": \"PARTY\",\\n        \"category\": \"PARTY\",\\n        \"text\": \"",
+          "applicationFailureInfo": {
+            "type": "ValueError"
+          }
+        },
+        "serverFailureInfo": {}
+      },
+      "lastWorkerIdentity": "12@c7737e86c51b",
+      "lastAttemptCompleteTime": "2026-07-28T04:13:45.991013947Z",
+      "priority": {}
+    }
+  ],
+  "workflowExtendedInfo": {
+    "runExpirationTime": "0001-01-01T00:00:00Z",
+    "originalStartTime": "2026-07-28T04:09:48.614897360Z",
+    "requestIdInfos": {
+      "1ff01012-21d8-4f5e-8f14-c5ce6c9f3fad": {
+        "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
+        "eventId": "1"
+      }
+    }
+  }
+}

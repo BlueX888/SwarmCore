@@ -1,0 +1,43 @@
+{
+  "apiVersion": "swarmcore.io/v2",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "swarm-calibration", "version": "1.0.4"},
+  "spec": {
+    "case": {
+      "type": "swarm-calibration-case",
+      "schema": "schema://swarm-calibration/case@1",
+      "subjectsRequired": false,
+      "subjectRoles": []
+    },
+    "inputSchema": "schema://swarm-calibration/input@1",
+    "outputSchema": "schema://swarm-calibration/result@1",
+    "strategies": {"execute": "strategy://swarm-calibration/assess@4"},
+    "agents": [
+      "agent://calibration/scheduler@1",
+      "agent://calibration/primary-diagnostician@1",
+      "agent://calibration/standby-diagnostician@1",
+      "agent://calibration/quality-supervisor@1"
+    ],
+    "tools": [
+      "tool://github/get-issue@1",
+      "tool://github/get-discussion@1",
+      "tool://github/get-pull-evidence@1",
+      "tool://calibration/freeze-evidence@1",
+      "tool://calibration/route-select@1",
+      "tool://sandbox/verify-repository@1",
+      "tool://calibration/quality-score@1",
+      "tool://calibration/attempt-select@1",
+      "tool://calibration/finalize@1",
+      "tool://report/render-swarm-calibration@1",
+      "tool://workbench/record-swarm-calibration@1"
+    ],
+    "documents": {"requirements": []},
+    "report": {"template": "report://swarm-calibration@1"},
+    "permissions": [
+      "case.read", "case.assess", "report.read", "calibration.read",
+      "calibration.assess", "calibration.review", "run.control"
+    ],
+    "events": {"namespace": "capability.swarm-calibration"},
+    "ui": {"viewDefinition": "view://swarm-calibration/case@1"}
+  }
+}

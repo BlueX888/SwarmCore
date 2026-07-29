@@ -1,0 +1,8 @@
+REAL_CHAIN_FAILED: expected BLOCK decision, received None
+Traceback (most recent call last):
+  File "C:\Project\SwarmCore\scripts\run-procurement-supplier-risk-real-chain.py", line 925, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "C:\Project\SwarmCore\scripts\run-procurement-supplier-risk-real-chain.py", line 869, in main
+    raise ChainError(f"expected BLOCK decision, received {decision!r}")
+ChainError: expected BLOCK decision, received None

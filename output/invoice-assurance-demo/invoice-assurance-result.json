@@ -1,0 +1,466 @@
+{
+  "asOf": "2026-03-20",
+  "score": 1.0,
+  "title": "合成演示发票一致性校验",
+  "outcome": "PAYMENT_READY",
+  "findings": [
+    {
+      "code": "PARTY_BANK_APPROVED",
+      "status": "OPEN",
+      "summary": "invoice remittance account not present on face",
+      "blocking": false,
+      "severity": "MEDIUM",
+      "dimension": "parties"
+    }
+  ],
+  "approvals": [],
+  "artifacts": [],
+  "narrative": {
+    "riskSummary": "整体风险等级低，付款准备就绪。存在一项非阻断性警告：发票票面未显示收款银行账户信息（PARTY_BANK_APPROVED），风险等级中等，但不触发付款阻断，建议后续补充。",
+    "recommendations": [
+      "建议关注发票票面银行信息缺失情况，后续业务中可要求供应商补充完整收款账户信息以降低付款风险",
+      "当前所有付款闸门（验真、重复支付检查、商业匹配、预算检查）均已通过，可正常推进付款流程"
+    ],
+    "executiveSummary": "发票证据链完整，已提交全部6类必需单据（原始发票、合同订单、验收凭证、供应商主数据、应付账款及预算支付政策），满足覆盖率要求。发票（99992000000000000001）已通过国家级增值税查验平台人工辅助核验，状态为票面相符（FACE_MATCHED）。商业匹配验证通过，与采购订单（PO-DEMO-001）及验收单（AC-DEMO-001）完全一致，服务描述、数量、单价、税率及总金额均核对无误。算术校验通过，无重复支付风险。卖方企业（91310000MA0DEMOSELL）公开状态验证为正常经营。"
+  },
+  "dimensions": {
+    "parties": {
+      "status": "WARN",
+      "ruleIds": [
+        "PARTY_ENTERPRISE_PUBLIC_STATUS",
+        "PARTY_SELLER_TAX_MATCH",
+        "PARTY_BANK_APPROVED",
+        "PARTY_BUYER_TAX_MATCH"
+      ],
+      "summary": "4 rule(s)",
+      "severity": "MEDIUM"
+    },
+    "duplication": {
+      "status": "PASS",
+      "summary": "PASS",
+      "severity": "LOW"
+    },
+    "fulfillment": {
+      "status": "PASS",
+      "summary": "derived from commercial match / acceptance",
+      "severity": "MEDIUM"
+    },
+    "paymentGates": {
+      "status": "PAYMENT_READY",
+      "summary": "no hard blocks",
+      "severity": "LOW"
+    },
+    "faceCompliance": {
+      "status": "PASS",
+      "ruleIds": [
+        "ARITHMETIC_TOTALS_CLOSE",
+        "ARITHMETIC_LINE_AMOUNT_SUM",
+        "ARITHMETIC_LINE_TAX_SUM"
+      ],
+      "summary": "3 rule(s)",
+      "severity": "LOW"
+    },
+    "commercialMatch": {
+      "status": "PASS",
+      "summary": "1 match(es)",
+      "severity": "MEDIUM"
+    },
+    "officialVerification": {
+      "status": "FACE_MATCHED",
+      "summary": "FACE_MATCHED",
+      "severity": "LOW"
+    }
+  },
+  "provenance": {
+    "tools": [
+      "tool://invoice/parse@1",
+      "tool://invoice/official-verify@1",
+      "tool://business/snapshot-read@1",
+      "tool://invoice/arithmetic-check@1",
+      "tool://invoice/enterprise-status-check@1",
+      "tool://invoice/party-check@1",
+      "tool://invoice/deduplicate@1",
+      "tool://invoice/commercial-match@1",
+      "tool://invoice/payment-gate@1",
+      "tool://invoice/finalize@1"
+    ],
+    "agents": [
+      "agent://invoice/fact-normalizer@1",
+      "agent://invoice/commercial-match-analyst@1",
+      "agent://invoice/evidence-risk-reviewer@1"
+    ],
+    "baselineHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "configurationHash": "973c53dc203a8fd9c6fc0a7d065d2a65a0dbcc0dbd91bd5eb63392b68b2819d1",
+    "documentContentHash": "eeb0369fb84ba2e64e6ade2c9642413fc5aa48840ada219f1db7431052d9e989",
+    "businessSnapshotHash": "67e8e2c4e6e6117d80f78ef7e8dd10afccc4cc9e2a1e6776db301f53e5dba985",
+    "selectionManifestHash": "8c6582763bd4bc8b0e17fa4457e667ff41f2e15e941c1473d99b82ab1ef773f6",
+    "attachmentManifestHash": "2839870aba127fb7cfe9a83d3b0c929a8c0e173f6fdccce2b2a553a9a79e68f0"
+  },
+  "resultHash": "a69c7949e4ad59a2a11aa4b06a5fed16ef3fe48588487d3365179047582e816a",
+  "duplication": {
+    "status": "PASS",
+    "blocking": false,
+    "duplicates": [],
+    "reasonCode": null,
+    "evidenceRefs": [],
+    "redBlueLinks": [],
+    "paidDuplicates": []
+  },
+  "gateResults": [
+    {
+      "gateId": "OFFICIAL_VERIFICATION",
+      "status": "PASS",
+      "blocking": false,
+      "reasonCode": "FACE_MATCHED",
+      "remediation": null,
+      "evidenceRefs": []
+    },
+    {
+      "gateId": "DUPLICATE_PAYMENT",
+      "status": "PASS",
+      "blocking": false,
+      "reasonCode": "PASS",
+      "remediation": null,
+      "evidenceRefs": []
+    },
+    {
+      "gateId": "COMMERCIAL_MATCH",
+      "status": "PASS",
+      "blocking": false,
+      "reasonCode": "MATCHED",
+      "remediation": null,
+      "evidenceRefs": []
+    },
+    {
+      "gateId": "BUDGET",
+      "status": "PASS",
+      "blocking": false,
+      "reasonCode": "WITHIN_BUDGET",
+      "remediation": null,
+      "evidenceRefs": []
+    }
+  ],
+  "paymentGate": {
+    "gates": [
+      {
+        "gateId": "OFFICIAL_VERIFICATION",
+        "status": "PASS",
+        "blocking": false,
+        "reasonCode": "FACE_MATCHED",
+        "remediation": null,
+        "evidenceRefs": []
+      },
+      {
+        "gateId": "DUPLICATE_PAYMENT",
+        "status": "PASS",
+        "blocking": false,
+        "reasonCode": "PASS",
+        "remediation": null,
+        "evidenceRefs": []
+      },
+      {
+        "gateId": "COMMERCIAL_MATCH",
+        "status": "PASS",
+        "blocking": false,
+        "reasonCode": "MATCHED",
+        "remediation": null,
+        "evidenceRefs": []
+      },
+      {
+        "gateId": "BUDGET",
+        "status": "PASS",
+        "blocking": false,
+        "reasonCode": "WITHIN_BUDGET",
+        "remediation": null,
+        "evidenceRefs": []
+      }
+    ],
+    "status": "PAYMENT_READY",
+    "blocking": false,
+    "hardBlocks": [],
+    "evidenceRefs": []
+  },
+  "ruleResults": [
+    {
+      "delta": 0.0,
+      "actual": 1130.0,
+      "reason": null,
+      "ruleId": "ARITHMETIC_TOTALS_CLOSE",
+      "status": "PASS",
+      "blocking": false,
+      "expected": 1130.0,
+      "severity": "LOW",
+      "dimension": "faceCompliance",
+      "ruleVersion": "rule://invoice-assurance@1",
+      "evidenceRefs": []
+    },
+    {
+      "delta": 0.0,
+      "actual": 1000.0,
+      "reason": null,
+      "ruleId": "ARITHMETIC_LINE_AMOUNT_SUM",
+      "status": "PASS",
+      "blocking": false,
+      "expected": 1000.0,
+      "severity": "LOW",
+      "dimension": "faceCompliance",
+      "ruleVersion": "rule://invoice-assurance@1",
+      "evidenceRefs": []
+    },
+    {
+      "delta": 0.0,
+      "actual": 130.0,
+      "reason": null,
+      "ruleId": "ARITHMETIC_LINE_TAX_SUM",
+      "status": "PASS",
+      "blocking": false,
+      "expected": 130.0,
+      "severity": "LOW",
+      "dimension": "faceCompliance",
+      "ruleVersion": "rule://invoice-assurance@1",
+      "evidenceRefs": []
+    },
+    {
+      "status": "PASS",
+      "blocking": false,
+      "duplicates": [],
+      "reasonCode": null,
+      "evidenceRefs": [],
+      "redBlueLinks": [],
+      "paidDuplicates": []
+    },
+    {
+      "delta": null,
+      "actual": "ACTIVE",
+      "reason": "enterprise is active in public-status evidence",
+      "ruleId": "PARTY_ENTERPRISE_PUBLIC_STATUS",
+      "status": "PASS",
+      "blocking": false,
+      "expected": "ACTIVE",
+      "severity": "LOW",
+      "dimension": "parties",
+      "ruleVersion": "rule://invoice-assurance@1",
+      "evidenceRefs": [
+        "fixture-enterprise-status-v1"
+      ]
+    },
+    {
+      "delta": null,
+      "actual": "91310000MA0DEMOSELL",
+      "reason": null,
+      "ruleId": "PARTY_SELLER_TAX_MATCH",
+      "status": "PASS",
+      "blocking": false,
+      "expected": "91310000MA0DEMOSELL",
+      "severity": "LOW",
+      "dimension": "parties",
+      "ruleVersion": "rule://invoice-assurance@1",
+      "evidenceRefs": []
+    },
+    {
+      "delta": null,
+      "actual": null,
+      "reason": "invoice remittance account not present on face",
+      "ruleId": "PARTY_BANK_APPROVED",
+      "status": "WARN",
+      "blocking": false,
+      "expected": null,
+      "severity": "MEDIUM",
+      "dimension": "parties",
+      "ruleVersion": "rule://invoice-assurance@1",
+      "evidenceRefs": []
+    },
+    {
+      "delta": null,
+      "actual": "91110000MA0DEMOBUY",
+      "reason": null,
+      "ruleId": "PARTY_BUYER_TAX_MATCH",
+      "status": "PASS",
+      "blocking": false,
+      "expected": "91110000MA0DEMOBUY",
+      "severity": "LOW",
+      "dimension": "parties",
+      "ruleVersion": "rule://invoice-assurance@1",
+      "evidenceRefs": []
+    }
+  ],
+  "matchResults": [
+    {
+      "targetRefs": [
+        {
+          "id": "PO-DEMO-001",
+          "type": "purchaseOrder"
+        }
+      ],
+      "evidenceRefs": [
+        "fixture:po:v1"
+      ],
+      "invoiceLineId": null,
+      "matchedAmount": 1130.0,
+      "decisionSource": "DETERMINISTIC",
+      "confidenceState": "MATCHED"
+    }
+  ],
+  "qualityFlags": [],
+  "verification": {
+    "mode": "HUMAN_ASSISTED",
+    "status": "FACE_MATCHED",
+    "operator": "ap.demo@example.com",
+    "provider": "national-vat-verification-portal",
+    "invoiceKey": {
+      "issueDate": "2026-03-15",
+      "invoiceCode": null,
+      "invoiceNumber": "99992000000000000001",
+      "amountExcludingTax": 1000.0
+    },
+    "reasonCode": null,
+    "verifiedAt": "2026-03-20T10:00:00+08:00",
+    "artifactHash": "abc123",
+    "evidenceRefs": [],
+    "returnedFields": {
+      "invoiceNumber": "99992000000000000001",
+      "amountExcludingTax": 1000.0
+    }
+  },
+  "schemaVersion": "schema://invoice-assurance/result@1",
+  "invoiceFactSet": {
+    "buyer": {
+      "name": "演示采购方有限公司",
+      "taxId": "91110000MA0DEMOBUY"
+    },
+    "isRed": false,
+    "lines": [
+      {
+        "name": "演示软件服务",
+        "amount": 1000.0,
+        "lineId": "L1",
+        "source": "JSON",
+        "taxRate": 0.13,
+        "quantity": 1.0,
+        "taxAmount": 130.0,
+        "unitPrice": 1000.0,
+        "confidence": "HIGH"
+      }
+    ],
+    "fields": {},
+    "seller": {
+      "name": "演示供应方科技有限公司",
+      "taxId": "91310000MA0DEMOSELL",
+      "bankName": null,
+      "bankAccount": null
+    },
+    "totals": {
+      "currency": "CNY",
+      "taxAmount": 130.0,
+      "amountExcludingTax": 1000.0,
+      "amountIncludingTax": 1130.0
+    },
+    "issueDate": "2026-03-15",
+    "mediaType": "application/json",
+    "invoiceCode": null,
+    "invoiceType": "数电发票(增值税专用发票)",
+    "parseStatus": "STRUCTURED",
+    "evidenceRefs": [],
+    "qualityFlags": [],
+    "invoiceNumber": "99992000000000000001",
+    "parserVersion": "parser://invoice-assurance/xml@1",
+    "blueInvoiceRef": null,
+    "needsFieldConfirmation": false
+  },
+  "reviewRequired": false,
+  "commercialMatch": {
+    "status": "PASS",
+    "matches": [
+      {
+        "targetRefs": [
+          {
+            "id": "PO-DEMO-001",
+            "type": "purchaseOrder"
+          }
+        ],
+        "evidenceRefs": [
+          "fixture:po:v1"
+        ],
+        "invoiceLineId": null,
+        "matchedAmount": 1130.0,
+        "decisionSource": "DETERMINISTIC",
+        "confidenceState": "MATCHED"
+      }
+    ],
+    "candidates": [
+      {
+        "reasons": [
+          "Exact description match: '演示软件服务' (Demo Software Service)",
+          "Quantity alignment: invoice quantity 1 equals PO quantity 1",
+          "Unit price alignment: 1000.00 CNY (excl. tax) matches PO unit price excluding tax",
+          "Tax rate consistency: 13% VAT rate matches",
+          "Total amount alignment: 1130.00 CNY including tax matches PO line amount"
+        ],
+        "ambiguities": [],
+        "evidenceRefs": [
+          "fixture:demo-invoice:v1",
+          "fixture:po:v1"
+        ],
+        "targetLineId": "PO-DEMO-001:PO-L1",
+        "invoiceLineId": "L1",
+        "decisionSource": "AGENT_SUGGESTION",
+        "confidenceState": "CANDIDATE"
+      },
+      {
+        "reasons": [
+          "Description correspondence: '演示软件服务' matches accepted item description",
+          "Quantity verification: accepted quantity 1 matches invoice billed quantity 1",
+          "Linkage verification: acceptance line explicitly references PO-L1 which corresponds to the invoice line",
+          "Status confirmation: acceptance status is ACCEPTED"
+        ],
+        "ambiguities": [],
+        "evidenceRefs": [
+          "fixture:demo-invoice:v1",
+          "fixture:acceptance:v1"
+        ],
+        "targetLineId": "AC-DEMO-001:AC-L1",
+        "invoiceLineId": "L1",
+        "decisionSource": "AGENT_SUGGESTION",
+        "confidenceState": "CANDIDATE"
+      }
+    ],
+    "ambiguities": [],
+    "evidenceRefs": [],
+    "matchedAmount": 1130.0
+  },
+  "businessSnapshotHash": "67e8e2c4e6e6117d80f78ef7e8dd10afccc4cc9e2a1e6776db301f53e5dba985",
+  "enterprisePublicStatus": {
+    "status": "ACTIVE",
+    "evidence": {
+      "mode": "HUMAN_ASSISTED",
+      "status": "ACTIVE",
+      "operator": "demo-human-reviewer",
+      "provider": "synthetic-demo-public-status-receipt",
+      "sourceUrl": null,
+      "verifiedAt": "2026-03-20T10:05:00+08:00",
+      "queriedName": "演示供应方科技有限公司",
+      "evidenceRefs": [
+        "fixture-enterprise-status-v1"
+      ],
+      "queriedTaxId": "91310000MA0DEMOSELL",
+      "identityMatched": true,
+      "provenanceComplete": true
+    },
+    "ruleResult": {
+      "delta": null,
+      "actual": "ACTIVE",
+      "reason": "enterprise is active in public-status evidence",
+      "ruleId": "PARTY_ENTERPRISE_PUBLIC_STATUS",
+      "status": "PASS",
+      "blocking": false,
+      "expected": "ACTIVE",
+      "severity": "LOW",
+      "dimension": "parties",
+      "ruleVersion": "rule://invoice-assurance@1",
+      "evidenceRefs": [
+        "fixture-enterprise-status-v1"
+      ]
+    },
+    "requiresHumanReview": false
+  }
+}

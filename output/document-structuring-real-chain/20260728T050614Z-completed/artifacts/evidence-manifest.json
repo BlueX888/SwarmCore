@@ -1,0 +1,46 @@
+{
+  "evidence": [
+    {
+      "blobSha256": "022e406c0d3f5ed3dc7968dcf8bb0e98b5665b0aaff8e7772a15b56688ad024d",
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "document.title",
+      "page": 1,
+      "pattern": "(?im)^(Digital Outcomes and Specialists 4 Framework Agreement(?:\\s+Call-Off Contract(?:\\s+v\\d+)?)?)$",
+      "text": "Digital Outcomes and Specialists 4 Framework Agreement\nCall-Off Contract"
+    },
+    {
+      "blobSha256": "022e406c0d3f5ed3dc7968dcf8bb0e98b5665b0aaff8e7772a15b56688ad024d",
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.reference",
+      "page": 1,
+      "pattern": "\\b(RM\\d+(?:\\.\\d+)*)\\b",
+      "text": "RM1043.6"
+    },
+    {
+      "blobSha256": "022e406c0d3f5ed3dc7968dcf8bb0e98b5665b0aaff8e7772a15b56688ad024d",
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.buyer",
+      "page": 1,
+      "pattern": "(?im)^(?:Buyer|买方)(?:['\\u2019]s)?\\s*(?:name)?\\s*[:\\N{FULLWIDTH COLON}]?\\s*(.+)$",
+      "text": "Buyer and Supplier details"
+    },
+    {
+      "blobSha256": "022e406c0d3f5ed3dc7968dcf8bb0e98b5665b0aaff8e7772a15b56688ad024d",
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.partA",
+      "page": 1,
+      "pattern": "(?im)^(Part A\\s*[-\\u2013]\\s*Order Form)$",
+      "text": "Part A - Order Form"
+    },
+    {
+      "blobSha256": "022e406c0d3f5ed3dc7968dcf8bb0e98b5665b0aaff8e7772a15b56688ad024d",
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.partB",
+      "page": 1,
+      "pattern": "(?im)^(Part B\\s*[-\\u2013]\\s*Terms and conditions)$",
+      "text": "Part B – Terms and conditions"
+    }
+  ],
+  "packageHash": "b16859961579e895042194437a3cc5348afcdabe35817fdfdd8bddfca607ba43",
+  "schemaVersion": "schema://document-structuring/evidence-manifest@1"
+}

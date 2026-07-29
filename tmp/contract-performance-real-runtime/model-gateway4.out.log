@@ -1,0 +1,5 @@
+INFO:     127.0.0.1:58809 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58818 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57220 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60090 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53287 - "POST /v1/chat/completions HTTP/1.1" 200 OK

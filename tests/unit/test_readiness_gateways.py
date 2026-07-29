@@ -1,11 +1,13 @@
 import json
+from io import BytesIO
 from typing import Any, cast
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request
 from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
+from swarmcore_governance import InMemorySecretProvider
 from swarmcore_model_gateway import main as model_gateway
 from swarmcore_tool_gateway_api.main import Settings as ToolGatewaySettings
 from swarmcore_tool_gateway_api.main import create_app as create_tool_gateway
@@ -168,6 +170,45 @@ def test_direct_provider_sse_is_normalized_to_openai_completion() -> None:
     }
 
 
+def test_direct_provider_sse_preserves_streamed_tool_calls() -> None:
+    raw = b"\n\n".join(
+        (
+            b'data: {"id":"answer-2","model":"test-model","choices":['
+            b'{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,'
+            b'"id":"call-1","type":"function","function":{"name":"evidence_",'
+            b'"arguments":"{\\"domain\\":"}}]}}]}',
+            b'data: {"id":"answer-2","model":"test-model","choices":['
+            b'{"index":0,"delta":{"tool_calls":[{"index":0,"function":'
+            b'{"name":"search","arguments":"\\"contract\\"}"}}]},'
+            b'"finish_reason":"tool_calls"}]}',
+            b"data: [DONE]",
+        )
+    )
+
+    result = model_gateway._decode_openai_response(raw)
+
+    assert result["choices"] == [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": "evidence_search",
+                            "arguments": '{"domain":"contract"}',
+                        },
+                    }
+                ],
+            },
+            "finish_reason": "tool_calls",
+        }
+    ]
+
+
 def test_direct_provider_maps_developer_messages_to_legacy_system_role() -> None:
     messages = [
         {"role": "developer", "content": "Follow the schema."},
@@ -328,6 +369,38 @@ def test_portal_capability_invoke_posts_input_messages(
     assert result["choices"][0]["message"]["content"] == "ok"
 
 
+def test_litellm_includes_provider_error_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def urlopen(request: Request, *, timeout: float) -> Any:
+        del timeout
+        raise HTTPError(
+            request.full_url,
+            400,
+            "Bad Request",
+            {},
+            BytesIO(b'{"error":{"message":"unsupported response_format"}}'),
+        )
+
+    monkeypatch.setattr(model_gateway, "urlopen", urlopen)
+
+    with pytest.raises(
+        RuntimeError,
+        match="provider HTTP 400: unsupported response_format",
+    ):
+        model_gateway._litellm(
+            "https://models.example",
+            "test-key",
+            "provider/model",
+            model_gateway.InvokeBody(
+                capabilityToken="unused",
+                messages=[{"role": "user", "content": "hi"}],
+                maxTokens=16,
+            ),
+            30,
+        )
+
+
 @pytest.mark.asyncio
 async def test_runtime_provider_falls_back_when_vault_lease_fails(
     monkeypatch: pytest.MonkeyPatch,
@@ -353,3 +426,18 @@ async def test_runtime_provider_falls_back_when_vault_lease_fails(
         logical_model="model://general",
     )
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_model_api_key_is_configured_only_when_vault_value_is_readable() -> None:
+    secret_ref = "secret://projects/demo/models/general"
+    configured = InMemorySecretProvider({secret_ref: {"apiKey": "stored-key"}})
+    empty = InMemorySecretProvider({secret_ref: {"apiKey": ""}})
+    missing = InMemorySecretProvider({})
+
+    assert await model_gateway._api_key_configured(configured, secret_ref) is True
+    assert await model_gateway._read_api_key(configured, secret_ref) == "stored-key"
+    assert await model_gateway._api_key_configured(empty, secret_ref) is False
+    assert await model_gateway._read_api_key(empty, secret_ref) is None
+    assert await model_gateway._api_key_configured(missing, secret_ref) is False
+    assert await model_gateway._api_key_configured(None, secret_ref) is False

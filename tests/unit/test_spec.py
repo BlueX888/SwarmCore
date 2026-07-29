@@ -50,6 +50,20 @@ def test_parse_valid_yaml() -> None:
     assert strategy.spec.graph.nodes.root["review"].depends_on == ["research"]
 
 
+def test_parse_agent_fallback() -> None:
+    strategy = parse_spec(
+        VALID_SPEC.replace(
+            "        agent: researcher",
+            "        agent: researcher\n        fallbackAgent: reviewer",
+            1,
+        )
+    )
+
+    node = strategy.spec.graph.nodes.root["research"]
+    assert node.type == "agent"
+    assert node.fallback_agent == "reviewer"
+
+
 def test_reject_duplicate_yaml_keys() -> None:
     with pytest.raises(DuplicateKeyError, match="duplicate key"):
         parse_spec(VALID_SPEC.replace("  name: research-review", "  name: first\n  name: second"))

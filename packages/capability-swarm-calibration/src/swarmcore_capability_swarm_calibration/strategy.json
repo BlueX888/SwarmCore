@@ -1,0 +1,332 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "SwarmStrategy",
+  "metadata": {"name": "swarm-calibration-assess-v4"},
+  "spec": {
+    "inputSchema": {"type": "object"},
+    "outputSchema": {"type": "object"},
+    "defaults": {
+      "timeout": "PT2M",
+      "retryPolicy": {
+        "maxAttempts": 3,
+        "initialInterval": "PT1S",
+        "maximumInterval": "PT30S",
+        "backoffCoefficient": 2
+      }
+    },
+    "budget": {
+      "maxDuration": "PT12M",
+      "maxTokens": 120000,
+      "maxCostUsd": 1,
+      "maxAgents": 4,
+      "maxParallelism": 3,
+      "onExhausted": "wait_for_budget_approval"
+    },
+    "agents": {
+      "scheduler": {"ref": "agent://calibration/scheduler@1"},
+      "primary": {"ref": "agent://calibration/primary-diagnostician@1"},
+      "standby": {"ref": "agent://calibration/standby-diagnostician@1"},
+      "quality": {"ref": "agent://calibration/quality-supervisor@1"}
+    },
+    "graph": {
+      "entrypoint": "fetch-issue",
+      "nodes": {
+        "fetch-issue": {
+          "type": "tool",
+          "tool": "tool://github/get-issue@1",
+          "input": {"issueUrl": "{{ input.payload.issueUrl }}"}
+        },
+        "fetch-discussion": {
+          "type": "tool",
+          "tool": "tool://github/get-discussion@1",
+          "dependsOn": ["fetch-issue"],
+          "input": {"issueUrl": "{{ input.payload.issueUrl }}"}
+        },
+        "fetch-pull": {
+          "type": "tool",
+          "tool": "tool://github/get-pull-evidence@1",
+          "dependsOn": ["fetch-discussion"],
+          "input": {
+            "issueUrl": "{{ input.payload.issueUrl }}",
+            "pullCandidates": "{{ tasks.fetch-discussion.output.content.payload.pullCandidates }}"
+          }
+        },
+        "freeze-evidence": {
+          "type": "tool",
+          "tool": "tool://calibration/freeze-evidence@1",
+          "dependsOn": ["fetch-issue", "fetch-discussion", "fetch-pull"],
+          "input": {
+            "issue": "{{ tasks.fetch-issue.output.content }}",
+            "discussion": "{{ tasks.fetch-discussion.output.content }}",
+            "pullRequest": "{{ tasks.fetch-pull.output.content }}"
+          }
+        },
+        "schedule-calibration": {
+          "type": "agent",
+          "agent": "scheduler",
+          "dependsOn": ["freeze-evidence"],
+          "input": {
+            "_contextMode": "node_only",
+            "task": "{{ input.payload }}",
+            "evidenceSummary": "{{ tasks.freeze-evidence.output.content }}",
+            "runtimePolicy": "{{ input.configuration }}"
+          }
+        },
+        "select-route": {
+          "type": "tool",
+          "tool": "tool://calibration/route-select@1",
+          "dependsOn": ["schedule-calibration"],
+          "input": {
+            "recommendation": "{{ tasks.schedule-calibration.output.content }}",
+            "primaryReady": true,
+            "standbyReady": true
+          }
+        },
+        "route-agent": {
+          "type": "router",
+          "dependsOn": ["select-route"],
+          "routes": [
+            {
+              "when": "tasks.select-route.output.content.selectedRoute == \"STANDBY\"",
+              "target": "standby-diagnosis"
+            }
+          ],
+          "default": "primary-diagnosis"
+        },
+        "primary-diagnosis": {
+          "type": "agent",
+          "agent": "primary",
+          "fallbackAgent": "standby",
+          "dependsOn": ["route-agent"],
+          "input": {
+            "_contextMode": "node_only",
+            "task": "{{ input.payload }}",
+            "evidence": "{{ tasks.freeze-evidence.output.content }}"
+          }
+        },
+        "standby-diagnosis": {
+          "type": "agent",
+          "agent": "standby",
+          "dependsOn": ["route-agent"],
+          "input": {
+            "_contextMode": "node_only",
+            "task": "{{ input.payload }}",
+            "evidence": "{{ tasks.freeze-evidence.output.content }}",
+            "fallbackReason": "{{ tasks.select-route.output.content.reasonCodes }}"
+          }
+        },
+        "diagnosis-result": {
+          "type": "reducer",
+          "reducer": "first_success",
+          "dependsOn": ["primary-diagnosis", "standby-diagnosis"]
+        },
+        "sandbox-verify": {
+          "type": "tool",
+          "tool": "tool://sandbox/verify-repository@1",
+          "dependsOn": ["freeze-evidence"],
+          "input": {
+            "repository": "{{ tasks.freeze-evidence.output.content.repository }}",
+            "commitSha": "{{ tasks.freeze-evidence.output.content.mergeCommitSha }}",
+            "enabled": "{{ input.payload.sandbox.enabled }}",
+            "testCommand": "{{ input.payload.sandbox.testCommand }}"
+          }
+        },
+        "quality-supervision": {
+          "type": "agent",
+          "agent": "quality",
+          "dependsOn": ["diagnosis-result", "freeze-evidence", "sandbox-verify"],
+          "input": {
+            "_contextMode": "node_only",
+            "task": "{{ input.payload }}",
+            "diagnosis": "{{ tasks.diagnosis-result.output.content }}",
+            "evidenceIndex": "{{ tasks.freeze-evidence.output.content.evidenceIndex }}",
+            "sandbox": "{{ tasks.sandbox-verify.output.content }}"
+          }
+        },
+        "quality-score": {
+          "type": "tool",
+          "tool": "tool://calibration/quality-score@1",
+          "dependsOn": ["diagnosis-result", "quality-supervision", "freeze-evidence", "sandbox-verify"],
+          "input": {
+            "diagnosis": "{{ tasks.diagnosis-result.output.content }}",
+            "judge": "{{ tasks.quality-supervision.output.content }}",
+            "evidenceIndex": "{{ tasks.freeze-evidence.output.content.evidenceIndex }}",
+            "sandbox": "{{ tasks.sandbox-verify.output.content }}",
+            "acceptanceCriteria": "{{ input.payload.acceptanceCriteria }}",
+            "attempt": 1
+          }
+        },
+        "original-attempt": {
+          "type": "reducer",
+          "reducer": "concat",
+          "dependsOn": ["diagnosis-result", "quality-score"]
+        },
+        "quality-router": {
+          "type": "router",
+          "dependsOn": ["original-attempt", "quality-score"],
+          "routes": [
+            {
+              "when": "tasks.quality-score.output.content.decision == \"PASS\"",
+              "target": "auto-continue"
+            }
+          ],
+          "default": "revision-loop"
+        },
+        "auto-continue": {
+          "type": "reducer",
+          "reducer": "first_success",
+          "dependsOn": ["quality-router", "original-attempt"]
+        },
+        "revision-loop": {
+          "type": "loop",
+          "dependsOn": [
+            "quality-router", "diagnosis-result", "quality-score",
+            "freeze-evidence", "sandbox-verify"
+          ],
+          "body": [
+            "revision-diagnosis",
+            "revision-quality-supervision",
+            "revision-quality-score",
+            "revision-attempt"
+          ],
+          "until": "iteration >= 1",
+          "maxIterations": 1
+        },
+        "revision-diagnosis": {
+          "type": "agent",
+          "agent": "primary",
+          "fallbackAgent": "standby",
+          "dependsOn": ["diagnosis-result", "quality-score", "freeze-evidence"],
+          "input": {
+            "_contextMode": "node_only",
+            "task": "{{ input.payload }}",
+            "evidence": "{{ tasks.freeze-evidence.output.content }}",
+            "previousDiagnosis": "{{ tasks.diagnosis-result.output.content }}",
+            "qualityFailures": "{{ tasks.quality-score.output.content.hardFailures }}",
+            "revisionInstruction": "只修订一次；逐项修复质量门失败，不得添加无证据事实。"
+          }
+        },
+        "revision-quality-supervision": {
+          "type": "agent",
+          "agent": "quality",
+          "dependsOn": ["revision-diagnosis", "freeze-evidence", "sandbox-verify"],
+          "input": {
+            "_contextMode": "node_only",
+            "task": "{{ input.payload }}",
+            "diagnosis": "{{ tasks.revision-diagnosis.output.content }}",
+            "evidenceIndex": "{{ tasks.freeze-evidence.output.content.evidenceIndex }}",
+            "sandbox": "{{ tasks.sandbox-verify.output.content }}"
+          }
+        },
+        "revision-quality-score": {
+          "type": "tool",
+          "tool": "tool://calibration/quality-score@1",
+          "dependsOn": [
+            "revision-diagnosis", "revision-quality-supervision",
+            "freeze-evidence", "sandbox-verify"
+          ],
+          "input": {
+            "diagnosis": "{{ tasks.revision-diagnosis.output.content }}",
+            "judge": "{{ tasks.revision-quality-supervision.output.content }}",
+            "evidenceIndex": "{{ tasks.freeze-evidence.output.content.evidenceIndex }}",
+            "sandbox": "{{ tasks.sandbox-verify.output.content }}",
+            "acceptanceCriteria": "{{ input.payload.acceptanceCriteria }}",
+            "attempt": 2
+          }
+        },
+        "revision-attempt": {
+          "type": "reducer",
+          "reducer": "concat",
+          "dependsOn": ["revision-diagnosis", "revision-quality-score"]
+        },
+        "selected-attempt": {
+          "type": "reducer",
+          "reducer": "first_success",
+          "dependsOn": ["auto-continue", "revision-loop"]
+        },
+        "normalize-attempt": {
+          "type": "tool",
+          "tool": "tool://calibration/attempt-select@1",
+          "dependsOn": ["selected-attempt"],
+          "input": {"selectedAttempt": "{{ tasks.selected-attempt.output }}"}
+        },
+        "final-quality-router": {
+          "type": "router",
+          "dependsOn": ["normalize-attempt"],
+          "routes": [
+            {
+              "when": "tasks.normalize-attempt.output.content.quality.decision == \"PASS\"",
+              "target": "final-auto-continue"
+            }
+          ],
+          "default": "manual-review"
+        },
+        "manual-review": {
+          "type": "approval",
+          "dependsOn": ["final-quality-router"],
+          "prompt": "一次自动修订后质量得分、证据覆盖或运行验证仍未达到门槛，请复核后决定是否降级接受。",
+          "inputSchema": {
+            "type": "object",
+            "required": ["approved", "reason"],
+            "properties": {
+              "approved": {"type": "boolean"},
+              "reason": {"type": "string", "minLength": 1},
+              "corrections": {"type": "array", "items": {"type": "object"}}
+            },
+            "additionalProperties": false
+          }
+        },
+        "final-auto-continue": {
+          "type": "join",
+          "strategy": "all",
+          "dependsOn": ["final-quality-router"]
+        },
+        "review-decision": {
+          "type": "reducer",
+          "reducer": "first_success",
+          "dependsOn": ["manual-review", "final-auto-continue"]
+        },
+        "finalize": {
+          "type": "tool",
+          "tool": "tool://calibration/finalize@1",
+          "dependsOn": [
+            "freeze-evidence", "select-route", "normalize-attempt",
+            "sandbox-verify", "review-decision"
+          ],
+          "input": {
+            "payload": "{{ input.payload }}",
+            "evidence": "{{ tasks.freeze-evidence.output.content }}",
+            "route": "{{ tasks.select-route.output.content }}",
+            "diagnosis": "{{ tasks.normalize-attempt.output.content.diagnosis }}",
+            "quality": "{{ tasks.normalize-attempt.output.content.quality }}",
+            "fallback": "{{ tasks.normalize-attempt.output.content.fallback }}",
+            "sandbox": "{{ tasks.sandbox-verify.output.content }}",
+            "approvals": "{{ tasks.review-decision.output }}"
+          }
+        },
+        "render-report": {
+          "type": "tool",
+          "tool": "tool://report/render-swarm-calibration@1",
+          "dependsOn": ["finalize"],
+          "input": {"result": "{{ tasks.finalize.output.content }}"}
+        },
+        "record-result": {
+          "type": "tool",
+          "tool": "tool://workbench/record-swarm-calibration@1",
+          "dependsOn": ["finalize", "render-report"],
+          "input": {
+            "evaluationId": "{{ input.evaluationId }}",
+            "result": "{{ tasks.finalize.output.content }}",
+            "report": "{{ tasks.render-report.output.content }}"
+          }
+        },
+        "workflow-result": {
+          "type": "reducer",
+          "reducer": "merge_object",
+          "dependsOn": ["finalize"]
+        }
+      },
+      "output": {"result": "{{ tasks.workflow-result.output }}"}
+    }
+  }
+}

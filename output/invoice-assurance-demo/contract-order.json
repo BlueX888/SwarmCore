@@ -1,0 +1,29 @@
+{
+  "fixtureNotice": "Synthetic demo record. Not a real contract or purchase order.",
+  "contractId": "CT-DEMO-001",
+  "purchaseOrderId": "PO-DEMO-001",
+  "buyer": {
+    "name": "演示采购方有限公司",
+    "taxId": "91110000MA0DEMOBUY"
+  },
+  "supplier": {
+    "name": "演示供应方科技有限公司",
+    "taxId": "91310000MA0DEMOSELL"
+  },
+  "currency": "CNY",
+  "amountIncludingTax": 1130.0,
+  "lines": [
+    {
+      "lineId": "PO-L1",
+      "description": "演示软件服务",
+      "quantity": 1,
+      "unitPriceExcludingTax": 1000.0,
+      "taxRate": 0.13,
+      "amountIncludingTax": 1130.0
+    }
+  ],
+  "paymentTerms": {
+    "trigger": "ACCEPTED_INVOICE_AND_ACCEPTANCE",
+    "daysAfterTrigger": 30
+  }
+}

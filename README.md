@@ -23,7 +23,8 @@ SwarmCore 接收已经明确的目标与执行策略，负责校验、编译、�
 - **业务工作台**：提供 Business Works、文档处理、Case、Assessment、Finding、Report
   和 DecisionAsset 等统一产品入口。
 
-当前仓库包含合同完整性、合同七维后评价、偏差分析和发票一致性校验等能力包。它们的
+当前仓库包含合同完整性、合同七维后评价、偏差分析、发票一致性校验和招采一致性与
+供应商风控等能力包。它们的
 验收层级不同；请勿将本地实现状态等同于生产可用。
 
 ## 架构概览
@@ -172,9 +173,49 @@ pnpm web:dev
 - `swarm.run.status`
 - `swarm.run.result`
 - `swarm.run.control`
+- `contract_performance_initialize`
+- `contract_performance_collect`
+- `contract_performance_get_plan`
+- `contract_performance_get_snapshot`
+- `supplier_risk_monitor_create`
+- `supplier_risk_monitor_refresh`
+- `supplier_risk_history_list`
+- `supplier_risk_alerts_list`
+- `supplier_risk_work_orders_list`
+- `supplier_risk_work_order_create`
+- `supplier_risk_work_order_update`
+- `run_swarm_calibration`
+- `structure_document`
+- `get_document_processing`
+- `get_structured_package`
+- `confirm_document_fields`
 
 REST 与 MCP 都调用统一应用服务。产品侧优先使用 Business Work、Case、Assessment 和
 DecisionAsset 术语；`WorkItem`、`Evaluation` 与 `RuleSet` 仅作为兼容存储/API 术语保留。
+合同履约专用 REST 位于
+`/v1/projects/{projectId}/contract-performance/cases`，覆盖 Case 创建、计划初始化/发布、
+增量采集、甘特、证据账和不可变结果快照。
+招采一致性与供应商风控 REST 位于
+`/v1/projects/{projectId}/procurement-supplier-risk`，覆盖监控刷新、不可变历史、预警和
+风控工单。默认公共源实时查询中国政府采购网严重违法失信记录；其他授权 Provider 通过
+HTTPS allowlist 和 Vault `secretRef` 接入。详细设计见
+[招采一致性与供应商风控设计](docs/swarmcore-procurement-supplier-risk-design.md)。
+智能体调度校准专用 REST 为
+`POST /v1/projects/{projectId}/swarm-calibration:run`，输入真实 GitHub Issue、校准目标、
+验收标准和可选沙箱命令，返回统一 Assessment 快照。详细设计见
+[智能体调度校准业务设计](docs/swarmcore-swarm-calibration-design.md)。
+文件结构化 REST 复用业务资料库的上传、不可变版本、处理进度和人工确认接口，并增加
+有序处理事件、结构化资料包、发布、重处理和取消处理接口；MCP 直接复用同一应用服务。
+支持 ODT/ODS/ODP、PDF、DOCX/XLSX/PPTX、文本、表格和图像输入，大文件由 Temporal
+按页组或工作表耐久处理。实现与验收边界见
+[文件结构化智能体设计](docs/swarmcore-document-structuring-design.md)。
+
+可重复准备公开真实样例并核验哈希、ODF 结构、68 页分组和无文本层 OCR 路由：
+
+```powershell
+uv run python scripts/prepare_document_structuring_demo.py `
+  --output .tmp/document-structuring-demo
+```
 
 Web 控制台的主要入口：
 
@@ -196,8 +237,15 @@ Web 控制台的主要入口：
 - Gateway：`SWARMCORE_TOOL_GATEWAY_URL`、`SWARMCORE_ARTIFACT_GATEWAY_URL`、
   `SWARMCORE_MODEL_GATEWAY_URL`
 - 文档处理：`SWARMCORE_OCR_ENDPOINT`、`SWARMCORE_TESSERACT_CMD`
+- 调度校准：`SWARMCORE_GITHUB_TOKEN`、`SWARMCORE_GITHUB_API_URL`、
+  `SWARMCORE_CALIBRATION_SANDBOX_ENABLED`、`SWARMCORE_CALIBRATION_SANDBOX_IMAGE`
+- 供应商风控：`SWARMCORE_SUPPLIER_RISK_ALLOWED_HOSTS`、
+  `SWARMCORE_SUPPLIER_RISK_TIMEOUT_SECONDS`；商业 Provider 凭据使用 Vault `secretRef`
 - 受控文件系统：`SWARMCORE_FILESYSTEM_TOOLS_ENABLED`、
   `SWARMCORE_FILESYSTEM_EXECUTOR_MODE`、`SWARMCORE_FILESYSTEM_ROOT`
+
+仓库验证镜像必须由 `apps/repository-verifier` 构建，构建基础镜像和运行镜像都必须使用
+组织批准的 immutable digest；未配置时结果为 `UNVERIFIED`，质量门禁不会自动通过。
 
 生产部署必须使用 JWT、OPA、Vault 工作负载认证和内部 mTLS，并关闭本地 Secret、直连
 Provider、dry-run Sandbox 及本地文件系统执行模式。不完整的生产安全配置会在启动时

@@ -1,0 +1,15 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "ViewDefinition",
+  "metadata": {"name": "contract-performance-case", "version": "1"},
+  "spec": {
+    "summaryFields": ["status", "asOf", "collectionStatus", "planVersion"],
+    "sections": [
+      {"key": "overview", "title": "履约概览", "source": "performance"},
+      {"key": "gantt", "title": "计划与实际", "source": "gantt"},
+      {"key": "evidence", "title": "证据台账", "source": "evidenceLedger"},
+      {"key": "changes", "title": "变更历史", "source": "changeHistory"},
+      {"key": "trace", "title": "结果追溯", "source": "provenance"}
+    ]
+  }
+}

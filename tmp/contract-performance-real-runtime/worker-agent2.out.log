@@ -1,0 +1,33 @@
+ERROR    API status error from OpenAI API: Error code: 502 - {'detail': 'model 
+         provider failed: HTTP Error 401: Unauthorized'}                       
+ERROR    Error in Agent run: Unknown model error                               
+ERROR    API status error from OpenAI API: Error code: 502 - {'detail': 'model 
+         provider failed: HTTP Error 401: Unauthorized'}                       
+ERROR    Error in Agent run: Unknown model error                               
+ERROR    API status error from OpenAI API: Error code: 502 - {'detail': 'model 
+         provider failed: HTTP Error 401: Unauthorized'}                       
+ERROR    Error in Agent run: Unknown model error                               
+WARNING  Failed to parse cleaned JSON: Expecting value: line 1 column 1 (char  
+         0)                                                                    
+WARNING  All parsing attempts failed.                                          
+WARNING  Failed to parse JSON response against the provided output schema.     
+WARNING  Failed to parse cleaned JSON: Expecting value: line 1 column 1 (char  
+         0)                                                                    
+WARNING  All parsing attempts failed.                                          
+WARNING  Failed to parse JSON response against the provided output schema.     
+WARNING  Failed to parse cleaned JSON: Expecting value: line 1 column 1 (char  
+         0)                                                                    
+WARNING  All parsing attempts failed.                                          
+WARNING  Failed to parse JSON response against the provided output schema.     
+WARNING  Failed to parse cleaned JSON: Expecting value: line 1 column 1 (char  
+         0)                                                                    
+WARNING  All parsing attempts failed.                                          
+WARNING  Failed to parse JSON response against the provided output schema.     
+WARNING  Failed to parse cleaned JSON: Expecting value: line 1 column 1 (char  
+         0)                                                                    
+WARNING  All parsing attempts failed.                                          
+WARNING  Failed to parse JSON response against the provided output schema.     
+WARNING  Failed to parse cleaned JSON: Expecting value: line 1 column 1 (char  
+         0)                                                                    
+WARNING  All parsing attempts failed.                                          
+WARNING  Failed to parse JSON response against the provided output schema.     

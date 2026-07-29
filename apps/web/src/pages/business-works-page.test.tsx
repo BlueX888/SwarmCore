@@ -61,6 +61,7 @@ function renderPage(path = "/business-works") {
     <Route path="/business-works/report-generation/demo" element={<h1>报告生成 Demo</h1>} />
     <Route path="/business-works/:workKey/workbench" element={<h1>业务工作台</h1>} />
     <Route path="/business-works/:workKey/settings" element={<h1>项目配置</h1>} />
+    <Route path="/agents" element={<h1>智能体能力中心</h1>} />
   </Routes></MemoryRouter></QueryClientProvider>);
 }
 
@@ -191,6 +192,7 @@ describe("business works page", () => {
 
     renderPage("/business-works/document-integrity");
     expect(await screen.findByRole("heading", { name: "文件完整性校验智能体" })).toBeVisible();
+    expect(screen.getByTestId("business-work-page-header")).toBeVisible();
     expect(screen.getByLabelText("运行就绪摘要")).toBeVisible();
     const summary = within(screen.getByRole("region", { name: "项目配置摘要" }));
     expect(summary.getByRole("heading", { name: "策略绑定" })).toBeVisible();
@@ -235,6 +237,106 @@ describe("business works page", () => {
     expect(screen.queryByText("业务说明")?.closest("details")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "配置工作所需能力" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "运行记录" })).toBeVisible();
+  });
+
+  it("shows readable names and targeted links for unavailable agents", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(snapshot({
+      workKey: "contract-post-evaluation",
+      name: "合同后评价",
+      status: "incomplete",
+      statusLabel: "配置不完整",
+      packName: "contract-post-evaluation",
+      enabled: true,
+      blockers: [
+        {
+          code: "DEPENDENCY_NOT_READY",
+          message: "agent://contract/baseline-analyst@2 尚未就绪",
+          ref: "agent://contract/baseline-analyst@2",
+        },
+        {
+          code: "DEPENDENCY_NOT_READY",
+          message: "agent://contract/report-quality-reviewer@1 尚未就绪",
+          ref: "agent://contract/report-quality-reviewer@1",
+        },
+      ],
+    }));
+
+    renderPage("/business-works/contract-post-evaluation");
+
+    expect(await screen.findByText("合同基准分析智能体")).toBeVisible();
+    expect(screen.getByText("报告质量复核智能体")).toBeVisible();
+    expect(screen.getAllByText("该智能体当前未就绪")).toHaveLength(2);
+    expect(screen.queryByText("agent://contract/baseline-analyst@2 尚未就绪")).not.toBeInTheDocument();
+    const links = screen.getAllByRole("link", { name: "查看并处理" });
+    expect(links[0]).toHaveAttribute(
+      "href",
+      "/agents?search=agent%3A%2F%2Fcontract%2Fbaseline-analyst%402&showNotReady=1",
+    );
+  });
+
+  it("uses business-readable names for procurement readiness blockers", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(snapshot({
+      workKey: "procurement-supplier-risk",
+      name: "招采一致性与供应商风控智能体",
+      status: "unavailable",
+      statusLabel: "暂不可用",
+      packName: "procurement-supplier-risk",
+      enabled: true,
+      blockers: [
+        {
+          code: "DEPENDENCY_NOT_READY",
+          message: "agent://procurement/clause-evidence-analyst@3 尚未就绪",
+          ref: "agent://procurement/clause-evidence-analyst@3",
+        },
+        {
+          code: "DEPENDENCY_NOT_READY",
+          message: "agent://supplier/risk-analyst@1 尚未就绪",
+          ref: "agent://supplier/risk-analyst@1",
+        },
+        {
+          code: "DEPENDENCY_NOT_READY",
+          message: "agent://procurement/evidence-quality-reviewer@1 尚未就绪",
+          ref: "agent://procurement/evidence-quality-reviewer@1",
+        },
+      ],
+    }));
+
+    renderPage("/business-works/procurement-supplier-risk");
+
+    expect(await screen.findByText("招采条款证据分析智能体")).toBeVisible();
+    expect(screen.getByText("供应商风险分析智能体")).toBeVisible();
+    expect(screen.getByText("招采证据质量复核智能体")).toBeVisible();
+    expect(screen.getAllByText("该智能体当前未就绪")).toHaveLength(3);
+    expect(screen.queryByText("agent://procurement/clause-evidence-analyst@3 尚未就绪"))
+      .not.toBeInTheDocument();
+  });
+
+  it("labels tool and model dependency blockers distinctly", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(snapshot({
+      workKey: "procurement-supplier-risk",
+      name: "招采一致性与供应商风控智能体",
+      status: "incomplete",
+      statusLabel: "配置不完整",
+      packName: "procurement-supplier-risk",
+      enabled: true,
+      blockers: [
+        {
+          code: "DEPENDENCY_NOT_READY",
+          message: "tool://evidence/search@1 尚未就绪",
+          ref: "tool://evidence/search@1",
+        },
+        {
+          code: "HEALTH_CHECK_FAILED",
+          message: "model://general@1：HEALTH_CHECK_FAILED",
+          ref: "model://general@1",
+        },
+      ],
+    }));
+
+    renderPage("/business-works/procurement-supplier-risk");
+
+    expect(await screen.findByText("该工具当前未就绪")).toBeVisible();
+    expect(screen.getByText("依赖健康检查未通过")).toBeVisible();
   });
 
   it("shows bound external files and readiness on contract post-evaluation detail", async () => {

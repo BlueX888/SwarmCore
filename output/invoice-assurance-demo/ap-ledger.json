@@ -1,0 +1,8 @@
+{
+  "fixtureNotice": "Synthetic demo AP ledger. Not a real accounting record.",
+  "asOf": "2026-03-20",
+  "currency": "CNY",
+  "entries": [],
+  "duplicateInvoiceKeys": [],
+  "note": "The demo invoice has not previously been booked, paid, reversed, or credited."
+}

@@ -1,0 +1,114 @@
+{
+  "generatedAt": "2026-07-27T09:47:44.8617323Z",
+  "scope": "SYNTHETIC_DEMO_ONLY",
+  "warning": "Not a real tax verification or payment authorization.",
+  "capabilityPack": {
+    "version": "1.1.0",
+    "strategy": "strategy://invoice-assurance/assess@2",
+    "enabled": true,
+    "blockerCount": 0
+  },
+  "run": {
+    "evaluationId": "019fa2e9-6bdb-7175-9e93-5ec35966e745",
+    "runId": "019fa2e9-6bec-70e5-9d88-21d7c4d0f9d3",
+    "status": "SUCCEEDED",
+    "succeededTasks": 21,
+    "failedTasks": 0,
+    "outcome": "PAYMENT_READY",
+    "reviewRequired": false,
+    "resultHash": "a69c7949e4ad59a2a11aa4b06a5fed16ef3fe48588487d3365179047582e816a",
+    "tokens": 17304
+  },
+  "documents": {
+    "count": 6,
+    "categories": [
+      "AP_LEDGER",
+      "BUDGET_PAYMENT_POLICY",
+      "CONTRACT_ORDER",
+      "INVOICE_ORIGINAL",
+      "RECEIPT_ACCEPTANCE",
+      "SUPPLIER_MASTER"
+    ]
+  },
+  "tools": [
+    {
+      "ref": "tool://invoice/parse@1",
+      "executorRegistered": true,
+      "healthy": true
+    },
+    {
+      "ref": "tool://invoice/official-verify@1",
+      "executorRegistered": true,
+      "healthy": true
+    },
+    {
+      "ref": "tool://business/snapshot-read@1",
+      "executorRegistered": true,
+      "healthy": true
+    },
+    {
+      "ref": "tool://invoice/deduplicate@1",
+      "executorRegistered": true,
+      "healthy": true
+    },
+    {
+      "ref": "tool://invoice/arithmetic-check@1",
+      "executorRegistered": true,
+      "healthy": true
+    },
+    {
+      "ref": "tool://invoice/enterprise-status-check@1",
+      "executorRegistered": true,
+      "healthy": true
+    },
+    {
+      "ref": "tool://invoice/party-check@1",
+      "executorRegistered": true,
+      "healthy": true
+    },
+    {
+      "ref": "tool://invoice/commercial-match@1",
+      "executorRegistered": true,
+      "healthy": true
+    },
+    {
+      "ref": "tool://invoice/payment-gate@1",
+      "executorRegistered": true,
+      "healthy": true
+    },
+    {
+      "ref": "tool://invoice/finalize@1",
+      "executorRegistered": true,
+      "healthy": true
+    },
+    {
+      "ref": "tool://report/render-invoice-assurance@1",
+      "executorRegistered": true,
+      "healthy": true
+    },
+    {
+      "ref": "tool://workbench/record-invoice-assurance@1",
+      "executorRegistered": true,
+      "healthy": true
+    }
+  ],
+  "reports": {
+    "jsonReportId": "019fa2f0-2762-7a91-9bdd-ea81596509c9",
+    "pdfReportId": "019fa2f0-2762-7f15-b990-6ca7632f47ff",
+    "pdfSha256": "efdca7abe5440a3d2c925be1d2bd016adac9c934b6e1cd3beef62164e161e8d1",
+    "pdfPath": "output/pdf/invoice-assurance-report.pdf",
+    "jsonPath": "output/invoice-assurance-demo/invoice-assurance-result.json"
+  },
+  "verification": {
+    "unitTests": "355 passed, 1 skipped",
+    "focusedRuff": "passed",
+    "webLint": "passed",
+    "webBuild": "passed",
+    "pdf": "2 A4 pages rendered, CJK title extracted, 0 replacement characters",
+    "remaining": [
+      "ruff check .: 154 existing/worktree issues",
+      "mypy: 55 issues in 5 files",
+      "web:test: 1 unrelated project-model toast assertion failure"
+    ]
+  }
+}

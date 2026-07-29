@@ -1,0 +1,43 @@
+{
+  "runId": "019fa6da-819f-7bc2-8643-aa91f5d97500",
+  "status": "SUCCEEDED",
+  "completionQuality": "COMPLETE",
+  "outputSchemaVersion": "result.v1",
+  "output": {
+    "tool": "tool://workbench/record-procurement-supplier-risk@1",
+    "content": {
+      "effectId": "619a5763-652a-4abf-bcfd-243277f4a32d",
+      "recorded": true,
+      "resultHash": "8a1cd009194bfbac71359fb0b642720de74475b519fc10916cbf142de8a0594b",
+      "evaluationId": "019fa6da-8195-728a-9ab5-5246cec57efe"
+    },
+    "metrics": {
+      "cost_usd": 0.0
+    },
+    "effectId": "619a5763-652a-4abf-bcfd-243277f4a32d"
+  },
+  "artifacts": [],
+  "tasksSummary": {
+    "total": 17,
+    "succeeded": 16,
+    "failed": 0,
+    "skipped": 1,
+    "cancelled": 0
+  },
+  "usage": {
+    "tokens": 36894.0,
+    "costUsd": 0.0,
+    "inputTokens": 27551.0,
+    "outputTokens": 9343.0,
+    "reservedTokens": 0.0
+  },
+  "warnings": [],
+  "unresolvedEffects": [],
+  "error": null,
+  "provenance": {
+    "strategyVersionId": "019fa6da-4673-7fc2-b42c-e980fd7589b3",
+    "planHash": "16487c493cfafe3f5695bf5fd8a46f775dd26f18f90de81720b10bee0fc60bd6",
+    "runtimeVersion": "1.1.0",
+    "policyRevision": "capability-pack-publish"
+  }
+}

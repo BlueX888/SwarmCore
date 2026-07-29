@@ -1,0 +1,33 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "ViewDefinition",
+  "metadata": {"name": "document-structuring-case", "version": "1"},
+  "spec": {
+    "steps": [
+      {"key": "documents", "title": "上传与识别"},
+      {"key": "processing", "title": "解析、OCR 与切片"},
+      {"key": "review", "title": "分类与字段确认"},
+      {"key": "publish", "title": "质检与发布"}
+    ],
+    "defaultConfiguration": {
+      "language": "zh-CN",
+      "classificationThreshold": 0.9,
+      "extractionThreshold": 0.85,
+      "criticalFieldThreshold": 0.95,
+      "ocrConfidenceThreshold": 0.9,
+      "requireEvidence": true,
+      "placeholderValuesMustBeNull": true
+    },
+    "resultSections": [
+      "summary",
+      "documents",
+      "sections",
+      "tables",
+      "fields",
+      "quality",
+      "evidence",
+      "artifacts",
+      "reviewLog"
+    ]
+  }
+}

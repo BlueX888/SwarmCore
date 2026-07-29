@@ -80,6 +80,20 @@ class Settings(BaseSettings):
     filesystem_sandbox_image: str = ""
     filesystem_sandbox_capability_secret: str = ""
     filesystem_sandbox_timeout_seconds: int = 60
+    github_token: str = ""
+    github_api_url: str = ""
+    calibration_sandbox_enabled: bool = False
+    calibration_sandbox_image: str = ""
+    calibration_sandbox_docker_binary: str = "docker"
+    calibration_sandbox_timeout_seconds: int = 600
+    supplier_risk_allowed_hosts: list[str] = Field(
+        default_factory=lambda: [
+            "www.ccgp.gov.cn",
+            "api.qichacha.com",
+            "open.api.tianyancha.com",
+        ]
+    )
+    supplier_risk_timeout_seconds: int = 30
 
     def workload_tls(self) -> WorkloadTls:
         return WorkloadTls(
@@ -106,7 +120,12 @@ class Settings(BaseSettings):
             sandbox_timeout_seconds=self.filesystem_sandbox_timeout_seconds,
         )
 
-    @field_validator("filesystem_allowed_mounts", "filesystem_deny_names", mode="before")
+    @field_validator(
+        "filesystem_allowed_mounts",
+        "filesystem_deny_names",
+        "supplier_risk_allowed_hosts",
+        mode="before",
+    )
     @classmethod
     def _split_csv(cls, value: Any) -> Any:
         if isinstance(value, str):
@@ -172,7 +191,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             PostgresEffectJournal(database.sessions),
             assemble_tool_executors(
                 filesystem=configured.filesystem_config(),
-                extra=capability_executors(database.sessions),
+                extra=capability_executors(
+                    database.sessions,
+                    github_token=configured.github_token,
+                    github_api_url=configured.github_api_url,
+                    calibration_sandbox_enabled=configured.calibration_sandbox_enabled,
+                    calibration_sandbox_image=configured.calibration_sandbox_image,
+                    calibration_sandbox_docker_binary=(
+                        configured.calibration_sandbox_docker_binary
+                    ),
+                    calibration_sandbox_timeout_seconds=(
+                        configured.calibration_sandbox_timeout_seconds
+                    ),
+                    supplier_risk_allowed_hosts=tuple(
+                        configured.supplier_risk_allowed_hosts
+                    ),
+                    supplier_risk_timeout_seconds=configured.supplier_risk_timeout_seconds,
+                ),
             ),
             PostgresToolAuditSink(database),
             secrets=(

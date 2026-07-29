@@ -1,0 +1,10 @@
+ERROR    API status error from OpenAI API: Error code: 502 - {'detail': 'model 
+         provider failed: HTTP Error 401: Unauthorized'}                       
+ERROR    Error in Agent run: Unknown model error                               
+ERROR    API status error from OpenAI API: Error code: 502 - {'detail': 'model 
+         provider failed: [WinError 10053]                                     
+         你的主机中的软件中止了一个已建立的连接。'}                            
+ERROR    Error in Agent run: Unknown model error                               
+ERROR    API status error from OpenAI API: Error code: 502 - {'detail': 'model 
+         provider failed: HTTP Error 401: Unauthorized'}                       
+ERROR    Error in Agent run: Unknown model error                               

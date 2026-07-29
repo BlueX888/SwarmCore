@@ -115,6 +115,7 @@ describe("business work settings configuration", () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "合同后评价" })).toBeVisible();
+    expect(screen.getByTestId("business-work-page-header")).toBeVisible();
     expect(screen.getByRole("link", { name: "返回业务工作" })).toHaveAttribute(
       "href",
       "/business-works/contract-post-evaluation",

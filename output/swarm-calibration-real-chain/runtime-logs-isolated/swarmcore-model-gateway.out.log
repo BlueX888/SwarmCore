@@ -1,0 +1,22 @@
+INFO:     127.0.0.1:60576 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59537 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59555 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60452 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54785 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54797 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60819 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56594 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58611 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52170 - "POST /v1/chat/completions HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:52176 - "POST /v1/chat/completions HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:52183 - "POST /v1/chat/completions HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:56477 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53254 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56938 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62057 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51635 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63131 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53558 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63465 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65339 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59100 - "GET /internal/v1/readiness HTTP/1.1" 200 OK

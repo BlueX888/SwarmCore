@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, ClassVar
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from swarmcore_domain import RunStatus, can_transition_run, uuid7
@@ -221,13 +221,25 @@ class EventRepository:
         return event
 
 
+def claimable_outbox_status() -> Any:
+    """PENDING rows, plus DELIVERING rows whose lease has expired."""
+    return or_(
+        OutboxEvent.status == "PENDING",
+        and_(
+            OutboxEvent.status == "DELIVERING",
+            OutboxEvent.locked_until.is_not(None),
+            OutboxEvent.locked_until < func.now(),
+        ),
+    )
+
+
 def pending_outbox_query(destination: str, *, limit: int) -> Select[tuple[OutboxEvent]]:
     """Claim candidates; caller updates lease fields before committing."""
     return (
         select(OutboxEvent)
         .where(
             OutboxEvent.destination == destination,
-            OutboxEvent.status == "PENDING",
+            claimable_outbox_status(),
             OutboxEvent.available_at <= func.now(),
         )
         .order_by(OutboxEvent.available_at, OutboxEvent.id)
@@ -237,7 +249,7 @@ def pending_outbox_query(destination: str, *, limit: int) -> Select[tuple[Outbox
 
 
 def pending_temporal_outbox_query(*, limit: int) -> Select[tuple[OutboxEvent]]:
-    """Claim only the earliest unfinished command of each Run."""
+    """Claim ordered Run commands and standalone document-processing requests."""
     current = aliased(RunCommand)
     earlier = aliased(RunCommand)
     unfinished_earlier = (
@@ -251,12 +263,23 @@ def pending_temporal_outbox_query(*, limit: int) -> Select[tuple[OutboxEvent]]:
     )
     return (
         select(OutboxEvent)
-        .join(current, current.id == OutboxEvent.source_id)
+        .outerjoin(current, current.id == OutboxEvent.source_id)
         .where(
-            OutboxEvent.destination == "temporal",
-            OutboxEvent.status == "PENDING",
+            OutboxEvent.destination.in_(("temporal", "document-temporal")),
+            claimable_outbox_status(),
             OutboxEvent.available_at <= func.now(),
-            ~unfinished_earlier,
+            or_(
+                and_(
+                    current.id.is_(None),
+                    OutboxEvent.type.in_(
+                        (
+                            "document.processing.requested",
+                            "document.processing.cancel.requested",
+                        )
+                    ),
+                ),
+                and_(current.id.is_not(None), ~unfinished_earlier),
+            ),
         )
         .order_by(OutboxEvent.available_at, OutboxEvent.id)
         .limit(limit)
@@ -265,7 +288,7 @@ def pending_temporal_outbox_query(*, limit: int) -> Select[tuple[OutboxEvent]]:
 
 
 def pending_nats_outbox_query(*, limit: int) -> Select[tuple[OutboxEvent]]:
-    """Claim only the earliest unpublished durable event of each Run."""
+    """Claim ordered Run events and non-Run domain events."""
     current_event = aliased(RunEvent)
     earlier_event = aliased(RunEvent)
     earlier_outbox = aliased(OutboxEvent)
@@ -280,14 +303,34 @@ def pending_nats_outbox_query(*, limit: int) -> Select[tuple[OutboxEvent]]:
         )
         .exists()
     )
+    earlier_domain_outbox = aliased(OutboxEvent)
+    unpublished_earlier_domain = (
+        select(earlier_domain_outbox.id)
+        .where(
+            earlier_domain_outbox.destination == "nats",
+            earlier_domain_outbox.partition_key == OutboxEvent.partition_key,
+            earlier_domain_outbox.delivered_at.is_(None),
+            or_(
+                earlier_domain_outbox.available_at < OutboxEvent.available_at,
+                and_(
+                    earlier_domain_outbox.available_at == OutboxEvent.available_at,
+                    earlier_domain_outbox.id < OutboxEvent.id,
+                ),
+            ),
+        )
+        .exists()
+    )
     return (
         select(OutboxEvent)
-        .join(current_event, current_event.id == OutboxEvent.source_id)
+        .outerjoin(current_event, current_event.id == OutboxEvent.source_id)
         .where(
             OutboxEvent.destination == "nats",
-            OutboxEvent.status == "PENDING",
+            claimable_outbox_status(),
             OutboxEvent.available_at <= func.now(),
-            ~unpublished_earlier,
+            or_(
+                and_(current_event.id.is_not(None), ~unpublished_earlier),
+                and_(current_event.id.is_(None), ~unpublished_earlier_domain),
+            ),
         )
         .order_by(OutboxEvent.available_at, OutboxEvent.id)
         .limit(limit)

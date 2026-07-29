@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any, Protocol
 from uuid import UUID
@@ -7,8 +8,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from swarmcore_domain import (
     CapabilityKind,
+    CapabilityReadiness,
     CapabilityReadinessStatus,
     CapabilitySummary,
+    ReadinessReasonCode,
 )
 from swarmcore_registry import AgentRegistration, RegistrySnapshot
 from swarmcore_spec.models import AgentSpec
@@ -89,6 +92,7 @@ class CapabilityCenterService:
             )
         except Exception:
             return builtins
+        builtins = self._apply_verified_model_overrides(builtins, model_rows)
         project_models = self._project_model_summaries(model_rows)
         projection = (*builtins, *project_models)
         builtin_agents = {item.ref: item for item in builtins if item.kind is CapabilityKind.AGENT}
@@ -161,14 +165,11 @@ class CapabilityCenterService:
                 capability_ref=capability_ref,
             )
             input_data = {**preset_input, **input_data}
-        project_capability = capability_ref.startswith(
-            "agent://project/"
-        ) or capability_ref.startswith("model://project/")
         summaries = await self.list(
             tenant_id=tenant_id,
             project_id=project_id,
             environment=environment,
-            session=session if project_capability else None,
+            session=session,
         )
         summary = next((item for item in summaries if item.ref == capability_ref), None)
         if summary is None:
@@ -205,7 +206,7 @@ class CapabilityCenterService:
         return f"agent://project/{configuration_id}@{revision}"
 
     @staticmethod
-    def _project_model_summaries(rows: list[Any]) -> tuple[CapabilitySummary, ...]:
+    def _project_model_summaries(rows: Sequence[Any]) -> tuple[CapabilitySummary, ...]:
         summaries: list[CapabilitySummary] = []
         for row in rows:
             if not is_runtime_provider_name(row.name):
@@ -219,6 +220,75 @@ class CapabilityCenterService:
             if summary is not None:
                 summaries.append(summary)
         return tuple(summaries)
+
+    @staticmethod
+    def _apply_verified_model_overrides(
+        builtins: tuple[CapabilitySummary, ...],
+        rows: Sequence[Any],
+    ) -> tuple[CapabilitySummary, ...]:
+        verified_refs = {
+            str(row.source_ref).rsplit("@", 1)[0]
+            for row in rows
+            if is_runtime_provider_name(row.name)
+            and isinstance(row.configuration, dict)
+            and bool(row.configuration.get("connectionVerifiedAt"))
+            and str(row.configuration.get("providerUrl", "")).strip()
+            and str(row.configuration.get("modelName", "")).strip()
+            and str(row.configuration.get("secretRef", "")).strip()
+        }
+        provider_reason_codes = {
+            ReadinessReasonCode.MODEL_ROUTE_MISSING,
+            ReadinessReasonCode.SECRET_MISSING,
+            ReadinessReasonCode.HEALTH_CHECK_FAILED,
+        }
+        projected: list[CapabilitySummary] = []
+        for item in builtins:
+            logical_ref = item.ref.rsplit("@", 1)[0]
+            if item.kind is CapabilityKind.MODEL and logical_ref in verified_refs:
+                reasons = tuple(
+                    reason
+                    for reason in item.readiness.reasons
+                    if reason.code not in provider_reason_codes
+                )
+                readiness = (
+                    CapabilityReadiness.not_ready(*reasons)
+                    if reasons
+                    else CapabilityReadiness.ready()
+                )
+                projected.append(item.model_copy(update={"readiness": readiness}))
+            else:
+                projected.append(item)
+
+        ready_refs = {
+            reference
+            for item in projected
+            if item.readiness.status is CapabilityReadinessStatus.READY
+            for reference in (item.ref, item.ref.rsplit("@", 1)[0])
+        }
+        reconciled: list[CapabilitySummary] = []
+        for item in projected:
+            if item.kind is not CapabilityKind.AGENT:
+                reconciled.append(item)
+                continue
+            reasons = tuple(
+                reason
+                for reason in item.readiness.reasons
+                if not (
+                    reason.code is ReadinessReasonCode.DEPENDENCY_NOT_READY
+                    and reason.dependency_ref is not None
+                    and (
+                        reason.dependency_ref in ready_refs
+                        or reason.dependency_ref.rsplit("@", 1)[0] in ready_refs
+                    )
+                )
+            )
+            readiness = (
+                CapabilityReadiness.not_ready(*reasons)
+                if reasons
+                else CapabilityReadiness.ready()
+            )
+            reconciled.append(item.model_copy(update={"readiness": readiness}))
+        return tuple(reconciled)
 
     @staticmethod
     def _agent_declaration(configuration: dict[str, Any]) -> AgentSpec | None:

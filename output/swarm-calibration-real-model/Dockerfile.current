@@ -1,0 +1,14 @@
+FROM swarmcore-crossrail-app:2026-07-28-contract-performance.11
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY packages /workspace/packages
+COPY apps/api/src /workspace/apps/api/src
+COPY apps/command-dispatcher/src /workspace/apps/command-dispatcher/src
+COPY apps/model-gateway/src /workspace/apps/model-gateway/src
+COPY apps/tool-gateway/src /workspace/apps/tool-gateway/src
+COPY apps/worker-agent/src /workspace/apps/worker-agent/src
+COPY apps/worker-control/src /workspace/apps/worker-control/src
+COPY apps/worker-tool/src /workspace/apps/worker-tool/src

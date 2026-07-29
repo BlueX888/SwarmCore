@@ -1,0 +1,101 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "SwarmStrategy",
+  "metadata": {"name": "contract-performance-collect-v10"},
+  "spec": {
+    "inputSchema": {"type": "object"},
+    "outputSchema": {"type": "object"},
+    "defaults": {
+      "timeout": "PT5M",
+      "retryPolicy": {"maxAttempts": 3, "initialInterval": "PT1S", "maximumInterval": "PT1M", "backoffCoefficient": 2}
+    },
+    "budget": {
+      "maxDuration": "PT15M", "maxTokens": 80000, "maxCostUsd": 0.75,
+      "maxAgents": 5, "maxParallelism": 5, "onExhausted": "partial_result"
+    },
+    "agents": {
+      "evidence-analyst": {"ref": "agent://contract-performance/execution-evidence-analyst@4"}
+    },
+    "graph": {
+      "entrypoint": "source-collect",
+      "nodes": {
+        "source-collect": {
+          "type": "tool", "tool": "tool://contract-performance/source-collect@1",
+          "input": {"sources": "{{ input.payload.sources }}", "asOf": "{{ input.payload.asOf }}", "caseId": "{{ input.workItemId }}"}
+        },
+        "search-execution": {
+          "type": "tool", "tool": "tool://evidence/search@3", "dependsOn": ["source-collect"],
+          "input": {
+            "documents": "{{ tasks.source-collect.output.content.snapshots }}",
+            "domain": "commercial",
+            "keywords": ["supplier", "amount", "transactionNumber", "payment"],
+            "maxHits": 8
+          }
+        },
+        "analyze-evidence": {
+          "type": "agent", "agent": "evidence-analyst", "dependsOn": ["search-execution"],
+          "input": {"_contextMode": "node_only", "plan": "{{ input.payload.plan }}", "evidence": "{{ tasks.search-execution.output.content }}"}
+        },
+        "match-evidence": {
+          "type": "tool", "tool": "tool://contract-performance/evidence-match@1", "dependsOn": ["analyze-evidence"],
+          "input": {"plan": "{{ input.payload.plan }}", "evidence": "{{ tasks.source-collect.output.content.evidence }}", "candidates": "{{ tasks.analyze-evidence.output.content.links }}"}
+        },
+        "calculate-status": {
+          "type": "tool", "tool": "tool://contract-performance/status-calculate@2", "dependsOn": ["match-evidence"],
+          "input": {
+            "plan": "{{ input.payload.plan }}", "evidence": "{{ tasks.source-collect.output.content.evidence }}",
+            "links": "{{ tasks.match-evidence.output.content.links }}", "asOf": "{{ input.payload.asOf }}",
+            "collectionStatus": "{{ tasks.source-collect.output.content.collectionStatus }}"
+          }
+        },
+        "build-schedule": {
+          "type": "tool", "tool": "tool://contract-performance/schedule-build@1", "dependsOn": ["calculate-status"],
+          "input": {"plan": "{{ input.payload.plan }}", "actuals": "{{ tasks.calculate-status.output.content }}", "asOf": "{{ input.payload.asOf }}"}
+        },
+        "review-router": {
+          "type": "router", "dependsOn": ["match-evidence", "calculate-status"],
+          "routes": [
+            {"when": "tasks.calculate-status.output.content.reviewRequired == true", "target": "manual-review"}
+          ],
+          "default": "auto-continue"
+        },
+        "manual-review": {
+          "type": "approval", "dependsOn": ["review-router"],
+          "prompt": "履约证据存在冲突、关键延期、拒收、未批准变更或付款门禁异常，请授权人员复核。",
+          "inputSchema": {
+            "type": "object", "required": ["decision"],
+            "properties": {"decision": {"enum": ["CONFIRM", "REMAP", "REQUEST_EVIDENCE", "LIMITED_EXCEPTION", "REJECT"]}, "reason": {"type": "string"}},
+            "additionalProperties": true
+          }
+        },
+        "auto-continue": {"type": "join", "strategy": "all", "dependsOn": ["review-router"]},
+        "finalize": {
+          "type": "tool", "tool": "tool://contract-performance/finalize@1",
+          "dependsOn": ["calculate-status", "build-schedule", "manual-review", "auto-continue"],
+          "input": {
+            "operation": "COLLECT", "caseId": "{{ input.workItemId }}", "plan": "{{ input.payload.plan }}",
+            "performance": "{{ tasks.calculate-status.output.content }}", "gantt": "{{ tasks.build-schedule.output.content }}",
+            "evidenceLedger": {
+              "evidence": "{{ tasks.source-collect.output.content.evidence }}",
+              "links": "{{ tasks.match-evidence.output.content.links }}",
+              "sourceResults": "{{ tasks.source-collect.output.content.sourceResults }}",
+              "cursors": "{{ tasks.source-collect.output.content.nextCursors }}"
+            },
+            "approval": "{{ tasks.manual-review.output }}",
+            "provenance": {"selectionManifestHash": "{{ input.selectionManifestHash }}", "configurationHash": "{{ input.configurationHash }}"}
+          }
+        },
+        "report": {
+          "type": "tool", "tool": "tool://report/render-contract-performance@1", "dependsOn": ["finalize"],
+          "input": {"result": "{{ tasks.finalize.output.content }}"}
+        },
+        "record": {
+          "type": "tool", "tool": "tool://workbench/record-contract-performance@1", "dependsOn": ["finalize", "report"],
+          "input": {"evaluationId": "{{ input.evaluationId }}", "result": "{{ tasks.finalize.output.content }}", "report": "{{ tasks.report.output.content }}", "cursors": "{{ tasks.source-collect.output.content.nextCursors }}"}
+        }
+      },
+      "output": {"result": "{{ tasks.finalize.output.content }}"}
+    },
+    "$defs": {}
+  }
+}

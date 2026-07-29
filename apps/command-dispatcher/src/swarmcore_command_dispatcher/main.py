@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://swarmcore:swarmcore@localhost:5433/swarmcore"
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"
+    temporal_task_queue: str = "swarm-control"
+    agent_task_queue: str = "agent-general"
+    tool_task_queue: str = "tool-trusted"
     dispatcher_poll_seconds: float = 0.5
     otlp_endpoint: str = "http://localhost:4317"
     telemetry_enabled: bool = True
@@ -38,6 +41,9 @@ async def serve() -> None:
         database.sessions,
         temporal,
         worker_id=socket.gethostname(),
+        task_queue=settings.temporal_task_queue,
+        agent_task_queue=settings.agent_task_queue,
+        tool_task_queue=settings.tool_task_queue,
         metrics=SwarmMetrics.create("command-dispatcher"),
     )
     try:

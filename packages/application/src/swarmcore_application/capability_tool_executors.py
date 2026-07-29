@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 import base64
+import csv
 import hashlib
+import io
 import json
-from datetime import date
+import os
+import re
+from asyncio import sleep, to_thread
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
+from html.parser import HTMLParser
+from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, urlparse
+from urllib.request import Request, urlopen
 from uuid import UUID
 
 from sqlalchemy import select
@@ -13,11 +24,19 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from swarmcore_domain import uuid7
 from swarmcore_persistence import AuditRepository, tenant_transaction
 from swarmcore_persistence.models import (
+    Artifact,
+    BlobObject,
     BusinessDocument,
     BusinessDocumentVersion,
+    CalibrationEvidenceSnapshot,
+    CalibrationFallbackRecord,
+    CalibrationQualityEvaluation,
+    CalibrationRouteDecision,
     Connection,
     ConnectionVersion,
+    DocumentProcessingEvent,
     DocumentProcessingResult,
+    DocumentProcessingRun,
     DocumentUsageSnapshot,
     Evaluation,
     Finding,
@@ -29,6 +48,16 @@ from swarmcore_persistence.models import (
 )
 from swarmcore_persistence.repositories import canonical_hash
 
+from .contract_performance import (
+    apply_approved_changes,
+    build_schedule,
+    calculate_status,
+    contract_performance_report_lines,
+    finalize_contract_performance,
+    match_evidence,
+    normalize_plan,
+    validate_contract_performance_result,
+)
 from .deviation_analysis import (
     aggregate_responsibility,
     build_deviation_trends,
@@ -48,6 +77,12 @@ from .document_intelligence import (
     render_embedded_text_pdf,
     render_evidence_pdf,
     render_text_pdf,
+)
+from .document_structuring import (
+    apply_human_review,
+    document_package_artifacts,
+    finalize_document_structuring,
+    prepare_document_structuring,
 )
 from .formal_post_evaluation_report import (
     assess_document_readability,
@@ -92,7 +127,521 @@ from .post_evaluation_expanded import (
     search_evidence,
     validate_expanded_result,
 )
+from .procurement_supplier_risk import (
+    calculate_supplier_performance,
+    collect_risk_observations,
+    compare_procurement_clauses,
+    decide_supplier_risk,
+    diff_supplier_risk_snapshots,
+    finalize_procurement_supplier_risk,
+    validate_procurement_supplier_risk_result,
+)
+from .procurement_supplier_risk_service import ProcurementSupplierRiskService
 from .resource_plane import FakeConnector
+from .swarm_calibration import (
+    GitHubEvidenceClient,
+    RepositorySandboxVerifier,
+    build_route_decision,
+    calibration_report_lines,
+    finalize_calibration_result,
+    freeze_evidence,
+    score_quality,
+)
+
+
+def _nested_value(value: Any, path: str) -> Any:
+    current = value
+    for part in (item for item in path.split(".") if item):
+        if isinstance(current, dict):
+            current = current.get(part)
+        else:
+            return None
+    return current
+
+
+def _validate_supplier_risk_response_url(
+    response: Any,
+    *,
+    requested_url: str,
+    allowed_hosts: frozenset[str],
+) -> None:
+    geturl = getattr(response, "geturl", None)
+    final_url = str(geturl()) if callable(geturl) else requested_url
+    parsed = urlparse(final_url)
+    if parsed.scheme != "https" or (parsed.hostname or "").lower() not in allowed_hosts:
+        raise ValueError("supplier risk provider redirected to a disallowed host")
+
+
+def _supplier_risk_http_fetch(
+    source: dict[str, Any],
+    supplier: dict[str, Any],
+    as_of: str,
+    *,
+    allowed_hosts: frozenset[str],
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    endpoint = str(source.get("endpoint") or "").strip()
+    parsed = urlparse(endpoint)
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or hostname not in allowed_hosts:
+        raise ValueError("supplier risk endpoint is not an allowed HTTPS host")
+    method = str(source.get("method") or "GET").upper()
+    if method not in {"GET", "POST"}:
+        raise ValueError("supplier risk endpoint method must be GET or POST")
+    query = {
+        **dict(source.get("query") or {}),
+        "creditCode": str(supplier.get("creditCode") or ""),
+        "name": str(supplier.get("name") or ""),
+        "asOf": as_of,
+    }
+    body: bytes | None = None
+    source_headers = {
+        str(key): str(value) for key, value in dict(source.get("headers") or {}).items()
+    }
+    forbidden_headers = {
+        key
+        for key in source_headers
+        if key.casefold() in {"authorization", "x-api-key", "api-key", "cookie"}
+    }
+    if forbidden_headers:
+        raise ValueError(
+            "supplier risk credentials must use credentials secretRef and credentialHeaderMap"
+        )
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "SwarmCore-SupplierRisk/1.0",
+        **source_headers,
+    }
+    credentials = source.get("credentials")
+    header_map = source.get("credentialHeaderMap")
+    if isinstance(credentials, dict) and isinstance(header_map, dict):
+        for credential_key, header_name in header_map.items():
+            materialized = credentials.get(str(credential_key))
+            if materialized is not None:
+                headers[str(header_name)] = str(materialized)
+    if method == "GET":
+        separator = "&" if parsed.query else "?"
+        endpoint = f"{endpoint}{separator}{urlencode(query)}"
+    else:
+        body_payload = {**dict(source.get("body") or {}), **query}
+        body = json.dumps(body_payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = Request(endpoint, data=body, headers=headers, method=method)
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            _validate_supplier_risk_response_url(
+                response,
+                requested_url=endpoint,
+                allowed_hosts=allowed_hosts,
+            )
+            raw = response.read(10 * 1024 * 1024 + 1)
+            if len(raw) > 10 * 1024 * 1024:
+                raise ValueError("supplier risk provider response exceeds 10 MiB")
+            payload = json.loads(raw)
+    except HTTPError as exc:
+        raise RuntimeError(f"supplier risk provider HTTP {exc.code}") from exc
+    except URLError as exc:
+        raise RuntimeError("supplier risk provider is unavailable") from exc
+    records = _nested_value(payload, str(source.get("recordsPath") or "records"))
+    if not isinstance(records, list):
+        raise ValueError("supplier risk provider recordsPath did not resolve to an array")
+    fetched_at = datetime.now(UTC).isoformat()
+    response_hash = hashlib.sha256(raw).hexdigest()
+    normalized_records = []
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        normalized_records.append(
+            {
+                **item,
+                "evidenceRefs": [
+                    *list(item.get("evidenceRefs") or []),
+                    {
+                        "sourceUrl": endpoint.split("?", 1)[0],
+                        "fetchedAt": fetched_at,
+                        "responseHash": response_hash,
+                    },
+                ],
+            }
+        )
+    return {
+        "sourceRef": str(source.get("sourceRef") or hostname),
+        "status": "SUCCEEDED",
+        "fetchedAt": fetched_at,
+        "records": normalized_records,
+    }
+
+
+class _CcgpBlacklistParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[dict[str, Any]] = []
+        self._in_row = False
+        self._in_cell = False
+        self._cells: list[str] = []
+        self._cell_parts: list[str] = []
+        self._record_id: str | None = None
+
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        attributes = dict(attrs)
+        if tag == "tr" and "trShow" in str(attributes.get("class") or "").split():
+            self._in_row = True
+            self._cells = []
+            self._record_id = None
+        elif self._in_row and tag == "td":
+            self._in_cell = True
+            self._cell_parts = []
+        elif self._in_row and tag == "a":
+            match = re.search(r"detail\('([^']+)'\)", str(attributes.get("onclick") or ""))
+            if match:
+                self._record_id = match.group(1)
+
+    def handle_data(self, data: str) -> None:
+        if self._in_cell:
+            self._cell_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._in_row and tag == "td":
+            value = " ".join("".join(self._cell_parts).split())
+            self._cells.append(value)
+            self._in_cell = False
+            self._cell_parts = []
+        elif self._in_row and tag == "tr":
+            if len(self._cells) >= 10:
+                self.rows.append(
+                    {
+                        "ordinal": self._cells[0],
+                        "supplierName": self._cells[1],
+                        "creditCode": self._cells[2],
+                        "address": self._cells[3],
+                        "violation": self._cells[4],
+                        "punishment": self._cells[5],
+                        "legalBasis": self._cells[6],
+                        "punishedAt": self._cells[7],
+                        "publishedAt": self._cells[8],
+                        "enforcementAuthority": self._cells[9],
+                        "sourceRecordId": self._record_id,
+                    }
+                )
+            self._in_row = False
+            self._in_cell = False
+
+
+def _ccgp_ban_period(punished_at: str, punishment: str) -> tuple[str | None, str | None]:
+    start = _supplier_risk_date(punished_at)
+    if start is None or "禁止参加政府采购活动" not in punishment:
+        return None, None
+    years_match = re.search(r"([一二三123])年", punishment)
+    months_match = re.search(r"([一二三四五六七八九十\d]+)个?月", punishment)
+    years = _simple_chinese_number(years_match.group(1)) if years_match else 0
+    if not years and not months_match:
+        return start.isoformat(), None
+    months = _simple_chinese_number(months_match.group(1)) if months_match else 0
+    total_month = start.month - 1 + years * 12 + months
+    target_year = start.year + total_month // 12
+    target_month = total_month % 12 + 1
+    for day_value in range(start.day, 0, -1):
+        try:
+            end = date(target_year, target_month, day_value)
+            return start.isoformat(), end.isoformat()
+        except ValueError:
+            continue
+    return start.isoformat(), None
+
+
+def _simple_chinese_number(value: str) -> int:
+    values = {
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+    }
+    if value.isdecimal():
+        return int(value)
+    if value in values:
+        return values[value]
+    if "十" in value:
+        left, right = value.split("十", 1)
+        tens = values.get(left, 1) if left else 1
+        units = values.get(right, 0) if right else 0
+        return tens * 10 + units
+    raise ValueError("unsupported Chinese number")
+
+
+def _supplier_risk_date(value: Any) -> date | None:
+    if isinstance(value, date):
+        return value
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _supplier_risk_ccgp_fetch(
+    source: dict[str, Any],
+    supplier: dict[str, Any],
+    as_of: str,
+    *,
+    allowed_hosts: frozenset[str],
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    endpoint = str(source.get("endpoint") or "https://www.ccgp.gov.cn/cr/list")
+    parsed = urlparse(endpoint)
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or hostname not in allowed_hosts:
+        raise ValueError("CCGP endpoint is not an allowed HTTPS host")
+    credit_code = str(supplier.get("creditCode") or "").strip().upper()
+    if not credit_code:
+        raise ValueError("supplier.creditCode is required for CCGP lookup")
+    body = urlencode({"orgCode": credit_code, "searchType": "1", "gp": "1"}).encode()
+    request = Request(
+        endpoint,
+        data=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "SwarmCore-SupplierRisk/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            _validate_supplier_risk_response_url(
+                response,
+                requested_url=endpoint,
+                allowed_hosts=allowed_hosts,
+            )
+            raw = response.read(10 * 1024 * 1024 + 1)
+    except HTTPError as exc:
+        raise RuntimeError(f"CCGP supplier risk HTTP {exc.code}") from exc
+    except URLError as exc:
+        raise RuntimeError("CCGP supplier risk source is unavailable") from exc
+    if len(raw) > 10 * 1024 * 1024:
+        raise ValueError("CCGP supplier risk response exceeds 10 MiB")
+    text = raw.decode("utf-8", errors="replace")
+    parser = _CcgpBlacklistParser()
+    parser.feed(text)
+    fetched_at = datetime.now(UTC).isoformat()
+    response_hash = hashlib.sha256(raw).hexdigest()
+    query_date = _supplier_risk_date(as_of) or datetime.now(UTC).date()
+    records = []
+    for row in parser.rows:
+        if str(row["creditCode"]).strip().upper() != credit_code:
+            continue
+        effective_from, effective_to = _ccgp_ban_period(
+            str(row["punishedAt"]), str(row["punishment"])
+        )
+        active = bool(
+            effective_from
+            and date.fromisoformat(effective_from) <= query_date
+            and (effective_to is None or query_date <= date.fromisoformat(effective_to))
+        )
+        detail_url = (
+            f"https://www.ccgp.gov.cn/cr/list/detail?id={row['sourceRecordId']}"
+            if row.get("sourceRecordId")
+            else endpoint
+        )
+        records.append(
+            {
+                **row,
+                "riskType": (
+                    "GOVERNMENT_PROCUREMENT_BAN"
+                    if "禁止参加政府采购活动" in str(row["punishment"])
+                    else "GOVERNMENT_PROCUREMENT_VIOLATION"
+                ),
+                "effectiveFrom": effective_from,
+                "effectiveTo": effective_to,
+                "active": active,
+                "contentHash": canonical_hash(row),
+                "evidenceRefs": [
+                    {
+                        "sourceUrl": detail_url,
+                        "queryUrl": endpoint,
+                        "fetchedAt": fetched_at,
+                        "responseHash": response_hash,
+                    }
+                ],
+            }
+        )
+    return {
+        "sourceRef": str(source.get("sourceRef") or "official://ccgp/serious-illegal"),
+        "status": "SUCCEEDED",
+        "fetchedAt": fetched_at,
+        "records": records,
+    }
+
+
+class SupplierRiskCollectExecutor:
+    def __init__(
+        self,
+        *,
+        allowed_hosts: tuple[str, ...] = (
+            "www.ccgp.gov.cn",
+            "api.qichacha.com",
+            "open.api.tianyancha.com",
+        ),
+        timeout_seconds: int = 30,
+    ) -> None:
+        self._allowed_hosts = frozenset(item.lower() for item in allowed_hosts)
+        self._timeout_seconds = timeout_seconds
+
+    async def execute(
+        self, input_value: dict[str, Any], effect_id: str, context: Any
+    ) -> dict[str, Any]:
+        del effect_id, context
+        supplier = dict(input_value.get("supplier") or {})
+        as_of = str(input_value.get("asOf") or datetime.now(UTC).date().isoformat())
+        normalized_sources: list[dict[str, Any]] = []
+        for raw in input_value.get("sources") or []:
+            if not isinstance(raw, dict):
+                continue
+            source = dict(raw)
+            if str(source.get("kind") or "").upper() == "CCGP_SERIOUS_ILLEGAL":
+                try:
+                    source = await to_thread(
+                        _supplier_risk_ccgp_fetch,
+                        source,
+                        supplier,
+                        as_of,
+                        allowed_hosts=self._allowed_hosts,
+                        timeout_seconds=self._timeout_seconds,
+                    )
+                except (RuntimeError, ValueError) as exc:
+                    source = {
+                        "sourceRef": str(
+                            raw.get("sourceRef")
+                            or "official://ccgp/serious-illegal"
+                        ),
+                        "status": "FAILED",
+                        "fetchedAt": datetime.now(UTC).isoformat(),
+                        "errorCode": type(exc).__name__.upper(),
+                    }
+            elif source.get("endpoint"):
+                try:
+                    source = await to_thread(
+                        _supplier_risk_http_fetch,
+                        source,
+                        supplier,
+                        as_of,
+                        allowed_hosts=self._allowed_hosts,
+                        timeout_seconds=self._timeout_seconds,
+                    )
+                except (RuntimeError, ValueError) as exc:
+                    source = {
+                        "sourceRef": str(raw.get("sourceRef") or "unknown"),
+                        "status": "FAILED",
+                        "fetchedAt": datetime.now(UTC).isoformat(),
+                        "errorCode": type(exc).__name__.upper(),
+                    }
+            normalized_sources.append(source)
+        return collect_risk_observations(
+            {"supplier": supplier, "sources": normalized_sources, "asOf": as_of}
+        )
+
+    async def healthy(self) -> bool:
+        return bool(self._allowed_hosts)
+
+
+async def procurement_consistency_compare(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return compare_procurement_clauses(input_value)
+
+
+async def supplier_performance_calculate(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return calculate_supplier_performance(input_value)
+
+
+async def supplier_risk_decide(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return decide_supplier_risk(input_value)
+
+
+async def supplier_history_diff(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    previous = input_value.get("previous")
+    return diff_supplier_risk_snapshots(
+        dict(previous) if isinstance(previous, dict) else None,
+        dict(input_value.get("current") or {}),
+    )
+
+
+async def procurement_supplier_risk_finalize(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return finalize_procurement_supplier_risk(input_value)
+
+
+def _procurement_supplier_risk_report_lines(result: dict[str, Any]) -> list[str]:
+    consistency = dict(result.get("consistency") or {})
+    risk = dict(result.get("risk") or {})
+    performance = dict(result.get("performance") or {})
+    counts = dict(consistency.get("counts") or {})
+    lines = [
+        "招采一致性与供应商风控报告",
+        f"供应商: {(result.get('supplier') or {}).get('name') or '-'}",
+        f"统一社会信用代码: {(result.get('supplier') or {}).get('creditCode') or '-'}",
+        f"评估日期: {result.get('asOf') or '-'}",
+        f"签署建议: {result.get('decision') or '-'}",
+        f"风险等级: {result.get('riskLevel') or '-'}",
+        (
+            "差异统计: "
+            f"阻断 {counts.get('BLOCKER', 0)} / 高 {counts.get('HIGH', 0)} / "
+            f"中 {counts.get('MEDIUM', 0)} / 低 {counts.get('LOW', 0)}"
+        ),
+        f"外部风险分: {risk.get('externalRiskScore', '-')}",
+        f"综合风险分: {risk.get('overallRiskScore', '-')}",
+        f"绩效分: {performance.get('score', '-')}",
+        f"绩效覆盖率: {performance.get('coverage', '-')}%",
+        "",
+        "重大差异",
+    ]
+    for finding in consistency.get("findings") or []:
+        if not isinstance(finding, dict) or finding.get("severity") not in {
+            "BLOCKER",
+            "HIGH",
+        }:
+            continue
+        lines.append(
+            f"[{finding.get('severity')}] {finding.get('title')}: {finding.get('summary')}"
+        )
+    lines.extend(("", "硬性门禁"))
+    for gate in risk.get("hardGates") or []:
+        if isinstance(gate, dict):
+            lines.append(
+                f"{gate.get('code')} · {gate.get('sourceRef')} · "
+                f"有效至 {gate.get('effectiveTo') or '-'}"
+            )
+    lines.extend(("", f"结果哈希: {result.get('resultHash') or '-'}"))
+    return lines
+
+
+async def procurement_supplier_risk_report_render(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    result = validate_procurement_supplier_risk_result(dict(input_value["result"]))
+    return pdf_report_payload(
+        render_embedded_text_pdf(_procurement_supplier_risk_report_lines(result))
+    )
 
 
 async def document_read(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
@@ -154,9 +703,7 @@ async def report_render(input_value: dict[str, Any], effect_id: str) -> dict[str
     return pdf_report_payload(render_evidence_pdf(str(input_value["title"]), results, findings))
 
 
-async def post_evaluation_evaluate(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def post_evaluation_evaluate(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     payload = normalize_post_evaluation_payload(dict(input_value["payload"]))
     raw_configuration = input_value.get("configuration", {})
@@ -165,9 +712,7 @@ async def post_evaluation_evaluate(
     return result.model_dump(mode="json", by_alias=True)
 
 
-async def post_evaluation_assemble(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def post_evaluation_assemble(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     result = assemble_post_evaluation_payload(
         dict(input_value["payload"]),
@@ -195,9 +740,118 @@ async def evidence_search(input_value: dict[str, Any], effect_id: str) -> dict[s
     )
 
 
-async def document_coverage_check(
+async def evidence_search_contextual(
     input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
+    del effect_id
+    return search_evidence(
+        [dict(value) for value in input_value["documents"]],
+        domain=str(input_value["domain"]),
+        keywords=[str(value) for value in input_value.get("keywords", [])],
+        max_hits=int(input_value.get("maxHits", 12)),
+        contextual=True,
+    )
+
+
+class BoundEvidenceSearchExecutor:
+    """Search compact document bindings while hydrating large parsed content in-tool."""
+
+    def __init__(
+        self,
+        sessions: async_sessionmaker[Any],
+        *,
+        artifact_root: Path | None = None,
+    ) -> None:
+        self._sessions = sessions
+        self._artifact_root = (
+            artifact_root
+            or Path(os.environ.get("SWARMCORE_ARTIFACT_ROOT", ".tmp/artifacts"))
+        ).resolve()
+
+    async def healthy(self) -> bool:
+        try:
+            async with self._sessions() as session:
+                await session.execute(select(1))
+            return True
+        except SQLAlchemyError:
+            return False
+
+    async def execute(
+        self, input_value: dict[str, Any], effect_id: str, context: Any
+    ) -> dict[str, Any]:
+        tenant_id = UUID(str(context.tenant_id))
+        project_id = UUID(str(context.project_id))
+        documents = [
+            dict(value)
+            for value in input_value["documents"]
+            if isinstance(value, dict)
+        ]
+        hydrated: list[dict[str, Any]] = []
+        async with tenant_transaction(
+            self._sessions, tenant_id=tenant_id, project_id=project_id
+        ) as session:
+            for document in documents:
+                hydrated.append(
+                    await self._hydrate_document(
+                        session,
+                        document=document,
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                    )
+                )
+        result = search_evidence(
+            hydrated,
+            domain=str(input_value["domain"]),
+            keywords=[str(value) for value in input_value.get("keywords", [])],
+            max_hits=int(input_value.get("maxHits", 12)),
+            contextual=True,
+        )
+        del effect_id
+        return result
+
+    async def _hydrate_document(
+        self,
+        session: Any,
+        *,
+        document: dict[str, Any],
+        tenant_id: UUID,
+        project_id: UUID,
+    ) -> dict[str, Any]:
+        data = document.get("data")
+        if not isinstance(data, dict):
+            return document
+        content_ref = data.get("contentArtifactRef")
+        if not isinstance(content_ref, str) or not content_ref.startswith("blob://"):
+            return document
+        try:
+            blob_id = UUID(content_ref.removeprefix("blob://"))
+        except ValueError:
+            return document
+        blob = await session.scalar(
+            select(BlobObject).where(
+                BlobObject.id == blob_id,
+                BlobObject.tenant_id == tenant_id,
+                BlobObject.project_id == project_id,
+                BlobObject.status == "AVAILABLE",
+            )
+        )
+        if blob is None:
+            return document
+        target = (self._artifact_root / blob.object_key).resolve()
+        if self._artifact_root not in target.parents or not target.is_file():
+            return document
+        try:
+            content = json.loads(await to_thread(target.read_text, encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return document
+        if not isinstance(content, dict):
+            return document
+        hydrated_data = dict(data)
+        hydrated_data["content"] = content
+        return {**document, "data": hydrated_data}
+
+
+async def document_coverage_check(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return check_document_coverage(
         [dict(value) for value in input_value["documents"]],
@@ -215,44 +869,32 @@ async def post_evaluation_merge_domains(
     )
 
 
-async def post_evaluation_timeline(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def post_evaluation_timeline(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return calculate_timeline(dict(input_value["payload"]))
 
 
-async def post_evaluation_amounts(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def post_evaluation_amounts(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return reconcile_amounts(dict(input_value["payload"]))
 
 
-async def post_evaluation_invoices(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def post_evaluation_invoices(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return assure_invoices(dict(input_value["payload"]))
 
 
-async def post_evaluation_deviations(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def post_evaluation_deviations(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return aggregate_deviations(dict(input_value["payload"]))
 
 
-async def post_evaluation_risks(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def post_evaluation_risks(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return aggregate_risks(dict(input_value["payload"]))
 
 
-async def evidence_consistency_check(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def evidence_consistency_check(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return check_evidence_consistency(
         dict(input_value["payload"]),
@@ -261,9 +903,7 @@ async def evidence_consistency_check(
     )
 
 
-async def post_evaluation_finalize(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def post_evaluation_finalize(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return finalize_expanded_result(
         score=dict(input_value["score"]),
@@ -383,9 +1023,7 @@ async def post_evaluation_report_render_v4(
     return pdf_report_payload(render_formal_post_evaluation_pdf(result))
 
 
-async def deviation_facts_merge(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def deviation_facts_merge(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     merged = merge_deviation_facts(
         dict(input_value["basePayload"]),
@@ -437,10 +1075,7 @@ def _deviation_consistency_fact(fact: dict[str, Any]) -> dict[str, Any]:
             or f"deviation-fact-{hashlib.sha256(serialized.encode('utf-8')).hexdigest()[:20]}"
         ),
         "factType": str(
-            fact.get("factType")
-            or fact.get("type")
-            or fact.get("category")
-            or "DEVIATION_FACT"
+            fact.get("factType") or fact.get("type") or fact.get("category") or "DEVIATION_FACT"
         ),
         "value": (
             str(fact["value"])
@@ -467,30 +1102,22 @@ def _leading_document_version_id(value: Any) -> str | None:
         return None
 
 
-async def deviation_time_calculate(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def deviation_time_calculate(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return calculate_time_deviation(dict(input_value["payload"]))
 
 
-async def deviation_content_compare(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def deviation_content_compare(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return compare_content_deviation(dict(input_value["payload"]))
 
 
-async def deviation_cost_calculate(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def deviation_cost_calculate(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return calculate_cost_deviation(dict(input_value["payload"]))
 
 
-async def deviation_trend_build(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def deviation_trend_build(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return build_deviation_trends(
         dict(input_value["current"]),
@@ -502,24 +1129,15 @@ async def deviation_responsibility_aggregate(
     input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
     del effect_id
-    return aggregate_responsibility(
-        dict(value) for value in input_value.get("proposals", [])
-    )
+    return aggregate_responsibility(dict(value) for value in input_value.get("proposals", []))
 
 
-async def deviation_finalize(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def deviation_finalize(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return finalize_deviation_result(
         payload=dict(input_value["payload"]),
-        dimensions={
-            key: dict(value)
-            for key, value in dict(input_value["dimensions"]).items()
-        },
-        root_causes=[
-            dict(value) for value in input_value.get("rootCauses", [])
-        ],
+        dimensions={key: dict(value) for key, value in dict(input_value["dimensions"]).items()},
+        root_causes=[dict(value) for value in input_value.get("rootCauses", [])],
         trends=dict(input_value["trends"]),
         responsibility=dict(input_value["responsibility"]),
         coverage=dict(input_value["coverage"]),
@@ -529,12 +1147,174 @@ async def deviation_finalize(
     )
 
 
-async def deviation_report_render(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def deviation_report_render(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     result = validate_deviation_result(dict(input_value["result"]))
     return pdf_report_payload(render_embedded_text_pdf(deviation_report_lines(result)))
+
+
+class GitHubCalibrationExecutor:
+    def __init__(self, operation: str, *, token: str = "", base_url: str = "") -> None:
+        self._operation = operation
+        self._token = token
+        self._base_url = base_url
+
+    async def execute(
+        self, input_value: dict[str, Any], effect_id: str, context: Any
+    ) -> dict[str, Any]:
+        del effect_id, context
+        client = GitHubEvidenceClient(
+            token=self._token,
+            **({"base_url": self._base_url} if self._base_url else {}),
+        )
+        try:
+            if self._operation == "issue":
+                return await client.get_issue(str(input_value["issueUrl"]))
+            if self._operation == "discussion":
+                return await client.get_discussion(str(input_value["issueUrl"]))
+            if self._operation == "pull":
+                candidates = input_value.get("pullCandidates")
+                if not isinstance(candidates, list):
+                    raise ValueError("pullCandidates must be an array")
+                return await client.get_pull_evidence(
+                    str(input_value["issueUrl"]),
+                    [dict(item) for item in candidates if isinstance(item, dict)],
+                )
+            raise ValueError(f"unsupported GitHub calibration operation: {self._operation}")
+        finally:
+            await client.close()
+
+
+async def calibration_freeze_evidence(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return freeze_evidence(
+        dict(input_value["issue"]),
+        dict(input_value["discussion"]),
+        dict(input_value["pullRequest"]),
+    )
+
+
+async def calibration_route_select(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return build_route_decision(
+        dict(input_value["recommendation"]),
+        primary_ready=bool(input_value.get("primaryReady", True)),
+        standby_ready=bool(input_value.get("standbyReady", True)),
+    )
+
+
+async def calibration_quality_score(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    diagnosis = dict(input_value["diagnosis"])
+    required = {
+        "summary",
+        "rootCause",
+        "impact",
+        "fixMechanism",
+        "verificationPlan",
+        "claims",
+        "acceptanceMapping",
+        "confidence",
+    }
+    evidence_index = input_value.get("evidenceIndex")
+    evidence_items = evidence_index if isinstance(evidence_index, list) else []
+    result = score_quality(
+        diagnosis=diagnosis,
+        schema_valid=required.issubset(diagnosis),
+        evidence_ids={
+            str(item["evidenceId"])
+            for item in evidence_items
+            if isinstance(item, dict) and "evidenceId" in item
+        },
+        sandbox=dict(input_value["sandbox"]),
+        judge=dict(input_value["judge"]),
+        acceptance_criteria=[str(item) for item in input_value.get("acceptanceCriteria", [])],
+    )
+    return {**result, "attempt": int(input_value.get("attempt", 1))}
+
+
+async def calibration_attempt_select(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    selected = input_value.get("selectedAttempt")
+    if not isinstance(selected, dict):
+        raise ValueError("selectedAttempt must be an object")
+    loop_last = selected.get("last")
+    attempt = loop_last if isinstance(loop_last, dict) else selected
+    items = attempt.get("items") if isinstance(attempt, dict) else None
+    if not isinstance(items, list) or len(items) != 2:
+        raise ValueError("selectedAttempt must contain diagnosis and quality outputs")
+    diagnosis_output = next(
+        (
+            item
+            for item in items
+            if isinstance(item, dict)
+            and isinstance(item.get("content"), dict)
+            and (
+                isinstance(item.get("fallback"), dict)
+                or (
+                    "model" in item
+                    and not (
+                        "decision" in item["content"]
+                        and "components" in item["content"]
+                    )
+                )
+            )
+        ),
+        None,
+    )
+    quality_output = next(
+        (
+            item
+            for item in items
+            if isinstance(item, dict)
+            and isinstance(item.get("content"), dict)
+            and "decision" in item["content"]
+            and "components" in item["content"]
+        ),
+        None,
+    )
+    if not isinstance(diagnosis_output, dict) or not isinstance(quality_output, dict):
+        raise ValueError("selectedAttempt outputs do not match calibration contracts")
+    fallback = diagnosis_output.get("fallback")
+    return {
+        "diagnosis": dict(diagnosis_output["content"]),
+        "quality": dict(quality_output["content"]),
+        "fallback": dict(fallback) if isinstance(fallback, dict) else {"used": False},
+    }
+
+
+async def calibration_finalize(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    approvals = input_value.get("approvals")
+    fallback = input_value.get("fallback")
+    return finalize_calibration_result(
+        payload=dict(input_value["payload"]),
+        evidence=dict(input_value["evidence"]),
+        route=dict(input_value["route"]),
+        diagnosis=dict(input_value["diagnosis"]),
+        quality=dict(input_value["quality"]),
+        sandbox=dict(input_value["sandbox"]),
+        approvals=dict(approvals) if isinstance(approvals, dict) else None,
+        fallback=dict(fallback) if isinstance(fallback, dict) else None,
+    )
+
+
+async def calibration_report_render(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    result = dict(input_value["result"])
+    return pdf_report_payload(render_embedded_text_pdf(calibration_report_lines(result)))
 
 
 class EvaluationRecorderExecutor:
@@ -618,6 +1398,225 @@ class EvaluationRecorderExecutor:
             "effectId": effect_id,
             "resultHash": result_hash,
         }
+
+
+class SwarmCalibrationRecorderExecutor(EvaluationRecorderExecutor):
+    async def execute(
+        self, input_value: dict[str, Any], effect_id: str, context: Any
+    ) -> dict[str, Any]:
+        tenant_id = UUID(str(context.tenant_id))
+        project_id = UUID(str(context.project_id))
+        evaluation_id = UUID(str(input_value["evaluationId"]))
+        result = dict(input_value["result"])
+        result_hash = canonical_hash(result)
+        if result.get("resultHash") != result_hash:
+            expected = result.pop("resultHash", None)
+            calculated = canonical_hash(result)
+            result["resultHash"] = expected
+            if expected != calculated:
+                raise ValueError("swarm-calibration resultHash does not match result")
+            result_hash = canonical_hash(result)
+        report_payload = dict(input_value["report"])
+        content = base64.b64decode(str(report_payload["contentBase64"]), validate=True)
+        if hashlib.sha256(content).hexdigest() != report_payload["sha256"]:
+            raise ValueError("swarm-calibration report sha256 does not match content")
+        async with tenant_transaction(
+            self._sessions, tenant_id=tenant_id, project_id=project_id
+        ) as session:
+            evaluation = await session.scalar(
+                select(Evaluation)
+                .where(
+                    Evaluation.id == evaluation_id,
+                    Evaluation.tenant_id == tenant_id,
+                    Evaluation.project_id == project_id,
+                )
+                .with_for_update()
+            )
+            if evaluation is None:
+                raise LookupError("evaluation not found in capability scope")
+            if evaluation.result is not None:
+                if canonical_hash(evaluation.result) != result_hash:
+                    raise ValueError("evaluation already contains a different result")
+                return self._receipt(evaluation_id, effect_id, result_hash, recorded=False)
+            if evaluation.status != "RUNNING":
+                raise ValueError(f"evaluation cannot be recorded from {evaluation.status}")
+            item = await session.scalar(
+                select(WorkItem)
+                .where(
+                    WorkItem.id == evaluation.work_item_id,
+                    WorkItem.tenant_id == tenant_id,
+                    WorkItem.project_id == project_id,
+                )
+                .with_for_update()
+            )
+            if item is None:
+                raise LookupError("work item not found in capability scope")
+            evaluation.result = result
+            evaluation.status = "SUCCEEDED"
+            item.status = (
+                "COMPLETED"
+                if result["status"] in {"COMPLETED", "COMPLETED_DEGRADED"}
+                else "IN_REVIEW"
+            )
+            reports = (
+                Report(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    work_item_id=item.id,
+                    evaluation_id=evaluation.id,
+                    format="JSON",
+                    template_version=evaluation.report_template_version,
+                    result_schema_version=evaluation.output_schema_version,
+                    content=result,
+                    content_hash=result_hash,
+                ),
+                Report(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    work_item_id=item.id,
+                    evaluation_id=evaluation.id,
+                    format="PDF",
+                    template_version=evaluation.report_template_version,
+                    result_schema_version=evaluation.output_schema_version,
+                    content=report_payload,
+                    content_hash=str(report_payload["sha256"]),
+                ),
+            )
+            evidence_rows = [
+                CalibrationEvidenceSnapshot(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    evaluation_id=evaluation.id,
+                    evidence_key=str(evidence["evidenceId"]),
+                    source_type=str(evidence["sourceType"]),
+                    source_url=str(evidence["sourceUrl"]),
+                    commit_sha=(
+                        str(evidence["commitSha"]) if evidence.get("commitSha") else None
+                    ),
+                    etag=str(evidence["etag"]) if evidence.get("etag") else None,
+                    content_hash=str(evidence["contentHash"]),
+                    retrieved_at=datetime.fromisoformat(
+                        str(evidence["retrievedAt"]).replace("Z", "+00:00")
+                    ),
+                    security=dict(evidence.get("security") or {}),
+                    metadata_json={
+                        "evidenceManifestHash": result["provenance"]["evidenceManifestHash"]
+                    },
+                )
+                for evidence in result["evidence"]
+                if isinstance(evidence, dict)
+            ]
+            route = dict(result["route"])
+            route_row = CalibrationRouteDecision(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                evaluation_id=evaluation.id,
+                sequence=1,
+                recommended_route=str(route["recommendedRoute"]),
+                selected_route=str(route["selectedRoute"]),
+                reason_codes=[str(item) for item in route.get("reasonCodes", [])],
+                primary_agent_ref=(
+                    str(route["primaryAgentRef"]) if route.get("primaryAgentRef") else None
+                ),
+                selected_agent_ref=(
+                    str(route["selectedAgentRef"]) if route.get("selectedAgentRef") else None
+                ),
+                runtime_authoritative=bool(route.get("runtimeAuthoritative")),
+            )
+            quality = dict(result["quality"])
+            quality_row = CalibrationQualityEvaluation(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                evaluation_id=evaluation.id,
+                attempt=int(quality.get("attempt", 1)),
+                decision=str(quality["decision"]),
+                score=round(float(quality["score"])),
+                threshold=round(float(quality["threshold"])),
+                components=dict(quality["components"]),
+                hard_failures=[str(item) for item in quality.get("hardFailures", [])],
+                evidence_coverage_bps=round(
+                    float(quality.get("evidenceCoverage", 0)) * 10_000
+                ),
+                acceptance_coverage_bps=round(
+                    float(quality.get("acceptanceCoverage", 0)) * 10_000
+                ),
+                sandbox_status=str(
+                    quality.get("sandboxStatus") or result["sandbox"].get("status") or "UNVERIFIED"
+                ),
+            )
+            decision_records: list[Any] = [*evidence_rows, route_row, quality_row]
+            fallback = route.get("fallback")
+            if isinstance(fallback, dict) and fallback.get("used"):
+                decision_records.append(
+                    CalibrationFallbackRecord(
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        evaluation_id=evaluation.id,
+                        sequence=1,
+                        from_agent_ref=str(fallback["fromAgentRef"]),
+                        to_agent_ref=str(fallback["toAgentRef"]),
+                        trigger_code=str(fallback["triggerCode"]),
+                        error_message=(
+                            str(fallback["error"]) if fallback.get("error") else None
+                        ),
+                    )
+                )
+            session.add_all(decision_records)
+            session.add_all(reports)
+            await session.flush()
+            session.add(
+                OutboxEvent(
+                    id=uuid7(),
+                    tenant_id=tenant_id,
+                    aggregate_id=evaluation.id,
+                    destination="nats",
+                    partition_key=str(evaluation.id),
+                    source_id=evaluation.id,
+                    type="capability.swarm-calibration.assessment.completed",
+                    payload={
+                        "evaluationId": str(evaluation.id),
+                        "effectId": effect_id,
+                        "resultHash": result_hash,
+                        "status": result["status"],
+                        "qualityScore": result["quality"]["score"],
+                        "selectedRoute": result["route"]["selectedRoute"],
+                    },
+                )
+            )
+            for report in reports:
+                session.add(
+                    OutboxEvent(
+                        id=uuid7(),
+                        tenant_id=tenant_id,
+                        aggregate_id=evaluation.id,
+                        destination="nats",
+                        partition_key=str(evaluation.id),
+                        source_id=report.id,
+                        type="report.created",
+                        payload={
+                            "reportId": str(report.id),
+                            "evaluationId": str(evaluation.id),
+                            "format": report.format,
+                            "contentHash": report.content_hash,
+                        },
+                    )
+                )
+            await AuditRepository().append(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                actor_id=str(context.execution_id),
+                action="evaluation.record-swarm-calibration",
+                resource_type="evaluation",
+                resource_id=str(evaluation.id),
+                run_id=UUID(str(context.run_id)),
+                metadata={
+                    "effectId": effect_id,
+                    "resultHash": result_hash,
+                    "selectedRoute": result["route"]["selectedRoute"],
+                },
+            )
+            return self._receipt(evaluation_id, effect_id, result_hash, recorded=True)
 
 
 class BoundResourceReadExecutor:
@@ -795,9 +1794,7 @@ class BoundDocumentReadExecutor:
                     )
                 )
                 processing_data = (
-                    _compact_processing_result(processing.result)
-                    if processing is not None
-                    else {}
+                    _compact_processing_result(processing.result) if processing is not None else {}
                 )
                 results.append(
                     {
@@ -830,8 +1827,11 @@ def _compact_processing_result(result: dict[str, Any]) -> dict[str, Any]:
             key: content[key]
             for key in (
                 "textExcerpt",
+                "sections",
                 "tables",
                 "sheets",
+                "chunks",
+                "layout",
                 "embeddedMetadata",
                 "needsOcr",
                 "warnings",
@@ -844,6 +1844,29 @@ def _compact_processing_result(result: dict[str, Any]) -> dict[str, Any]:
             compact_content["textTruncated"] = True
         compact["content"] = compact_content
     return compact
+
+
+async def document_structuring_prepare(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    prepared = prepare_document_structuring(
+        [
+            dict(value)
+            for value in input_value.get("documents") or []
+            if isinstance(value, dict)
+        ]
+    )
+    return {**prepared, "effectId": effect_id}
+
+
+async def document_structuring_quality_check(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    result = finalize_document_structuring(
+        dict(input_value["prepared"]),
+        dict(input_value["analysis"]),
+    )
+    return {**result, "effectId": effect_id}
 
 
 class PostEvaluationRecorderExecutor(EvaluationRecorderExecutor):
@@ -859,8 +1882,7 @@ class PostEvaluationRecorderExecutor(EvaluationRecorderExecutor):
             missing = required - raw_result.keys()
             if missing:
                 raise ValueError(
-                    "formal post-evaluation result is incomplete: "
-                    + ", ".join(sorted(missing))
+                    "formal post-evaluation result is incomplete: " + ", ".join(sorted(missing))
                 )
             if not dict(raw_result["reportQuality"]).get("passed"):
                 raise ValueError("formal post-evaluation report quality gate did not pass")
@@ -1140,11 +2162,7 @@ class DeviationRecorderExecutor(EvaluationRecorderExecutor):
                 raise LookupError("work item not found in capability scope")
             evaluation.result = result_payload
             evaluation.status = "SUCCEEDED"
-            item.status = (
-                "COMPLETED"
-                if result_payload["qualityStatus"] == "READY"
-                else "IN_REVIEW"
-            )
+            item.status = "COMPLETED" if result_payload["qualityStatus"] == "READY" else "IN_REVIEW"
             reports = (
                 Report(
                     tenant_id=tenant_id,
@@ -1173,9 +2191,7 @@ class DeviationRecorderExecutor(EvaluationRecorderExecutor):
                 value.rule_key: value
                 for value in (
                     await session.scalars(
-                        select(Finding)
-                        .where(Finding.work_item_id == item.id)
-                        .with_for_update()
+                        select(Finding).where(Finding.work_item_id == item.id).with_for_update()
                     )
                 ).all()
             }
@@ -1185,9 +2201,7 @@ class DeviationRecorderExecutor(EvaluationRecorderExecutor):
                 code = str(finding_payload.get("code") or "DEVIATION_REVIEW")
                 rule_key = f"deviation-analysis:{code}"
                 finding = existing_findings.get(rule_key)
-                dimension = str(
-                    finding_payload.get("dimension") or "DEVIATION_ANALYSIS"
-                )
+                dimension = str(finding_payload.get("dimension") or "DEVIATION_ANALYSIS")
                 detail = str(
                     finding_payload.get("rationale")
                     or finding_payload.get("status")
@@ -1299,8 +2313,7 @@ def _invoice_original_content(input_value: dict[str, Any]) -> tuple[Any, str | N
             item
             for item in documents
             if isinstance(item, dict)
-            and str(item.get("category") or "").upper()
-            in {"INVOICE_ORIGINAL", "INVOICE"}
+            and str(item.get("category") or "").upper() in {"INVOICE_ORIGINAL", "INVOICE"}
         ] or [item for item in documents if isinstance(item, dict)]
         for document in preferred:
             version_id = document.get("documentVersionId")
@@ -1316,8 +2329,10 @@ def _invoice_original_content(input_value: dict[str, Any]) -> tuple[Any, str | N
                     if data.get(key):
                         return data[key], media_type, str(version_id) if version_id else None
                 if data.get("invoiceFactSet"):
-                    return data["invoiceFactSet"], "application/json", (
-                        str(version_id) if version_id else None
+                    return (
+                        data["invoiceFactSet"],
+                        "application/json",
+                        (str(version_id) if version_id else None),
                     )
             if document.get("text"):
                 return document["text"], media_type, str(version_id) if version_id else None
@@ -1358,9 +2373,7 @@ async def invoice_parse(input_value: dict[str, Any], effect_id: str) -> dict[str
     }
 
 
-async def invoice_official_verify(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def invoice_official_verify(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     payload = input_value.get("payload") if isinstance(input_value.get("payload"), dict) else {}
     configuration = (
@@ -1384,9 +2397,7 @@ async def invoice_official_verify(
     )
 
 
-async def business_snapshot_read(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def business_snapshot_read(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     payload = dict(input_value.get("payload") or {})
     if input_value.get("documents") and "documents" not in payload:
@@ -1398,9 +2409,7 @@ async def business_snapshot_read(
     return read_business_snapshot(payload)
 
 
-async def invoice_arithmetic_check(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def invoice_arithmetic_check(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     rules = arithmetic_check(dict(input_value["invoiceFactSet"]))
     return {
@@ -1409,9 +2418,7 @@ async def invoice_arithmetic_check(
     }
 
 
-async def invoice_party_check(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def invoice_party_check(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     snapshot = input_value.get("businessSnapshot")
     vendor = None
@@ -1448,9 +2455,7 @@ async def invoice_enterprise_status_check(
     )
 
 
-async def invoice_deduplicate(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def invoice_deduplicate(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     snapshot = input_value.get("businessSnapshot")
     ledger = None
@@ -1459,9 +2464,7 @@ async def invoice_deduplicate(
     return deduplicate(dict(input_value["invoiceFactSet"]), ledger)
 
 
-async def invoice_commercial_match(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def invoice_commercial_match(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     candidates = input_value.get("matchCandidates")
     return commercial_match(
@@ -1471,9 +2474,7 @@ async def invoice_commercial_match(
     )
 
 
-async def invoice_payment_gate(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def invoice_payment_gate(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     nested = input_value.get("ruleResults")
     arithmetic = []
@@ -1509,9 +2510,7 @@ async def invoice_payment_gate(
     )
 
 
-async def invoice_finalize(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def invoice_finalize(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     nested = input_value.get("ruleResults")
     duplication: dict[str, Any] = {}
@@ -1548,9 +2547,7 @@ async def invoice_finalize(
         match_result=dict(input_value.get("matchResults") or {}),
         duplication=duplication,
         gate_result=dict(input_value.get("gateResults") or {}),
-        enterprise_public_status=dict(
-            input_value.get("enterprisePublicStatus") or {}
-        ),
+        enterprise_public_status=dict(input_value.get("enterprisePublicStatus") or {}),
         narrative=narrative if isinstance(narrative, dict) else None,
         provenance=dict(input_value.get("provenance") or {}),
         approvals=approvals,
@@ -1643,9 +2640,7 @@ class InvoiceAssuranceRecorderExecutor(EvaluationRecorderExecutor):
                 value.rule_key: value
                 for value in (
                     await session.scalars(
-                        select(Finding)
-                        .where(Finding.work_item_id == item.id)
-                        .with_for_update()
+                        select(Finding).where(Finding.work_item_id == item.id).with_for_update()
                     )
                 ).all()
             }
@@ -1740,7 +2735,1246 @@ class InvoiceAssuranceRecorderExecutor(EvaluationRecorderExecutor):
             return self._receipt(evaluation_id, effect_id, result_hash, recorded=True)
 
 
-def capability_executors(sessions: async_sessionmaker[Any]) -> dict[str, Any]:
+_CONTRACT_PUBLIC_SOURCE_HOSTS = frozenset({"assets.publishing.service.gov.uk"})
+_CONTRACT_PUBLIC_SOURCE_MAX_BYTES = 20 * 1024 * 1024
+
+
+class _PublicSourceDownloadError(RuntimeError):
+    def __init__(self, code: str, *, attempts: int) -> None:
+        super().__init__(code)
+        self.attempts = attempts
+
+
+def _download_contract_public_source(url: str) -> tuple[bytes, dict[str, str]]:
+    parsed = urlparse(url)
+    if (
+        parsed.scheme != "https"
+        or (parsed.hostname or "").lower() not in _CONTRACT_PUBLIC_SOURCE_HOSTS
+        or not parsed.path.lower().endswith(".csv")
+    ):
+        raise ValueError("PUBLIC_SOURCE_URL_NOT_ALLOWED")
+    request = Request(
+        url,
+        headers={
+            "Accept": "text/csv",
+            "User-Agent": "SwarmCore-ContractPerformance/1.0",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=120) as response:
+            final = urlparse(response.geturl())
+            if (final.hostname or "").lower() not in _CONTRACT_PUBLIC_SOURCE_HOSTS:
+                raise ValueError("PUBLIC_SOURCE_REDIRECT_NOT_ALLOWED")
+            content = response.read(_CONTRACT_PUBLIC_SOURCE_MAX_BYTES + 1)
+            metadata = {
+                "etag": str(response.headers.get("ETag") or ""),
+                "lastModified": str(response.headers.get("Last-Modified") or ""),
+                "contentType": str(response.headers.get("Content-Type") or ""),
+            }
+    except HTTPError as exc:
+        raise RuntimeError(f"PUBLIC_SOURCE_HTTP_{exc.code}") from exc
+    except URLError as exc:
+        raise RuntimeError("PUBLIC_SOURCE_UNAVAILABLE") from exc
+    if len(content) > _CONTRACT_PUBLIC_SOURCE_MAX_BYTES:
+        raise ValueError("PUBLIC_SOURCE_TOO_LARGE")
+    return content, metadata
+
+
+def _public_source_retryable(exc: RuntimeError) -> bool:
+    code = str(exc)
+    if code == "PUBLIC_SOURCE_UNAVAILABLE":
+        return True
+    if not code.startswith("PUBLIC_SOURCE_HTTP_"):
+        return False
+    try:
+        status = int(code.rsplit("_", 1)[-1])
+    except ValueError:
+        return False
+    return status == 429 or status >= 500
+
+
+async def _download_contract_public_source_with_retry(
+    url: str,
+    *,
+    max_attempts: int = 3,
+) -> tuple[bytes, dict[str, str], int]:
+    if max_attempts < 1:
+        raise ValueError("PUBLIC_SOURCE_MAX_ATTEMPTS_INVALID")
+    for attempt in range(1, max_attempts + 1):
+        try:
+            content, metadata = await to_thread(_download_contract_public_source, url)
+            return content, metadata, attempt
+        except RuntimeError as exc:
+            if attempt >= max_attempts or not _public_source_retryable(exc):
+                raise _PublicSourceDownloadError(str(exc), attempts=attempt) from exc
+            await sleep(2 ** (attempt - 1))
+    raise RuntimeError("PUBLIC_SOURCE_UNAVAILABLE")
+
+
+def _public_dfe_spend_snapshots(
+    raw: dict[str, Any],
+    *,
+    content: bytes,
+    response_metadata: dict[str, str],
+) -> tuple[list[dict[str, Any]], str]:
+    source_ref = str(raw.get("sourceRef") or "")
+    if not source_ref:
+        raise ValueError("PUBLIC_SOURCE_REF_REQUIRED")
+    url = str(raw.get("url") or "")
+    source_sha256 = hashlib.sha256(content).hexdigest()
+    if str(raw.get("cursor") or "") == source_sha256:
+        return [], source_sha256
+    try:
+        text = content.decode("utf-8-sig")
+        encoding = "utf-8-sig"
+    except UnicodeDecodeError:
+        text = content.decode("cp1252")
+        encoding = "cp1252"
+    reader = csv.DictReader(io.StringIO(text, newline=""))
+    required_columns = {
+        "Date",
+        "Expense Area",
+        "Supplier",
+        "Transaction Number",
+        "Amount",
+        "Description",
+    }
+    if reader.fieldnames is None or not required_columns <= set(reader.fieldnames):
+        raise ValueError("PUBLIC_DFE_SPEND_SCHEMA_MISMATCH")
+    filters = {
+        str(key): str(value)
+        for key, value in dict(raw.get("filters") or {}).items()
+        if str(value)
+    }
+    if set(filters) - set(reader.fieldnames):
+        raise ValueError("PUBLIC_DFE_SPEND_FILTER_UNKNOWN")
+    retrieved_at = datetime.now(UTC).isoformat()
+    snapshots: list[dict[str, Any]] = []
+    for row_number, row in enumerate(reader, start=2):
+        if any(
+            str(row.get(key) or "").strip().casefold() != value.strip().casefold()
+            for key, value in filters.items()
+        ):
+            continue
+        transaction_number = str(row.get("Transaction Number") or "").strip()
+        if not transaction_number:
+            raise ValueError("PUBLIC_DFE_SPEND_TRANSACTION_ID_MISSING")
+        try:
+            amount = float(Decimal(str(row.get("Amount") or "").replace(",", "").strip()))
+            business_date = datetime.strptime(
+                str(row.get("Date") or "").strip(), "%d/%m/%Y"
+            ).date().isoformat()
+        except (InvalidOperation, ValueError) as exc:
+            raise ValueError("PUBLIC_DFE_SPEND_VALUE_INVALID") from exc
+        supplier = str(row.get("Supplier") or "").strip()
+        expense_area = str(row.get("Expense Area") or "").strip()
+        description = str(row.get("Description") or "").strip()
+        excerpt = json.dumps(
+            {
+                "amount": amount,
+                "date": business_date,
+                "description": description,
+                "expenseArea": expense_area,
+                "supplier": supplier,
+                "transactionNumber": transaction_number,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        evidence_ref = {
+            "sourceRef": source_ref,
+            "sourceRecordId": transaction_number,
+            "row": row_number,
+            "text": excerpt,
+        }
+        snapshots.append(
+            {
+                "id": transaction_number,
+                "type": str(raw.get("evidenceType") or "PAYMENT").upper(),
+                "sourceRef": source_ref,
+                "sourceRecordId": transaction_number,
+                "sourceVersion": source_sha256,
+                "sourceTimestamp": business_date,
+                "collectedAt": retrieved_at,
+                "businessDate": business_date,
+                "amount": amount,
+                "currency": str(raw.get("currency") or "GBP"),
+                "description": description,
+                "contractKeys": {
+                    "supplier": supplier,
+                    "expenseArea": expense_area,
+                },
+                "contentHash": canonical_hash(row),
+                "category": "PAYMENT_EVIDENCE",
+                "name": f"DfE spend {transaction_number}",
+                "filename": url.rsplit("/", 1)[-1],
+                "data": {
+                    "content": {
+                        "textExcerpt": excerpt,
+                        "tables": [dict(row)],
+                    }
+                },
+                "evidence": [evidence_ref],
+                "provenance": {
+                    "url": url,
+                    "sourceSha256": source_sha256,
+                    "encoding": encoding,
+                    **response_metadata,
+                },
+            }
+        )
+    return snapshots, source_sha256
+
+
+async def contract_performance_source_collect(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    evidence: list[dict[str, Any]] = []
+    snapshots: list[dict[str, Any]] = []
+    next_cursors: dict[str, str] = {}
+    source_results: list[dict[str, Any]] = []
+    failures = 0
+    sources = input_value.get("sources") or []
+    for raw in sources:
+        if not isinstance(raw, dict):
+            continue
+        source_ref = str(raw.get("sourceRef") or "")
+        if str(raw.get("kind") or "").upper() == "PUBLIC_DFE_SPEND_CSV":
+            try:
+                content, metadata, attempts = await _download_contract_public_source_with_retry(
+                    str(raw.get("url") or ""),
+                )
+                source_snapshots, next_cursor = _public_dfe_spend_snapshots(
+                    raw,
+                    content=content,
+                    response_metadata=metadata,
+                )
+            except (RuntimeError, ValueError) as exc:
+                failures += 1
+                source_results.append(
+                    {
+                        "sourceRef": source_ref,
+                        "status": "FAILED",
+                        "code": str(exc),
+                        "attempts": int(getattr(exc, "attempts", 1)),
+                    }
+                )
+                continue
+            snapshots.extend(source_snapshots)
+            evidence.extend(source_snapshots)
+            next_cursors[source_ref] = next_cursor
+            source_results.append(
+                {
+                    "sourceRef": source_ref,
+                    "status": "SUCCEEDED",
+                    "recordCount": len(source_snapshots),
+                    "nextCursor": next_cursor,
+                    "attempts": attempts,
+                }
+            )
+            continue
+        status = str(raw.get("status") or "SUCCEEDED").upper()
+        if status != "SUCCEEDED":
+            failures += 1
+            source_results.append({"sourceRef": source_ref, "status": "FAILED"})
+            continue
+        records = raw.get("records") or []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            snapshot = {
+                **record,
+                "sourceRef": source_ref,
+                "sourceRecordId": str(record.get("sourceRecordId") or record.get("id") or ""),
+                "contentHash": str(record.get("contentHash") or canonical_hash(record)),
+            }
+            snapshots.append(snapshot)
+            evidence.append(snapshot)
+        if raw.get("nextCursor") is not None:
+            next_cursors[source_ref] = str(raw["nextCursor"])
+        source_results.append(
+            {
+                "sourceRef": source_ref,
+                "status": "SUCCEEDED",
+                "recordCount": len(records),
+                "nextCursor": next_cursors.get(source_ref),
+            }
+        )
+    collection_status = (
+        "FAILED" if sources and failures == len(sources) else "PARTIAL" if failures else "COMPLETE"
+    )
+    return {
+        "snapshots": snapshots,
+        "evidence": evidence,
+        "nextCursors": next_cursors,
+        "collectionStatus": collection_status,
+        "sourceResults": source_results,
+    }
+
+
+async def contract_performance_document_parse(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    content = input_value.get("content")
+    text = content if isinstance(content, str) else ""
+    return {
+        "text": text,
+        "tables": list(input_value.get("tables") or []),
+        "locators": list(input_value.get("locators") or []),
+        "quality": "PARSED" if text else "REVIEW_REQUIRED",
+    }
+
+
+async def contract_performance_document_ocr(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    blocks = list(input_value.get("blocks") or [])
+    return {
+        "blocks": blocks,
+        "quality": "OCR_COMPLETE" if blocks else "REVIEW_REQUIRED",
+        "humanConfirmationRequired": not blocks,
+    }
+
+
+async def contract_performance_plan_normalize(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    configuration = input_value.get("configuration") or {}
+    return {
+        "plan": normalize_plan(
+            dict(input_value.get("candidates") or {}),
+            timezone=str(configuration.get("timezone") or "Asia/Shanghai"),
+            currency=str(configuration.get("currency") or "CNY"),
+        )
+    }
+
+
+async def contract_performance_change_apply(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return apply_approved_changes(
+        dict(input_value["plan"]),
+        [item for item in input_value.get("changes", []) if isinstance(item, dict)],
+        as_of=str(input_value["asOf"]),
+    )
+
+
+async def contract_performance_schedule_build(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    original = input_value.get("originalPlan")
+    actuals = input_value.get("actuals")
+    return build_schedule(
+        dict(input_value["plan"]),
+        original_plan=dict(original) if isinstance(original, dict) else None,
+        actuals=dict(actuals) if isinstance(actuals, dict) else None,
+        as_of=str(input_value["asOf"]),
+    )
+
+
+async def contract_performance_evidence_match(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return match_evidence(
+        dict(input_value["plan"]),
+        [item for item in input_value.get("evidence", []) if isinstance(item, dict)],
+        [item for item in input_value.get("candidates", []) if isinstance(item, dict)],
+    )
+
+
+async def contract_performance_status_calculate(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return calculate_status(
+        dict(input_value["plan"]),
+        [item for item in input_value.get("evidence", []) if isinstance(item, dict)],
+        [item for item in input_value.get("links", []) if isinstance(item, dict)],
+        as_of=str(input_value["asOf"]),
+        collection_status=str(input_value.get("collectionStatus") or "COMPLETE"),
+        approved_exceptions=[str(item) for item in input_value.get("approvedExceptions", [])],
+    )
+
+
+async def contract_performance_finalize(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    plan = dict(input_value.get("plan") or {})
+    performance = input_value.get("performance")
+    if not isinstance(performance, dict):
+        approved = bool((input_value.get("approval") or {}).get("approved"))
+        if approved:
+            required_sections = (
+                "obligations",
+                "deliverables",
+                "milestones",
+                "acceptanceCriteria",
+                "serviceLevels",
+                "paymentConditions",
+            )
+            missing_sections = [
+                section
+                for section in required_sections
+                if not isinstance(plan.get(section), list) or not plan[section]
+            ]
+            if not isinstance(plan.get("contract"), dict) or not plan["contract"]:
+                missing_sections.insert(0, "contract")
+            if missing_sections:
+                raise ValueError(
+                    "PLAN_MINIMUM_CONTENT_REQUIRED:"
+                    + ",".join(missing_sections)
+                )
+            plan = {**plan, "status": "PUBLISHED"}
+            plan["planHash"] = canonical_hash(
+                {key: value for key, value in plan.items() if key != "planHash"}
+            )
+        performance = {
+            "asOf": input_value.get("asOf") or (input_value.get("payload") or {}).get("asOf"),
+            "status": "ON_TRACK" if approved else "REVIEW_REQUIRED",
+            "collectionStatus": "COMPLETE",
+            "milestones": [],
+            "paymentGates": [],
+            "findings": [],
+            "reviewRequired": not approved,
+            "ruleVersion": "rule://contract-performance@2",
+        }
+    gantt = dict(input_value.get("gantt") or {})
+    if "ganttHash" not in gantt:
+        as_of = performance.get("asOf")
+        if as_of is None:
+            raise ValueError("contract-performance finalize requires asOf")
+        gantt = build_schedule(
+            plan,
+            as_of=str(as_of),
+        )
+    approval = input_value.get("approval")
+    approvals = [dict(approval)] if isinstance(approval, dict) and approval else []
+    return finalize_contract_performance(
+        case_id=str(input_value.get("caseId") or ""),
+        plan_version=int(input_value.get("planVersion") or 1),
+        plan=plan,
+        performance=performance,
+        gantt=gantt,
+        evidence_ledger=dict(input_value.get("evidenceLedger") or {}),
+        change_history=dict(input_value.get("changeHistory") or {}),
+        provenance=dict(input_value.get("provenance") or {}),
+        approvals=approvals,
+    )
+
+
+async def contract_performance_report_render(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    result = validate_contract_performance_result(dict(input_value["result"]))
+    return pdf_report_payload(render_embedded_text_pdf(contract_performance_report_lines(result)))
+
+
+class ContractPerformanceRecorderExecutor(EvaluationRecorderExecutor):
+    async def execute(
+        self, input_value: dict[str, Any], effect_id: str, context: Any
+    ) -> dict[str, Any]:
+        tenant_id = UUID(str(context.tenant_id))
+        project_id = UUID(str(context.project_id))
+        evaluation_id = UUID(str(input_value["evaluationId"]))
+        result = validate_contract_performance_result(dict(input_value["result"]))
+        result_hash = str(result["resultHash"])
+        report_payload = dict(input_value["report"])
+        content = base64.b64decode(str(report_payload["contentBase64"]), validate=True)
+        if hashlib.sha256(content).hexdigest() != report_payload["sha256"]:
+            raise ValueError("contract-performance report sha256 does not match content")
+
+        async with tenant_transaction(
+            self._sessions, tenant_id=tenant_id, project_id=project_id
+        ) as session:
+            evaluation = await session.scalar(
+                select(Evaluation)
+                .where(
+                    Evaluation.id == evaluation_id,
+                    Evaluation.tenant_id == tenant_id,
+                    Evaluation.project_id == project_id,
+                )
+                .with_for_update()
+            )
+            if evaluation is None:
+                raise LookupError("evaluation not found in capability scope")
+            if evaluation.result is not None:
+                if canonical_hash(evaluation.result) != canonical_hash(result):
+                    raise ValueError("evaluation already contains a different result")
+                return self._receipt(evaluation_id, effect_id, result_hash, recorded=False)
+            if evaluation.status != "RUNNING":
+                raise ValueError(f"evaluation cannot be recorded from {evaluation.status}")
+
+            item = await session.scalar(
+                select(WorkItem)
+                .where(
+                    WorkItem.id == evaluation.work_item_id,
+                    WorkItem.tenant_id == tenant_id,
+                    WorkItem.project_id == project_id,
+                )
+                .with_for_update()
+            )
+            if item is None:
+                raise LookupError("work item not found in capability scope")
+
+            evaluation.result = result
+            evaluation.status = "SUCCEEDED"
+            item.status = "COMPLETED" if result["status"] == "COMPLETED" else "IN_REVIEW"
+            reports = (
+                Report(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    work_item_id=item.id,
+                    evaluation_id=evaluation.id,
+                    format="JSON",
+                    template_version=evaluation.report_template_version,
+                    result_schema_version=evaluation.output_schema_version,
+                    content=result,
+                    content_hash=result_hash,
+                ),
+                Report(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    work_item_id=item.id,
+                    evaluation_id=evaluation.id,
+                    format="PDF",
+                    template_version=evaluation.report_template_version,
+                    result_schema_version=evaluation.output_schema_version,
+                    content=report_payload,
+                    content_hash=str(report_payload["sha256"]),
+                ),
+            )
+            session.add_all(reports)
+
+            for payload in result.get("performance", {}).get("findings", []):
+                if not isinstance(payload, dict):
+                    continue
+                code = str(payload.get("code") or "PERFORMANCE_REVIEW")
+                target = str(
+                    payload.get("milestoneId")
+                    or payload.get("paymentConditionId")
+                    or payload.get("targetId")
+                    or "general"
+                )
+                session.add(
+                    Finding(
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        work_item_id=item.id,
+                        evaluation_id=evaluation.id,
+                        rule_key=f"contract-performance:{code}:{target}",
+                        code=code,
+                        category=str(payload.get("category") or "CONTRACT_PERFORMANCE"),
+                        severity=str(payload.get("severity") or "MEDIUM"),
+                        status="OPEN",
+                        title=str(payload.get("title") or f"合同履约 · {code}"),
+                        detail=str(
+                            payload.get("summary")
+                            or payload.get("detail")
+                            or "合同履约关注项"
+                        ),
+                        evidence={
+                            "evidenceRefs": list(payload.get("evidenceRefs") or []),
+                            "resultHash": result_hash,
+                            "blocking": bool(payload.get("blocking")),
+                        },
+                    )
+                )
+
+            await session.flush()
+            session.add(
+                OutboxEvent(
+                    id=uuid7(),
+                    tenant_id=tenant_id,
+                    aggregate_id=evaluation.id,
+                    destination="nats",
+                    partition_key=str(evaluation.id),
+                    source_id=evaluation.id,
+                    type="capability.contract-performance.snapshot.finalized",
+                    payload={
+                        "projectId": str(project_id),
+                        "evaluationId": str(evaluation.id),
+                        "effectId": effect_id,
+                        "resultHash": result_hash,
+                        "status": result["status"],
+                        "reviewRequired": bool(
+                            result.get("performance", {}).get("reviewRequired")
+                        ),
+                    },
+                )
+            )
+            for report in reports:
+                session.add(
+                    OutboxEvent(
+                        id=uuid7(),
+                        tenant_id=tenant_id,
+                        aggregate_id=evaluation.id,
+                        destination="nats",
+                        partition_key=str(evaluation.id),
+                        source_id=report.id,
+                        type="report.created",
+                        payload={
+                            "projectId": str(project_id),
+                            "reportId": str(report.id),
+                            "evaluationId": str(evaluation.id),
+                            "format": report.format,
+                            "contentHash": report.content_hash,
+                        },
+                    )
+                )
+            await AuditRepository().append(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                actor_id=str(context.execution_id),
+                action="evaluation.record-contract-performance",
+                resource_type="evaluation",
+                resource_id=str(evaluation.id),
+                run_id=UUID(str(context.run_id)),
+                metadata={
+                    "effectId": effect_id,
+                    "resultHash": result_hash,
+                    "status": result["status"],
+                },
+            )
+            return self._receipt(evaluation_id, effect_id, result_hash, recorded=True)
+
+
+class ProcurementSupplierRiskRecorderExecutor(EvaluationRecorderExecutor):
+    async def execute(
+        self, input_value: dict[str, Any], effect_id: str, context: Any
+    ) -> dict[str, Any]:
+        tenant_id = UUID(str(context.tenant_id))
+        project_id = UUID(str(context.project_id))
+        evaluation_id = UUID(str(input_value["evaluationId"]))
+        result = validate_procurement_supplier_risk_result(dict(input_value["result"]))
+        result_hash = str(result["resultHash"])
+        report_payload = dict(input_value["report"])
+        content = base64.b64decode(str(report_payload["contentBase64"]), validate=True)
+        if hashlib.sha256(content).hexdigest() != report_payload["sha256"]:
+            raise ValueError("procurement supplier risk report sha256 does not match content")
+        async with tenant_transaction(
+            self._sessions, tenant_id=tenant_id, project_id=project_id
+        ) as session:
+            evaluation = await session.scalar(
+                select(Evaluation)
+                .where(
+                    Evaluation.id == evaluation_id,
+                    Evaluation.tenant_id == tenant_id,
+                    Evaluation.project_id == project_id,
+                )
+                .with_for_update()
+            )
+            if evaluation is None:
+                raise LookupError("evaluation not found in capability scope")
+            if evaluation.result is not None:
+                if canonical_hash(evaluation.result) != canonical_hash(result):
+                    raise ValueError("evaluation already contains a different result")
+                return self._receipt(evaluation_id, effect_id, result_hash, recorded=False)
+            if evaluation.status != "RUNNING":
+                raise ValueError(f"evaluation cannot be recorded from {evaluation.status}")
+            work_item = await session.scalar(
+                select(WorkItem)
+                .where(
+                    WorkItem.id == evaluation.work_item_id,
+                    WorkItem.tenant_id == tenant_id,
+                    WorkItem.project_id == project_id,
+                )
+                .with_for_update()
+            )
+            if work_item is None:
+                raise LookupError("work item not found in capability scope")
+            evaluation.result = result
+            evaluation.status = "SUCCEEDED"
+            work_item.status = "COMPLETED" if result["decision"] == "PASS" else "IN_REVIEW"
+            reports = (
+                Report(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    work_item_id=work_item.id,
+                    evaluation_id=evaluation.id,
+                    format="JSON",
+                    template_version=evaluation.report_template_version,
+                    result_schema_version=evaluation.output_schema_version,
+                    content=result,
+                    content_hash=result_hash,
+                ),
+                Report(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    work_item_id=work_item.id,
+                    evaluation_id=evaluation.id,
+                    format="PDF",
+                    template_version=evaluation.report_template_version,
+                    result_schema_version=evaluation.output_schema_version,
+                    content=report_payload,
+                    content_hash=str(report_payload["sha256"]),
+                ),
+            )
+            session.add_all(reports)
+            finding_payloads = [
+                finding
+                for finding in result.get("consistency", {}).get("findings", [])
+                if isinstance(finding, dict)
+            ]
+            finding_payloads.extend(
+                {
+                    "findingId": (
+                        f"gate-{gate.get('code')}-{gate.get('sourceRecordId') or index}"
+                    ),
+                    "code": str(gate.get("code") or "SUPPLIER_RISK_GATE"),
+                    "category": "SUPPLIER_RISK",
+                    "severity": "BLOCKER",
+                    "title": f"供应商硬性门禁: {gate.get('code')}",
+                    "summary": (
+                        f"来源 {gate.get('sourceRef') or '-'} 命中有效风险记录, "
+                        f"有效至 {gate.get('effectiveTo') or '未提供'}。"
+                    ),
+                    "evidenceRefs": list(gate.get("evidenceRefs") or []),
+                }
+                for index, gate in enumerate(result.get("risk", {}).get("hardGates", []))
+                if isinstance(gate, dict)
+            )
+            for finding_payload in finding_payloads:
+                finding_id = str(
+                    finding_payload.get("findingId")
+                    or canonical_hash(finding_payload)[:24]
+                )
+                session.add(
+                    Finding(
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        work_item_id=work_item.id,
+                        evaluation_id=evaluation.id,
+                        rule_key=(
+                            f"procurement-supplier-risk:{finding_id}:{result_hash[:12]}"
+                        ),
+                        code=str(finding_payload.get("code") or "PROCUREMENT_RISK"),
+                        category=str(
+                            finding_payload.get("category") or "PROCUREMENT_CONSISTENCY"
+                        ),
+                        severity=str(finding_payload.get("severity") or "MEDIUM"),
+                        status="OPEN",
+                        title=str(finding_payload.get("title") or "招采与供应商风险"),
+                        detail=str(
+                            finding_payload.get("summary")
+                            or finding_payload.get("detail")
+                            or "需要复核"
+                        ),
+                        evidence={
+                            "evidenceRefs": list(
+                                finding_payload.get("evidenceRefs") or []
+                            ),
+                            "resultHash": result_hash,
+                            "sourceFindingId": finding_id,
+                        },
+                    )
+                )
+            monitor_id = result.get("monitorId")
+            if monitor_id:
+                await ProcurementSupplierRiskService().record_snapshot(
+                    session,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    monitor_id=UUID(str(monitor_id)),
+                    evaluation_id=evaluation.id,
+                    result=result,
+                    actor=str(context.execution_id),
+                )
+            await session.flush()
+            event_types = ["capability.procurement-supplier-risk.assessment.completed"]
+            if result.get("risk", {}).get("hardGates"):
+                event_types.append("capability.supplier-risk.alert.opened")
+            for event_type in event_types:
+                event_id = uuid7()
+                session.add(
+                    OutboxEvent(
+                        id=event_id,
+                        tenant_id=tenant_id,
+                        aggregate_id=evaluation.id,
+                        destination="nats",
+                        partition_key=str(evaluation.id),
+                        source_id=event_id,
+                        type=event_type,
+                        payload={
+                            "projectId": str(project_id),
+                            "evaluationId": str(evaluation.id),
+                            "caseId": result["caseId"],
+                            "supplier": result["supplier"],
+                            "effectId": effect_id,
+                            "resultHash": result_hash,
+                            "decision": result["decision"],
+                            "riskLevel": result["riskLevel"],
+                            "snapshotHash": result["snapshotHash"],
+                        },
+                    )
+                )
+            for report in reports:
+                session.add(
+                    OutboxEvent(
+                        id=uuid7(),
+                        tenant_id=tenant_id,
+                        aggregate_id=evaluation.id,
+                        destination="nats",
+                        partition_key=str(evaluation.id),
+                        source_id=report.id,
+                        type="report.created",
+                        payload={
+                            "projectId": str(project_id),
+                            "reportId": str(report.id),
+                            "evaluationId": str(evaluation.id),
+                            "format": report.format,
+                            "contentHash": report.content_hash,
+                        },
+                    )
+                )
+            await AuditRepository().append(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                actor_id=str(context.execution_id),
+                action="evaluation.record-procurement-supplier-risk",
+                resource_type="evaluation",
+                resource_id=str(evaluation.id),
+                run_id=UUID(str(context.run_id)),
+                metadata={
+                    "effectId": effect_id,
+                    "resultHash": result_hash,
+                    "decision": result["decision"],
+                    "riskLevel": result["riskLevel"],
+                    "hardGateCount": len(result.get("risk", {}).get("hardGates", [])),
+                },
+            )
+            return self._receipt(evaluation_id, effect_id, result_hash, recorded=True)
+
+
+class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
+    async def execute(
+        self, input_value: dict[str, Any], effect_id: str, context: Any
+    ) -> dict[str, Any]:
+        tenant_id = UUID(str(context.tenant_id))
+        project_id = UUID(str(context.project_id))
+        run_id = UUID(str(context.run_id))
+        evaluation_id = UUID(str(input_value["evaluationId"]))
+        raw_result = dict(input_value["result"])
+        approval_value = input_value.get("approval")
+        approval = dict(approval_value) if isinstance(approval_value, dict) else None
+        reviewed = apply_human_review(raw_result, approval)
+        published_input_hash = canonical_hash(reviewed)
+        created_paths: list[Path] = []
+        try:
+            async with tenant_transaction(
+                self._sessions, tenant_id=tenant_id, project_id=project_id
+            ) as session:
+                evaluation = await session.scalar(
+                    select(Evaluation)
+                    .where(
+                        Evaluation.id == evaluation_id,
+                        Evaluation.tenant_id == tenant_id,
+                        Evaluation.project_id == project_id,
+                        Evaluation.run_id == run_id,
+                    )
+                    .with_for_update()
+                )
+                if evaluation is None:
+                    raise LookupError("evaluation not found in capability run scope")
+                if evaluation.result is not None:
+                    provenance = dict(evaluation.result.get("provenance") or {})
+                    if provenance.get("publishedInputHash") != published_input_hash:
+                        raise ValueError("evaluation already contains a different result")
+                    return self._receipt(
+                        evaluation_id,
+                        effect_id,
+                        canonical_hash(evaluation.result),
+                        recorded=False,
+                    )
+                if evaluation.status != "RUNNING":
+                    raise ValueError(
+                        f"evaluation cannot be published from {evaluation.status}"
+                    )
+                item = await session.scalar(
+                    select(WorkItem)
+                    .where(
+                        WorkItem.id == evaluation.work_item_id,
+                        WorkItem.tenant_id == tenant_id,
+                        WorkItem.project_id == project_id,
+                    )
+                    .with_for_update()
+                )
+                if item is None:
+                    raise LookupError("work item not found in capability scope")
+
+                artifact_ids = {
+                    filename: uuid7()
+                    for filename in document_package_artifacts(reviewed)
+                }
+                reviewed["artifacts"] = [
+                    {
+                        "artifactId": str(artifact_id),
+                        "filename": filename,
+                        "downloadRef": f"artifact://{artifact_id}",
+                    }
+                    for filename, artifact_id in artifact_ids.items()
+                ]
+                reviewed["provenance"] = {
+                    **dict(reviewed.get("provenance") or {}),
+                    "publishedInputHash": published_input_hash,
+                    "runId": str(run_id),
+                    "evaluationId": str(evaluation_id),
+                    "effectId": effect_id,
+                }
+                reviewed["contentHash"] = canonical_hash(
+                    {
+                        key: value
+                        for key, value in reviewed.items()
+                        if key != "contentHash"
+                    }
+                )
+                artifact_payloads = document_package_artifacts(reviewed)
+                artifact_root = Path(
+                    os.environ.get("SWARMCORE_ARTIFACT_ROOT", ".tmp/artifacts")
+                ).resolve()
+                artifact_rows: list[Artifact] = []
+                for filename, content in artifact_payloads.items():
+                    artifact_id = artifact_ids[filename]
+                    safe_filename = filename.replace("\\", "/").lstrip("/")
+                    object_key = _document_artifact_object_key(
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        run_id=run_id,
+                        artifact_id=artifact_id,
+                        filename=safe_filename,
+                    )
+                    target = (artifact_root / object_key).resolve()
+                    if artifact_root not in target.parents:
+                        raise ValueError("document artifact path escapes artifact root")
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(content)
+                    created_paths.append(target)
+                    artifact_rows.append(
+                        Artifact(
+                            id=artifact_id,
+                            tenant_id=tenant_id,
+                            project_id=project_id,
+                            run_id=run_id,
+                            kind="document-structuring-output",
+                            filename=safe_filename,
+                            media_type=_document_artifact_media_type(safe_filename),
+                            object_key=object_key,
+                            size_bytes=len(content),
+                            sha256=hashlib.sha256(content).hexdigest(),
+                            status="AVAILABLE",
+                            data_classification="internal",
+                            retention_until=datetime.now(UTC)
+                            + timedelta(days=1_095),
+                        )
+                    )
+
+                for document in reviewed.get("documents") or []:
+                    version_id = UUID(str(document["documentVersionId"]))
+                    snapshot = await session.scalar(
+                        select(DocumentUsageSnapshot).where(
+                            DocumentUsageSnapshot.evaluation_id == evaluation_id,
+                            DocumentUsageSnapshot.business_document_version_id
+                            == version_id,
+                            DocumentUsageSnapshot.tenant_id == tenant_id,
+                            DocumentUsageSnapshot.project_id == project_id,
+                        )
+                    )
+                    if snapshot is None:
+                        raise LookupError(
+                            "structured result targets an unfrozen document version"
+                        )
+                    version = await session.scalar(
+                        select(BusinessDocumentVersion).where(
+                            BusinessDocumentVersion.id == version_id,
+                            BusinessDocumentVersion.tenant_id == tenant_id,
+                            BusinessDocumentVersion.project_id == project_id,
+                        )
+                    )
+                    if version is None:
+                        raise LookupError("document version is not available")
+                    source_document = await session.scalar(
+                        select(BusinessDocument).where(
+                            BusinessDocument.id == version.business_document_id,
+                            BusinessDocument.tenant_id == tenant_id,
+                            BusinessDocument.project_id == project_id,
+                        )
+                    )
+                    if source_document is None:
+                        raise LookupError("document metadata is not available")
+                    existing = list(
+                        (
+                            await session.scalars(
+                                select(DocumentProcessingResult)
+                                .where(
+                                    DocumentProcessingResult
+                                    .business_document_version_id
+                                    == version_id,
+                                    DocumentProcessingResult.tenant_id == tenant_id,
+                                    DocumentProcessingResult.project_id == project_id,
+                                    DocumentProcessingResult.result_type
+                                    == "STRUCTURED_PACKAGE",
+                                )
+                                .order_by(
+                                    DocumentProcessingResult.result_version.desc()
+                                )
+                            )
+                        ).all()
+                    )
+                    document_result = {
+                        **dict(document),
+                        "packageContentHash": reviewed["contentHash"],
+                        "crossFormatConsistency": reviewed[
+                            "crossFormatConsistency"
+                        ],
+                        "quality": dict(reviewed.get("quality") or {}),
+                        "qualityFlags": list(reviewed.get("qualityFlags") or []),
+                        "artifacts": list(reviewed["artifacts"]),
+                        "provenance": dict(reviewed["provenance"]),
+                    }
+                    if existing and canonical_hash(existing[0].result) == canonical_hash(
+                        document_result
+                    ):
+                        continue
+                    evidence = [
+                        {
+                            **dict(value),
+                            "fieldPath": field.get("fieldPath"),
+                        }
+                        for field in document.get("fields") or []
+                        for value in field.get("evidenceRefs") or []
+                        if isinstance(value, dict)
+                    ]
+                    session.add(
+                        DocumentProcessingResult(
+                            tenant_id=tenant_id,
+                            project_id=project_id,
+                            business_document_version_id=version_id,
+                            result_type="STRUCTURED_PACKAGE",
+                            result_version=(
+                                int(existing[0].result_version) + 1
+                                if existing
+                                else 1
+                            ),
+                            status=(
+                                "CONFIRMED"
+                                if reviewed.get("humanReview")
+                                else "READY"
+                            ),
+                            schema_ref=str(reviewed["schemaVersion"]),
+                            producer_ref="agent://document/structurer@1",
+                            result=document_result,
+                            evidence=evidence,
+                            confirmed_by=(
+                                str(context.execution_id)
+                                if reviewed.get("humanReview")
+                                else None
+                            ),
+                            confirmed_at=(
+                                datetime.now(UTC)
+                                if reviewed.get("humanReview")
+                                else None
+                            ),
+                        )
+                    )
+                    version.processing_status = "READY"
+                    source_document.status = "AVAILABLE"
+                    organization = document.get("organization")
+                    if isinstance(organization, dict):
+                        suggested_name = str(
+                            organization.get("suggestedName") or ""
+                        ).strip()
+                        suggested_category = str(
+                            organization.get("category") or ""
+                        ).strip()
+                        suggested_tags = [
+                            str(value).strip()
+                            for value in organization.get("tags") or []
+                            if str(value).strip()
+                        ]
+                        if suggested_name:
+                            source_document.name = suggested_name[:512]
+                        if suggested_category:
+                            source_document.category = suggested_category[:128]
+                        source_document.tags = list(
+                            dict.fromkeys(
+                                [*source_document.tags, *suggested_tags]
+                            )
+                        )
+                    processing_run = await session.scalar(
+                        select(DocumentProcessingRun)
+                        .where(
+                            DocumentProcessingRun.business_document_version_id
+                            == version_id,
+                            DocumentProcessingRun.tenant_id == tenant_id,
+                            DocumentProcessingRun.project_id == project_id,
+                        )
+                        .order_by(DocumentProcessingRun.attempt.desc())
+                        .with_for_update()
+                    )
+                    if processing_run is not None:
+                        session.add(
+                            DocumentProcessingEvent(
+                                tenant_id=tenant_id,
+                                project_id=project_id,
+                                processing_run_id=processing_run.id,
+                                business_document_version_id=version_id,
+                                event_seq=int(
+                                    processing_run.next_event_seq or 1
+                                ),
+                                type="document.agent.completed",
+                                stage="EXTRACTING",
+                                payload={
+                                    "agentRef": "agent://document/structurer@1",
+                                    "modelRef": "model://document-nlp@1",
+                                    "resultHash": reviewed["contentHash"],
+                                    "reviewed": bool(reviewed.get("humanReview")),
+                                },
+                                output_hash=reviewed["contentHash"],
+                                tool_ref="agent://document/structurer@1",
+                                actor_id=str(context.execution_id),
+                            )
+                        )
+                        processing_run.next_event_seq = (
+                            int(processing_run.next_event_seq or 1) + 1
+                        )
+
+                evaluation.result = reviewed
+                evaluation.status = "SUCCEEDED"
+                item.status = "COMPLETED"
+                session.add_all(artifact_rows)
+                primary_artifact = artifact_ids["structured-document.json"]
+                report = Report(
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    work_item_id=item.id,
+                    evaluation_id=evaluation.id,
+                    format="JSON",
+                    template_version=evaluation.report_template_version,
+                    result_schema_version=evaluation.output_schema_version,
+                    content=reviewed,
+                    artifact_id=primary_artifact,
+                    content_hash=reviewed["contentHash"],
+                )
+                session.add(report)
+                await session.flush()
+                session.add_all(
+                    [
+                        OutboxEvent(
+                            id=uuid7(),
+                            tenant_id=tenant_id,
+                            aggregate_id=evaluation.id,
+                            destination="nats",
+                            partition_key=str(evaluation.id),
+                            source_id=evaluation.id,
+                            type="capability.document-structuring.completed",
+                            payload={
+                                "evaluationId": str(evaluation.id),
+                                "runId": str(run_id),
+                                "effectId": effect_id,
+                                "resultHash": reviewed["contentHash"],
+                                "artifactIds": [
+                                    str(value) for value in artifact_ids.values()
+                                ],
+                            },
+                        ),
+                        OutboxEvent(
+                            id=uuid7(),
+                            tenant_id=tenant_id,
+                            aggregate_id=evaluation.id,
+                            destination="nats",
+                            partition_key=str(evaluation.id),
+                            source_id=report.id,
+                            type="report.created",
+                            payload={
+                                "reportId": str(report.id),
+                                "evaluationId": str(evaluation.id),
+                                "format": report.format,
+                                "contentHash": report.content_hash,
+                            },
+                        ),
+                    ]
+                )
+                await AuditRepository().append(
+                    session,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    actor_id=str(context.execution_id),
+                    action="document.structured-package-published",
+                    resource_type="evaluation",
+                    resource_id=str(evaluation.id),
+                    run_id=run_id,
+                    metadata={
+                        "effectId": effect_id,
+                        "resultHash": reviewed["contentHash"],
+                        "documentCount": len(reviewed.get("documents") or []),
+                        "artifactCount": len(artifact_rows),
+                        "humanReviewed": bool(reviewed.get("humanReview")),
+                    },
+                )
+                return self._receipt(
+                    evaluation_id,
+                    effect_id,
+                    reviewed["contentHash"],
+                    recorded=True,
+                )
+        except Exception:
+            for path in created_paths:
+                path.unlink(missing_ok=True)
+            raise
+
+
+def _document_artifact_media_type(filename: str) -> str:
+    if filename.endswith(".json"):
+        return "application/json"
+    if filename.endswith(".md"):
+        return "text/markdown; charset=utf-8"
+    if filename.endswith(".csv"):
+        return "text/csv; charset=utf-8"
+    return "application/octet-stream"
+
+
+def _document_artifact_object_key(
+    *,
+    tenant_id: UUID,
+    project_id: UUID,
+    run_id: UUID,
+    artifact_id: UUID,
+    filename: str,
+) -> str:
+    suffix = Path(filename).suffix.lower()
+    return (
+        f"{tenant_id}/{project_id}/runs/{run_id}/"
+        f"document-structuring/{artifact_id}{suffix}"
+    )
+
+
+def capability_executors(
+    sessions: async_sessionmaker[Any],
+    *,
+    github_token: str = "",
+    github_api_url: str = "",
+    calibration_sandbox_enabled: bool = False,
+    calibration_sandbox_image: str = "",
+    calibration_sandbox_docker_binary: str = "docker",
+    calibration_sandbox_timeout_seconds: int = 600,
+    supplier_risk_allowed_hosts: tuple[str, ...] = (
+        "www.ccgp.gov.cn",
+        "api.qichacha.com",
+        "open.api.tianyancha.com",
+    ),
+    supplier_risk_timeout_seconds: int = 30,
+) -> dict[str, Any]:
     recorder = EvaluationRecorderExecutor(sessions)
     return {
         "contract.document_read": document_read,
@@ -1752,7 +3986,11 @@ def capability_executors(sessions: async_sessionmaker[Any]) -> dict[str, Any]:
         "contract.post_evaluation_assemble": post_evaluation_assemble,
         "resource.read_bound": BoundResourceReadExecutor(sessions),
         "document.read_versions": BoundDocumentReadExecutor(sessions),
+        "document.structure_prepare": document_structuring_prepare,
+        "document.quality_check": document_structuring_quality_check,
+        "document.publish": DocumentStructuringPublisherExecutor(sessions),
         "evidence.search": evidence_search,
+        "evidence.search_contextual": BoundEvidenceSearchExecutor(sessions),
         "document.coverage_check": document_coverage_check,
         "contract.post_evaluation_merge_domains": post_evaluation_merge_domains,
         "contract.post_evaluation_timeline": post_evaluation_timeline,
@@ -1793,4 +4031,51 @@ def capability_executors(sessions: async_sessionmaker[Any]) -> dict[str, Any]:
         "invoice.finalize": invoice_finalize,
         "report.render_invoice_assurance": invoice_assurance_report_render,
         "workbench.record_invoice_assurance": InvoiceAssuranceRecorderExecutor(sessions),
+        "contract_performance.source_collect": contract_performance_source_collect,
+        "document.parse": contract_performance_document_parse,
+        "document.ocr": contract_performance_document_ocr,
+        "contract_performance.plan_normalize": contract_performance_plan_normalize,
+        "contract_performance.schedule_build": contract_performance_schedule_build,
+        "contract_performance.change_apply": contract_performance_change_apply,
+        "contract_performance.evidence_match": contract_performance_evidence_match,
+        "contract_performance.status_calculate": contract_performance_status_calculate,
+        "contract_performance.finalize": contract_performance_finalize,
+        "report.render_contract_performance": contract_performance_report_render,
+        "workbench.record_contract_performance": ContractPerformanceRecorderExecutor(sessions),
+        "procurement.consistency_compare": procurement_consistency_compare,
+        "supplier.risk_collect": SupplierRiskCollectExecutor(
+            allowed_hosts=supplier_risk_allowed_hosts,
+            timeout_seconds=supplier_risk_timeout_seconds,
+        ),
+        "supplier.performance_calculate": supplier_performance_calculate,
+        "supplier.risk_decide": supplier_risk_decide,
+        "supplier.history_diff": supplier_history_diff,
+        "procurement_supplier_risk.finalize": procurement_supplier_risk_finalize,
+        "report.render_procurement_supplier_risk": procurement_supplier_risk_report_render,
+        "workbench.record_procurement_supplier_risk": ProcurementSupplierRiskRecorderExecutor(
+            sessions
+        ),
+        "github.get_issue": GitHubCalibrationExecutor(
+            "issue", token=github_token, base_url=github_api_url
+        ),
+        "github.get_discussion": GitHubCalibrationExecutor(
+            "discussion", token=github_token, base_url=github_api_url
+        ),
+        "github.get_pull_evidence": GitHubCalibrationExecutor(
+            "pull", token=github_token, base_url=github_api_url
+        ),
+        "calibration.freeze_evidence": calibration_freeze_evidence,
+        "calibration.route_select": calibration_route_select,
+        "sandbox.verify_repository": RepositorySandboxVerifier(
+            enabled=calibration_sandbox_enabled,
+            image=calibration_sandbox_image,
+            docker_binary=calibration_sandbox_docker_binary,
+            timeout_seconds=calibration_sandbox_timeout_seconds,
+            github_token=github_token,
+        ),
+        "calibration.quality_score": calibration_quality_score,
+        "calibration.attempt_select": calibration_attempt_select,
+        "calibration.finalize": calibration_finalize,
+        "report.render_swarm_calibration": calibration_report_render,
+        "workbench.record_swarm_calibration": SwarmCalibrationRecorderExecutor(sessions),
     }

@@ -2,9 +2,9 @@ import type {
   ApprovalListResponse, AuditListResponse, CapabilityCatalog, CapabilityCenterResponse, CapabilityPreset, CapabilityPresetListResponse, CapabilityPresetRequest, CommandHandle, CompileResponse, ConfigurationKind, CreateSavedConfiguration,
   DraftSnapshot, EditorState, EventHistory, ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, SavedConfiguration,
   CapabilityPackListResponse, CapabilityPackSnapshot, CreateCapabilityPackRequest,
-  AssessmentDetailSnapshot, AssessmentListResponse, BusinessObjectSnapshot, BusinessWorkListResponse, BusinessWorkSnapshot, CaseSnapshot, CaseSubjectInput, DocumentDownloadHandle, DocumentListResponse, DocumentProcessingResultSnapshot, DocumentProcessingRunSnapshot, DocumentRequirementListResponse, DocumentSnapshot, DocumentUploadHandle, EvaluationSnapshot, FindingListResponse, InitiateDocumentRequest, InvoiceAssuranceBatchRequest, InvoiceAssuranceBatchSnapshot, InvoiceRuleTrendSnapshot, PackBindings, ReportListResponse,
+  AssessmentDetailSnapshot, AssessmentListResponse, BusinessObjectSnapshot, BusinessWorkListResponse, BusinessWorkSnapshot, CaseSnapshot, CaseSubjectInput, ContractPerformanceCaseSnapshot, ContractPerformanceEvidenceList, ContractPerformancePlanSnapshot, ContractPerformanceSnapshot, DocumentDownloadHandle, DocumentListResponse, DocumentProcessingEventListResponse, DocumentProcessingResultSnapshot, DocumentProcessingRunSnapshot, DocumentRequirementListResponse, DocumentSnapshot, DocumentUploadHandle, EvaluationSnapshot, FindingListResponse, InitiateDocumentRequest, InvoiceAssuranceBatchRequest, InvoiceAssuranceBatchSnapshot, InvoiceRuleTrendSnapshot, PackBindings, ReportListResponse, SupplierRiskAlertListResponse, SupplierRiskHistoryResponse, SupplierRiskMonitorSnapshot, SupplierRiskWorkOrderListResponse, SupplierRiskWorkOrderSnapshot,
   SavedConfigurationListResponse, StrategyDeleteImpact, StrategyHandle,
-  ModelProviderConfiguration, ModelProviderConfigurationRequest, ModelProviderTestResult,
+  ModelProviderApiKeySnapshot, ModelProviderConfiguration, ModelProviderConfigurationRequest, ModelProviderTestResult,
   StrategyListResponse, StrategyVersionDetail,
   StrategyVersionListResponse, UploadBatchSnapshot, WorkItemSnapshot, RuleSetDraftSnapshot, RuleSetValidationResponse, RuleSetVersionSnapshot,
 } from "./types";
@@ -129,6 +129,7 @@ export const api = {
   getCapabilities: (tenantId: string, projectId: string) => request<CapabilityCatalog>(`/v1/projects/${projectId}/capabilities`, tenantId),
   getCapabilityCenter: (tenantId: string, projectId: string) => request<CapabilityCenterResponse>(`/v1/projects/${projectId}/capability-center`, tenantId),
   getModelProvider: (tenantId: string, projectId: string, logicalModel: string) => request<ModelProviderConfiguration>(`/v1/projects/${projectId}/model-provider?logicalModel=${encodeURIComponent(logicalModel)}`, tenantId),
+  revealModelProviderApiKey: (tenantId: string, projectId: string, logicalModel: string) => request<ModelProviderApiKeySnapshot>(`/v1/projects/${projectId}/model-provider:key?logicalModel=${encodeURIComponent(logicalModel)}`, tenantId, { method: "POST", cache: "no-store" }),
   saveModelProvider: (tenantId: string, projectId: string, body: ModelProviderConfigurationRequest) => request<ModelProviderConfiguration>(`/v1/projects/${projectId}/model-provider`, tenantId, { method: "PUT", body: JSON.stringify(body) }),
   testModelProvider: (tenantId: string, projectId: string, body: ModelProviderConfigurationRequest) => request<ModelProviderTestResult>(`/v1/projects/${projectId}/model-provider:test`, tenantId, { method: "POST", body: JSON.stringify(body) }),
   runCapability: (tenantId: string, projectId: string, capabilityRef: string, input: Record<string, unknown>, presetId?: string) => request<RunHandle>(`/v1/projects/${projectId}/capability-runs`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ capabilityRef, input, presetId }) }),
@@ -232,6 +233,23 @@ export const api = {
     request<DocumentProcessingRunSnapshot>(`/v1/projects/${projectId}/documents/${documentId}/processing`, tenantId),
   getDocumentProcessingResult: (tenantId: string, projectId: string, documentId: string) =>
     request<DocumentProcessingResultSnapshot>(`/v1/projects/${projectId}/documents/${documentId}/processing-result`, tenantId),
+  getDocumentProcessingEvents: (tenantId: string, projectId: string, documentId: string, after = 0) =>
+    request<DocumentProcessingEventListResponse>(`/v1/projects/${projectId}/documents/${documentId}/processing/events?after=${after}`, tenantId),
+  getDocumentStructuredPackage: (tenantId: string, projectId: string, documentId: string) =>
+    request<DocumentProcessingResultSnapshot>(`/v1/projects/${projectId}/documents/${documentId}/structured-package`, tenantId),
+  publishDocumentStructuredPackage: (tenantId: string, projectId: string, documentId: string) =>
+    request<DocumentProcessingResultSnapshot>(`/v1/projects/${projectId}/documents/${documentId}:publish`, tenantId, {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+    }),
+  downloadArtifact: async (tenantId: string, projectId: string, artifactId: string) => {
+    const grant = await request<{ downloadRef: string }>(
+      `/v1/projects/${projectId}/artifacts/${artifactId}:download`,
+      tenantId,
+      { method: "POST" },
+    );
+    return requestFile(grant.downloadRef, tenantId);
+  },
   confirmDocumentClassification: (tenantId: string, projectId: string, documentId: string, body: { label: string; displayName?: string; expectedResultVersion?: number }) =>
     request<DocumentProcessingResultSnapshot>(`/v1/projects/${projectId}/documents/${documentId}:confirm-classification`, tenantId, {
       method: "POST",
@@ -245,7 +263,13 @@ export const api = {
   reprocessDocument: (tenantId: string, projectId: string, documentId: string, body: Record<string, unknown> = {}) =>
     request<DocumentProcessingRunSnapshot>(`/v1/projects/${projectId}/documents/${documentId}:reprocess`, tenantId, {
       method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify(body),
+    }),
+  cancelDocumentProcessing: (tenantId: string, projectId: string, documentId: string) =>
+    request<DocumentProcessingRunSnapshot>(`/v1/projects/${projectId}/documents/${documentId}:cancel-processing`, tenantId, {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
     }),
   updateDocumentBindings: (tenantId: string, projectId: string, documentId: string, body: { businessObjectIds: string[]; businessWorkKeys: string[] }) =>
     request<DocumentSnapshot>(`/v1/projects/${projectId}/documents/${documentId}/bindings`, tenantId, {
@@ -266,6 +290,127 @@ export const api = {
     return { filename: handle.filename, content: await downloadBlob(handle) };
   },
   getPackBindings: (tenantId: string, projectId: string, versionId: string) => request<PackBindings>(`/v1/projects/${projectId}/capability-packs/${versionId}/bindings`, tenantId),
+  createContractPerformanceCase: (tenantId: string, projectId: string, body: { contractObjectId: string; timezone?: string; currency?: string }) =>
+    request<ContractPerformanceCaseSnapshot>(`/v1/projects/${projectId}/contract-performance/cases`, tenantId, {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify(body),
+    }),
+  initializeContractPerformance: (tenantId: string, projectId: string, caseId: string, body: { asOf: string; candidates: Record<string, unknown>; coverage?: Record<string, unknown> }) =>
+    request<ContractPerformancePlanSnapshot>(`/v1/projects/${projectId}/contract-performance/cases/${caseId}:initialize`, tenantId, { method: "POST", body: JSON.stringify(body) }),
+  publishContractPerformancePlan: (tenantId: string, projectId: string, caseId: string, version: number, body: { approvalId: string; confirmations?: Array<Record<string, unknown>> }) =>
+    request<ContractPerformancePlanSnapshot>(`/v1/projects/${projectId}/contract-performance/cases/${caseId}/plans/${version}:publish`, tenantId, { method: "POST", body: JSON.stringify(body) }),
+  collectContractPerformance: (tenantId: string, projectId: string, caseId: string, body: Record<string, unknown>) =>
+    request<ContractPerformanceSnapshot>(`/v1/projects/${projectId}/contract-performance/cases/${caseId}:collect`, tenantId, {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify(body),
+    }),
+  getContractPerformancePlan: (tenantId: string, projectId: string, caseId: string, version?: number) =>
+    request<ContractPerformancePlanSnapshot>(`/v1/projects/${projectId}/contract-performance/cases/${caseId}/plan${version ? `?version=${version}` : ""}`, tenantId),
+  getContractPerformanceGantt: (tenantId: string, projectId: string, caseId: string, asOf: string) =>
+    request<Record<string, unknown>>(`/v1/projects/${projectId}/contract-performance/cases/${caseId}/gantt?asOf=${encodeURIComponent(asOf)}`, tenantId),
+  listContractPerformanceEvidence: (tenantId: string, projectId: string, caseId: string, type?: string) =>
+    request<ContractPerformanceEvidenceList>(`/v1/projects/${projectId}/contract-performance/cases/${caseId}/evidence${type ? `?type=${encodeURIComponent(type)}` : ""}`, tenantId),
+  getContractPerformanceSnapshot: (tenantId: string, projectId: string, caseId: string, snapshotId: string) =>
+    request<ContractPerformanceSnapshot>(`/v1/projects/${projectId}/contract-performance/cases/${caseId}/snapshots/${snapshotId}`, tenantId),
+  createSupplierRiskMonitor: (
+    tenantId: string,
+    projectId: string,
+    body: {
+      caseId: string;
+      supplierName: string;
+      supplierCreditCode: string;
+      cadence?: "HOURLY" | "DAILY" | "WEEKLY";
+      sources: Array<Record<string, unknown>>;
+    },
+  ) =>
+    request<SupplierRiskMonitorSnapshot>(
+      `/v1/projects/${projectId}/procurement-supplier-risk/monitors`,
+      tenantId,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(body),
+      },
+    ),
+  getSupplierRiskMonitor: (tenantId: string, projectId: string, monitorId: string) =>
+    request<SupplierRiskMonitorSnapshot>(
+      `/v1/projects/${projectId}/procurement-supplier-risk/monitors/${monitorId}`,
+      tenantId,
+    ),
+  refreshSupplierRiskMonitor: (
+    tenantId: string,
+    projectId: string,
+    monitorId: string,
+  ) =>
+    request<EvaluationSnapshot>(
+      `/v1/projects/${projectId}/procurement-supplier-risk/monitors/${monitorId}:refresh`,
+      tenantId,
+      { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } },
+    ),
+  listSupplierRiskHistory: (
+    tenantId: string,
+    projectId: string,
+    monitorId: string,
+  ) =>
+    request<SupplierRiskHistoryResponse>(
+      `/v1/projects/${projectId}/procurement-supplier-risk/monitors/${monitorId}/history`,
+      tenantId,
+    ),
+  listSupplierRiskAlerts: (
+    tenantId: string,
+    projectId: string,
+    monitorId?: string,
+  ) =>
+    request<SupplierRiskAlertListResponse>(
+      `/v1/projects/${projectId}/procurement-supplier-risk/alerts${monitorId ? `?monitorId=${encodeURIComponent(monitorId)}` : ""}`,
+      tenantId,
+    ),
+  createSupplierRiskWorkOrder: (
+    tenantId: string,
+    projectId: string,
+    alertId: string,
+    body: {
+      priority?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+      assignee?: string;
+      dueAt?: string;
+    },
+  ) =>
+    request<SupplierRiskWorkOrderSnapshot>(
+      `/v1/projects/${projectId}/procurement-supplier-risk/alerts/${alertId}/work-orders`,
+      tenantId,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(body),
+      },
+    ),
+  listSupplierRiskWorkOrders: (
+    tenantId: string,
+    projectId: string,
+    monitorId?: string,
+  ) =>
+    request<SupplierRiskWorkOrderListResponse>(
+      `/v1/projects/${projectId}/procurement-supplier-risk/work-orders${monitorId ? `?monitorId=${encodeURIComponent(monitorId)}` : ""}`,
+      tenantId,
+    ),
+  updateSupplierRiskWorkOrder: (
+    tenantId: string,
+    projectId: string,
+    workOrderId: string,
+    body: {
+      status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "REJECTED" | "CLOSED";
+      assignee?: string;
+      resolution?: Record<string, unknown>;
+      comment?: string;
+    },
+  ) =>
+    request<SupplierRiskWorkOrderSnapshot>(
+      `/v1/projects/${projectId}/procurement-supplier-risk/work-orders/${workOrderId}`,
+      tenantId,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
   createBusinessObject: (tenantId: string, projectId: string, body: { objectType: string; canonicalKey: string; schemaRef: string; data: Record<string, unknown>; provenance?: Record<string, unknown> }) => request<BusinessObjectSnapshot>(`/v1/projects/${projectId}/business-objects`, tenantId, { method: "POST", body: JSON.stringify(body) }),
   createCase: (tenantId: string, projectId: string, body: { scenarioType: string; payload: Record<string, unknown>; subjects: CaseSubjectInput[]; owner?: string }) => request<CaseSnapshot>(`/v1/projects/${projectId}/cases`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
   assessCase: (tenantId: string, projectId: string, caseId: string) => request<EvaluationSnapshot>(`/v1/projects/${projectId}/cases/${caseId}:assess`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),

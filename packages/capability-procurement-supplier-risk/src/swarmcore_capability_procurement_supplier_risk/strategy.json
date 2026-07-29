@@ -1,0 +1,233 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "SwarmStrategy",
+  "metadata": {"name": "procurement-supplier-risk-assess-v5"},
+  "spec": {
+    "inputSchema": {"type": "object"},
+    "outputSchema": {"type": "object"},
+    "defaults": {
+      "timeout": "PT10M",
+      "retryPolicy": {
+        "maxAttempts": 3,
+        "initialInterval": "PT1S",
+        "maximumInterval": "PT30S",
+        "backoffCoefficient": 2
+      }
+    },
+    "budget": {
+      "maxDuration": "PT30M",
+      "maxTokens": 120000,
+      "maxCostUsd": 3,
+      "maxAgents": 3,
+      "maxParallelism": 3,
+      "onExhausted": "wait_for_budget_approval"
+    },
+    "agents": {
+      "clause-analyst": {"ref": "agent://procurement/clause-evidence-analyst@3"},
+      "risk-analyst": {"ref": "agent://supplier/risk-analyst@1"},
+      "reviewer": {"ref": "agent://procurement/evidence-quality-reviewer@1"}
+    },
+    "graph": {
+      "entrypoint": "read-documents",
+      "nodes": {
+        "read-documents": {
+          "type": "tool",
+          "tool": "tool://document/read-versions@1",
+          "input": {"evaluationId": "{{ input.evaluationId }}", "documents": "{{ input.documents }}"}
+        },
+        "coverage-check": {
+          "type": "tool",
+          "tool": "tool://document/coverage-check@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "requirements": [
+              {"key": "tender-document", "category": "TENDER_DOCUMENT", "required": true, "minCount": 1, "maxCount": 20},
+              {"key": "winning-bid", "category": "WINNING_BID", "required": true, "minCount": 1, "maxCount": 20},
+              {"key": "award-notice", "category": "AWARD_NOTICE", "required": true, "minCount": 1, "maxCount": 5},
+              {"key": "contract", "category": "MASTER_CONTRACT", "required": true, "minCount": 1, "maxCount": 5}
+            ]
+          }
+        },
+        "search-clauses": {
+          "type": "tool",
+          "tool": "tool://evidence/search@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "documents": "{{ tasks.read-documents.output.content.documents }}",
+            "domain": "procurement",
+            "maxHits": 50
+          }
+        },
+        "clause-analysis": {
+          "type": "agent",
+          "agent": "clause-analyst",
+          "dependsOn": ["coverage-check", "search-clauses"],
+          "input": {
+            "_contextMode": "node_only",
+            "supplier": "{{ input.payload.supplier }}",
+            "evidence": "{{ tasks.search-clauses.output.content }}",
+            "providedClauses": "{{ input.payload.clauses }}",
+            "providedSemanticProposals": "{{ input.payload.semanticProposals }}"
+          }
+        },
+        "risk-collect": {
+          "type": "tool",
+          "tool": "tool://supplier/risk-collect@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "supplier": "{{ input.payload.supplier }}",
+            "sources": "{{ input.payload.riskSources }}",
+            "asOf": "{{ input.payload.asOf }}"
+          }
+        },
+        "performance-calculate": {
+          "type": "tool",
+          "tool": "tool://supplier/performance-calculate@1",
+          "dependsOn": ["read-documents"],
+          "input": {
+            "periodStart": "{{ input.payload.performance.periodStart }}",
+            "periodEnd": "{{ input.payload.performance.periodEnd }}",
+            "minimumSampleSize": "{{ input.payload.performance.minimumSampleSize }}",
+            "records": "{{ input.payload.performance.records }}",
+            "ruleVersion": "rule://supplier-performance@1"
+          }
+        },
+        "consistency-compare": {
+          "type": "tool",
+          "tool": "tool://procurement/consistency-compare@1",
+          "dependsOn": ["clause-analysis"],
+          "input": {
+            "clauses": "{{ tasks.clause-analysis.output.content.clauses }}",
+            "semanticProposals": "{{ tasks.clause-analysis.output.content.semanticProposals }}",
+            "approvedExceptionKeys": "{{ input.payload.approvedExceptionKeys }}",
+            "ruleVersion": "rule://procurement-consistency@1"
+          }
+        },
+        "risk-decide": {
+          "type": "tool",
+          "tool": "tool://supplier/risk-decide@1",
+          "dependsOn": ["risk-collect", "performance-calculate"],
+          "input": {
+            "asOf": "{{ input.payload.asOf }}",
+            "riskCollection": "{{ tasks.risk-collect.output.content }}",
+            "performance": "{{ tasks.performance-calculate.output.content }}",
+            "ruleVersion": "rule://supplier-risk@1"
+          }
+        },
+        "history-diff": {
+          "type": "tool",
+          "tool": "tool://supplier/history-diff@1",
+          "dependsOn": ["risk-decide"],
+          "input": {
+            "previous": "{{ input.payload.previousSnapshot }}",
+            "current": "{{ tasks.risk-decide.output.content }}"
+          }
+        },
+        "risk-analysis": {
+          "type": "agent",
+          "agent": "risk-analyst",
+          "dependsOn": ["risk-decide", "performance-calculate", "history-diff"],
+          "input": {
+            "_contextMode": "node_only",
+            "risk": "{{ tasks.risk-decide.output.content }}",
+            "performance": "{{ tasks.performance-calculate.output.content }}",
+            "history": "{{ tasks.history-diff.output.content }}"
+          }
+        },
+        "evidence-review": {
+          "type": "agent",
+          "agent": "reviewer",
+          "dependsOn": ["coverage-check", "consistency-compare", "risk-analysis"],
+          "input": {
+            "_contextMode": "node_only",
+            "coverage": "{{ tasks.coverage-check.output.content }}",
+            "consistency": "{{ tasks.consistency-compare.output.content }}",
+            "risk": "{{ tasks.risk-decide.output.content }}",
+            "performance": "{{ tasks.performance-calculate.output.content }}",
+            "riskNarrative": "{{ tasks.risk-analysis.output.content }}"
+          }
+        },
+        "review-router": {
+          "type": "router",
+          "dependsOn": ["evidence-review"],
+          "routes": [
+            {"when": "tasks.coverage-check.output.content.reviewRequired == true", "target": "manual-review"},
+            {"when": "tasks.consistency-compare.output.content.reviewRequired == true", "target": "manual-review"},
+            {"when": "tasks.risk-decide.output.content.reviewRequired == true", "target": "manual-review"},
+            {"when": "tasks.evidence-review.output.content.reviewRequired == true", "target": "manual-review"}
+          ],
+          "default": "auto-continue"
+        },
+        "manual-review": {
+          "type": "approval",
+          "dependsOn": ["review-router"],
+          "prompt": "存在重大条款差异、有效禁入、风险数据冲突或证据不足，请采购、法务或风控复核。",
+          "inputSchema": {
+            "type": "object",
+            "required": ["approved", "decision"],
+            "properties": {
+              "approved": {"type": "boolean"},
+              "decision": {"enum": ["CONFIRM_BLOCK", "CONDITIONAL_PASS", "REQUEST_EVIDENCE", "DISMISS_MISMATCH"]},
+              "comment": {"type": "string"},
+              "assignee": {"type": "string"},
+              "dueAt": {"type": "string", "format": "date-time"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "auto-continue": {"type": "join", "strategy": "all", "dependsOn": ["review-router"]},
+        "finalize": {
+          "type": "tool",
+          "tool": "tool://procurement-supplier-risk/finalize@1",
+          "dependsOn": ["manual-review", "auto-continue", "evidence-review", "history-diff"],
+          "input": {
+            "caseId": "{{ input.workItemId }}",
+            "monitorId": "{{ input.payload.monitorId }}",
+            "assessmentId": "{{ input.evaluationId }}",
+            "asOf": "{{ input.payload.asOf }}",
+            "supplier": "{{ input.payload.supplier }}",
+            "consistency": "{{ tasks.consistency-compare.output.content }}",
+            "risk": "{{ tasks.risk-decide.output.content }}",
+            "performance": "{{ tasks.performance-calculate.output.content }}",
+            "history": "{{ tasks.history-diff.output.content }}",
+            "review": "{{ tasks.evidence-review.output.content }}",
+            "approval": "{{ tasks.manual-review.output }}",
+            "provenance": {
+              "documentContentHash": "{{ tasks.read-documents.output.content.contentHash }}",
+              "attachmentManifestHash": "{{ input.attachmentManifestHash }}",
+              "selectionManifestHash": "{{ input.selectionManifestHash }}",
+              "baselineHash": "{{ input.baselineHash }}",
+              "configurationHash": "{{ input.configurationHash }}",
+              "strategy": "strategy://procurement-supplier-risk/assess@5",
+              "ruleVersions": [
+                "rule://procurement-consistency@1",
+                "rule://supplier-risk@1",
+                "rule://supplier-performance@1"
+              ]
+            }
+          }
+        },
+        "report": {
+          "type": "tool",
+          "tool": "tool://report/render-procurement-supplier-risk@1",
+          "dependsOn": ["finalize"],
+          "input": {"result": "{{ tasks.finalize.output.content }}"}
+        },
+        "record": {
+          "type": "tool",
+          "tool": "tool://workbench/record-procurement-supplier-risk@1",
+          "dependsOn": ["finalize", "report"],
+          "input": {
+            "evaluationId": "{{ input.evaluationId }}",
+            "monitorId": "{{ input.payload.monitorId }}",
+            "result": "{{ tasks.finalize.output.content }}",
+            "report": "{{ tasks.report.output.content }}"
+          }
+        }
+      },
+      "output": {"result": "{{ tasks.finalize.output.content }}"}
+    },
+    "$defs": {}
+  }
+}

@@ -19,6 +19,8 @@ vi.mock("@/api/client", async (importOriginal) => {
       createBusinessObject: vi.fn(),
       createCase: vi.fn(),
       assessCase: vi.fn(),
+      createSupplierRiskMonitor: vi.fn(),
+      refreshSupplierRiskMonitor: vi.fn(),
       getInvoiceAssuranceRuleTrends: vi.fn(),
     },
   };
@@ -84,6 +86,21 @@ describe("business work workbench", () => {
     vi.mocked(api.createBusinessObject).mockResolvedValue({ businessObjectId: "object-1", versionId: "object-version-1", objectType: "contract", canonicalKey: "HT-2026-001", currentVersion: 1, schemaRef: "schema://contract/facts@1", data: {} });
     vi.mocked(api.createCase).mockResolvedValue({ caseId: "case-1", scenarioType: "contract-post-evaluation-case", caseRevisionId: "case-revision-1", revision: 1, payload: {}, status: "DRAFT", owner: null, subjects: [], createdAt: "2026-07-22T00:00:00Z", updatedAt: "2026-07-22T00:00:00Z" });
     vi.mocked(api.assessCase).mockResolvedValue(evaluation);
+    vi.mocked(api.createSupplierRiskMonitor).mockResolvedValue({
+      monitorId: "monitor-1",
+      caseId: "case-1",
+      supplierName: "上海龙田数码科技有限公司",
+      supplierCreditCode: "91310116740594799B",
+      status: "ACTIVE",
+      cadence: "DAILY",
+      sources: [],
+      nextCheckAt: null,
+      lastCheckedAt: null,
+      lastSnapshotId: null,
+      createdAt: "2026-07-28T00:00:00Z",
+      updatedAt: "2026-07-28T00:00:00Z",
+    });
+    vi.mocked(api.refreshSupplierRiskMonitor).mockResolvedValue(evaluation);
     vi.mocked(api.getInvoiceAssuranceRuleTrends).mockResolvedValue({
       bucket: "day",
       totalAssessments: 2,
@@ -97,6 +114,7 @@ describe("business work workbench", () => {
   it("renders a workbench hero with status and actions", async () => {
     renderPage();
     expect(await screen.findByRole("heading", { name: "文件完整性校验智能体" })).toBeVisible();
+    expect(screen.getByTestId("business-work-page-header")).toBeVisible();
     expect(screen.getByText("工作台")).toBeVisible();
     expect(screen.getByRole("link", { name: "返回业务工作" })).toHaveAttribute("href", "/business-works/document-integrity");
     expect(screen.getByRole("link", { name: "业务资料" })).toHaveAttribute("href", "/documents");
@@ -136,11 +154,211 @@ describe("business work workbench", () => {
     expect(await screen.findByRole("heading", { name: "评估结果" })).toBeVisible();
   });
 
+  it("submits the contract-performance collect operation with sources and a published plan", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(runnableWork({
+      workKey: "performance-plan-collection",
+      name: "履约计划与执行采集智能体",
+      packName: "contract-performance",
+      workItemType: "contract-performance-case",
+      caseBased: true,
+    }));
+    vi.mocked(api.listCapabilityPacks).mockResolvedValue({
+      items: [{
+        ...v1Pack(),
+        name: "contract-performance",
+        version: "1.0.9",
+        manifest: {
+          spec: {
+            case: {
+              type: "contract-performance-case",
+              subjectRoles: [
+                {
+                  key: "contract",
+                  objectType: "contract",
+                  role: "PRIMARY",
+                  min: 1,
+                  max: 1,
+                },
+              ],
+            },
+          },
+        },
+      }],
+    });
+    renderPage("performance-plan-collection");
+
+    expect(await screen.findByLabelText("办理类型")).toHaveValue("INITIALIZE");
+    fireEvent.change(screen.getByLabelText("办理类型"), {
+      target: { value: "COLLECT" },
+    });
+    fireEvent.change(screen.getByLabelText("履约采集源"), {
+      target: {
+        value: JSON.stringify([
+          {
+            kind: "PUBLIC_DFE_SPEND_CSV",
+            sourceRef: "public://dfe/spend/2024-09",
+            url: "https://assets.publishing.service.gov.uk/example.csv",
+          },
+        ]),
+      },
+    });
+    fireEvent.change(screen.getByLabelText("已发布履约计划"), {
+      target: {
+        value: JSON.stringify({
+          schemaVersion: "schema://contract-performance/plan@1",
+          contract: { contractId: "ESFA-25001" },
+          obligations: [],
+          milestones: [],
+        }),
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "开始办理" }));
+
+    await waitFor(() => expect(api.createCase).toHaveBeenCalled());
+    const request = vi.mocked(api.createCase).mock.calls[0]?.[2];
+    const payload = request?.payload;
+    expect(payload).toMatchObject({
+      operation: "COLLECT",
+      currency: "CNY",
+      timezone: "Asia/Shanghai",
+    });
+    const sources = Array.isArray(payload?.sources) ? payload.sources : [];
+    expect(sources[0]).toMatchObject({
+      kind: "PUBLIC_DFE_SPEND_CSV",
+      sourceRef: "public://dfe/spend/2024-09",
+    });
+    const plan = payload?.plan;
+    expect(plan && typeof plan === "object" ? plan : {}).toMatchObject({
+      schemaVersion: "schema://contract-performance/plan@1",
+    });
+    expect(api.assessCase).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      "case-1",
+    );
+  });
+
+  it("creates a supplier monitor and refreshes it through the shared case flow", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(runnableWork({
+      workKey: "procurement-supplier-risk",
+      name: "招采一致性与供应商风控",
+      packName: "procurement-supplier-risk",
+      workItemType: "procurement-supplier-risk-case",
+      caseBased: true,
+    }));
+    vi.mocked(api.listCapabilityPacks).mockResolvedValue({
+      items: [{
+        ...v1Pack(),
+        name: "procurement-supplier-risk",
+        manifest: {
+          spec: {
+            case: {
+              type: "procurement-supplier-risk-case",
+              subjectRoles: [
+                {
+                  key: "procurement",
+                  objectType: "procurement",
+                  role: "PRIMARY",
+                  min: 1,
+                  max: 1,
+                },
+                {
+                  key: "supplier",
+                  objectType: "supplier",
+                  role: "RELATED",
+                  min: 1,
+                  max: 20,
+                },
+              ],
+            },
+          },
+        },
+      }],
+    });
+    renderPage("procurement-supplier-risk");
+
+    fireEvent.change(await screen.findByLabelText("供应商名称"), {
+      target: { value: "上海龙田数码科技有限公司" },
+    });
+    fireEvent.change(screen.getByLabelText("统一社会信用代码"), {
+      target: { value: "91310116740594799b" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "开始办理" }));
+
+    await waitFor(() =>
+      expect(api.createSupplierRiskMonitor).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({
+          caseId: "case-1",
+          supplierName: "上海龙田数码科技有限公司",
+          supplierCreditCode: "91310116740594799B",
+          cadence: "DAILY",
+        }),
+      ),
+    );
+    expect(api.refreshSupplierRiskMonitor).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      "monitor-1",
+    );
+    expect(api.assessCase).not.toHaveBeenCalled();
+    expect(await screen.findByRole("heading", { name: "评估结果" })).toBeVisible();
+  });
+
   it("blocks planned works from starting", async () => {
     vi.mocked(api.getBusinessWork).mockResolvedValue(runnableWork({ status: "planned", statusLabel: "规划中", packName: null }));
     renderPage("invoice-assurance");
     expect(await screen.findByRole("heading", { name: "该业务工作仍在规划中" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "开始办理" })).not.toBeInTheDocument();
+  });
+
+  it("submits scheduling-calibration evidence and sandbox inputs", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(runnableWork({
+      workKey: "swarm-calibration",
+      name: "智能体调度校准智能体",
+      packName: "swarm-calibration",
+      workItemType: "swarm-calibration-case",
+      caseBased: true,
+    }));
+    vi.mocked(api.listCapabilityPacks).mockResolvedValue({
+      items: [{
+        ...v1Pack(),
+        name: "swarm-calibration",
+        manifest: {
+          spec: {
+            case: {
+              type: "swarm-calibration-case",
+              subjectsRequired: false,
+              subjectRoles: [],
+            },
+          },
+        },
+      }],
+    });
+
+    renderPage("swarm-calibration");
+
+    expect(await screen.findByLabelText("真实 GitHub Issue URL")).toHaveValue(
+      "https://github.com/temporalio/sdk-python/issues/782",
+    );
+    expect(screen.getByLabelText("本次校准目标")).toHaveValue(
+      "基于真实 Issue、讨论和合并代码，校验任务调度、主备切换与结论质量。",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "开始办理" }));
+    await waitFor(() => expect(api.createWorkItem).toHaveBeenCalled());
+    const request = vi.mocked(api.createWorkItem).mock.calls[0]?.[2];
+    expect(request?.workItemType).toBe("swarm-calibration-case");
+    expect(request?.payload.issueUrl).toBe(
+      "https://github.com/temporalio/sdk-python/issues/782",
+    );
+    expect(request?.payload.acceptanceCriteria).toContain(
+      "所有关键结论都引用冻结证据",
+    );
+    expect(request?.payload.sandbox).toEqual({
+      enabled: true,
+      testCommand: ["python", "-m", "pytest", "-q"],
+    });
   });
 
   it("shows historical invoice rule trends", async () => {

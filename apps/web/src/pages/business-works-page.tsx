@@ -9,8 +9,8 @@ import type { LucideIcon } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { api } from "@/api/client";
 import type { BusinessWorkSnapshot, BusinessWorkStatus, DocumentSnapshot } from "@/api/types";
+import { BusinessWorkPageHeader } from "@/components/business-works/business-work-page-header";
 import { Badge } from "@/components/ui/badge";
-import { BackLink } from "@/components/ui/back-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,6 +20,7 @@ import {
   type BusinessWorkCategory, type BusinessWorkDefinition,
 } from "@/lib/business-works";
 import { useWorkspaceScope } from "@/lib/demo-scope";
+import { capabilityLabel } from "@/lib/capability-labels";
 import { cn } from "@/lib/utils";
 
 const WORK_RUN_HISTORY_LIMIT = 5;
@@ -161,46 +162,36 @@ function BusinessWorkDetail({ workKey }: { workKey: string }) {
   const startDisabledReason = work.status === "planned" ? "该业务工作仍在规划中" : "当前不满足运行资格";
 
   return <div className="min-w-0 space-y-5">
-    <header>
-      <BackLink to={`${workspacePath}/business-works`}>返回业务工作</BackLink>
-      <div className="mt-4 rounded-[20px] border border-gray-200/80 bg-white/90 p-5 shadow-theme-card dark:border-gray-800 dark:bg-white/[0.035]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-start gap-3">
-              <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400"><Icon className="size-5" /></span>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge color={STATUS_BADGE[work.status]}>{work.statusLabel}</Badge>
-                  <span className="text-xs text-gray-400">{CATEGORY_LABELS[work.category as BusinessWorkCategory] ?? work.category}</span>
-                </div>
-                <h1 className="mt-1 text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">{work.name}</h1>
-                <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500 line-clamp-2">{work.summary}</p>
-              </div>
-            </div>
-            <dl className="mt-4 grid gap-3 border-t border-gray-100 pt-3 sm:grid-cols-2 dark:border-gray-800" aria-label="运行就绪摘要">
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">资料要求</dt>
-                <dd className="mt-0.5 text-sm font-semibold text-gray-900 dark:text-white">{requiredDocCount ? `${requiredDocCount} 项必需` : "无强制要求"}</dd>
-              </div>
-              <div className="min-w-0">
-                <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">执行策略</dt>
-                <dd className="mt-0.5 truncate text-sm font-semibold text-gray-900 dark:text-white" title={strategySummary}>{strategySummary}</dd>
-              </div>
-            </dl>
+    <BusinessWorkPageHeader
+      backTo={`${workspacePath}/business-works`}
+      icon={Icon}
+      meta={<>
+        <Badge color={STATUS_BADGE[work.status]}>{work.statusLabel}</Badge>
+        <span className="text-xs text-gray-400">{CATEGORY_LABELS[work.category as BusinessWorkCategory] ?? work.category}</span>
+      </>}
+      title={work.name}
+      description={work.summary}
+      summary={
+        <dl className="grid gap-3 sm:grid-cols-2" aria-label="运行就绪摘要">
+          <div>
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">资料要求</dt>
+            <dd className="mt-0.5 text-sm font-semibold text-gray-900 dark:text-white">{requiredDocCount ? `${requiredDocCount} 项必需` : "无强制要求"}</dd>
           </div>
-          <div className="flex shrink-0 flex-col gap-2 sm:min-w-44 lg:items-stretch">
-            {canStart
-              ? <Button asChild className="w-full justify-center sm:w-auto lg:w-full"><Link to={`${workspacePath}/business-works/${work.workKey}/workbench`}><Play />开始办理</Link></Button>
-              : <Button className="w-full justify-center sm:w-auto lg:w-full" disabled title={startDisabledReason}><Play />开始办理</Button>}
-            <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch">
-              {work.workKey === "report-generation" ? <Button asChild variant="outline" size="sm" className="w-full justify-center sm:w-auto lg:w-full"><Link to={`${workspacePath}/business-works/report-generation/demo`}><Sparkles />体验公开数据 Demo</Link></Button> : null}
-              {hasImplementation ? <Button asChild variant="outline" size="sm" className="w-full justify-center sm:w-auto lg:w-full"><Link to={`${workspacePath}/business-works/${work.workKey}/settings`}><Settings2 />项目配置</Link></Button> : null}
-              <Button asChild variant="outline" size="sm" className="w-full justify-center sm:w-auto lg:w-full"><Link to={`${workspacePath}/documents`}><Files />准备业务资料</Link></Button>
-            </div>
+          <div className="min-w-0">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">执行策略</dt>
+            <dd className="mt-0.5 truncate text-sm font-semibold text-gray-900 dark:text-white" title={strategySummary}>{strategySummary}</dd>
           </div>
-        </div>
-      </div>
-    </header>
+        </dl>
+      }
+      actions={<>
+        {canStart
+          ? <Button asChild className="w-full justify-center"><Link to={`${workspacePath}/business-works/${work.workKey}/workbench`}><Play />开始办理</Link></Button>
+          : <Button className="w-full justify-center" disabled title={startDisabledReason}><Play />开始办理</Button>}
+        {work.workKey === "report-generation" ? <Button asChild variant="outline" size="sm" className="w-full justify-center"><Link to={`${workspacePath}/business-works/report-generation/demo`}><Sparkles />体验公开数据 Demo</Link></Button> : null}
+        {hasImplementation ? <Button asChild variant="outline" size="sm" className="w-full justify-center"><Link to={`${workspacePath}/business-works/${work.workKey}/settings`}><Settings2 />项目配置</Link></Button> : null}
+        <Button asChild variant="outline" size="sm" className="w-full justify-center"><Link to={`${workspacePath}/documents`}><Files />准备业务资料</Link></Button>
+      </>}
+    />
 
     {workQuery.isError && !workQuery.data ? (
       <p role="alert" className="rounded-xl border border-warning-200 bg-warning-50 px-4 py-3 text-sm text-warning-800 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-300">
@@ -211,8 +202,26 @@ function BusinessWorkDetail({ workKey }: { workKey: string }) {
     {work.blockers.length ? (
       <div className="rounded-xl border border-warning-200 bg-warning-50 px-4 py-3 dark:border-warning-500/20 dark:bg-warning-500/10" role="status">
         <p className="text-sm font-semibold text-warning-800 dark:text-warning-300">还需处理 {work.blockers.length} 项后才能办理</p>
-        <ul className="mt-1.5 space-y-0.5 text-sm text-warning-700 dark:text-warning-400">
-          {work.blockers.map((blocker) => <li key={`${blocker.code}-${blocker.ref ?? blocker.message}`}>{blocker.message}</li>)}
+        <ul className="mt-2 grid gap-2 text-sm text-warning-700 sm:grid-cols-2 dark:text-warning-400">
+          {work.blockers.map((blocker) => {
+            const capabilityPath = blockerCapabilityPath(blocker.ref, workspacePath);
+            return (
+              <li key={`${blocker.code}-${blocker.ref ?? blocker.message}`} className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-warning-200/80 bg-white/70 px-3 py-2 dark:border-warning-500/20 dark:bg-gray-900/40">
+                <span className="min-w-0">
+                  <span className="block font-medium text-warning-900 dark:text-warning-200">{blockerDisplayName(blocker)}</span>
+                  <span className="mt-0.5 block text-xs">{blockerReason(blocker)}</span>
+                </span>
+                {capabilityPath ? (
+                  <Link
+                    className="inline-flex shrink-0 items-center gap-1 font-medium text-brand-600 hover:text-brand-700 dark:text-brand-300"
+                    to={capabilityPath}
+                  >
+                    查看并处理<ArrowRight className="size-3.5" />
+                  </Link>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       </div>
     ) : null}
@@ -237,6 +246,43 @@ function BusinessWorkDetail({ workKey }: { workKey: string }) {
       projectId={projectId}
     />
   </div>;
+}
+
+function blockerDisplayName(blocker: BusinessWorkSnapshot["blockers"][number]): string {
+  if (!blocker.ref) return blocker.message;
+  return capabilityLabel(blocker.ref) ?? blocker.message;
+}
+
+function blockerReason(blocker: BusinessWorkSnapshot["blockers"][number]): string {
+  if (blocker.code === "DEPENDENCY_NOT_READY") {
+    if (blocker.ref?.startsWith("tool://")) return "该工具当前未就绪";
+    if (blocker.ref?.startsWith("model://")) return "该模型当前未就绪";
+    if (blocker.ref?.startsWith("agent://")) return "该智能体当前未就绪";
+    return "依赖能力当前未就绪";
+  }
+  if (blocker.code === "DECISION_BINDING_MISSING") return "尚未完成决策规则绑定";
+  if (blocker.code === "RESOURCE_BINDING_MISSING") return "尚未完成资源绑定";
+  if (blocker.code === "ADAPTER_MISSING") return "智能体运行时适配器不可用";
+  if (blocker.code === "MODEL_ROUTE_MISSING") return "尚未配置模型路由";
+  if (blocker.code === "SECRET_MISSING") return "模型凭证不可用";
+  if (blocker.code === "HEALTH_CHECK_FAILED") return "依赖健康检查未通过";
+  if (blocker.code === "EXECUTOR_MISSING") return "工具执行器未注册";
+  return blocker.ref ? "当前配置尚未满足运行要求" : blocker.message;
+}
+
+function blockerCapabilityPath(ref: string | null, workspacePath: string): string | null {
+  if (!ref) return null;
+  const section = ref.startsWith("agent://")
+    ? "agents"
+    : ref.startsWith("tool://")
+      ? "tools"
+      : ref.startsWith("model://")
+        ? "models"
+        : ref.startsWith("policy://")
+          ? "policies"
+          : null;
+  if (!section) return null;
+  return `${workspacePath}/${section}?search=${encodeURIComponent(ref)}&showNotReady=1`;
 }
 
 function WorkFunctionsSection({

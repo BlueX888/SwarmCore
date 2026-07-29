@@ -62,6 +62,31 @@ _DOMAIN_KEYWORDS = {
         "付款",
         "预算",
     ),
+    "execution": (
+        "发货",
+        "到货",
+        "签收",
+        "验收",
+        "付款",
+        "服务",
+        "会议",
+        "变更",
+        "dispatch",
+        "receipt",
+        "acceptance",
+        "payment",
+        "service",
+        "meeting",
+        "change",
+    ),
+    "procurement": (
+        "招标",
+        "投标",
+        "中标",
+        "采购",
+        "合同",
+        "供应商",
+    ),
 }
 
 _DOMAIN_CATEGORIES = {
@@ -77,6 +102,17 @@ _DOMAIN_CATEGORIES = {
         "AP_LEDGER",
         "BUDGET_PAYMENT_POLICY",
     },
+    "execution": {
+        "DISPATCH_LOGISTICS",
+        "RECEIPT_ARRIVAL",
+        "DELIVERY_ACCEPTANCE",
+        "PAYMENT_EVIDENCE",
+        "PROGRESS_SERVICE",
+        "MEETING_CORRESPONDENCE",
+        "APPROVED_CHANGE",
+        "SUPPLEMENTAL_FACTS",
+    },
+    "procurement": {"TENDER", "BID", "AWARD", "CONTRACT", "SUPPLEMENTAL_FACTS"},
 }
 
 _PAYLOAD_ITEM_FIELDS = {
@@ -167,6 +203,7 @@ def search_evidence(
     domain: str,
     keywords: list[str] | None = None,
     max_hits: int = 12,
+    contextual: bool = False,
 ) -> dict[str, Any]:
     normalized_domain = domain.strip().lower()
     if normalized_domain not in _DOMAIN_KEYWORDS:
@@ -180,35 +217,77 @@ def search_evidence(
     ranked: list[tuple[int, str, dict[str, Any]]] = []
     available = 0
     for document in documents:
-        text = _content_text(document)
-        if text:
+        segments = (
+            _contextual_content_segments(document)
+            if contextual
+            else [(_content_text(document), {}, [])]
+        )
+        if any(text for text, _, _ in segments):
             available += 1
         category = str(document.get("category", "")).upper()
-        folded = text.casefold()
-        matches = [term for term in terms if term.casefold() in folded]
-        score = len(matches) * 10 + (20 if category in category_candidates else 0)
-        if not text:
-            score -= 100
-        if score <= 0:
-            continue
         document_version_id = str(document.get("documentVersionId", ""))
-        evidence = document.get("evidence")
-        ranked.append(
-            (
-                score,
-                document_version_id,
-                {
-                    "documentId": str(document.get("documentId", "")),
-                    "documentVersionId": document_version_id,
-                    "name": str(document.get("name") or document.get("filename") or ""),
-                    "category": category,
-                    "score": score,
-                    "matchedKeywords": matches,
-                    "excerpt": text[:1_500],
-                    "evidence": list(evidence)[:5] if isinstance(evidence, list) else [],
-                },
+        document_evidence = document.get("evidence")
+        for segment_no, (text, segment_locator, segment_evidence) in enumerate(segments):
+            folded = text.casefold()
+            windows = (
+                _context_windows(text, terms)
+                if contextual
+                else [(0, min(len(text), 1_500))]
             )
-        )
+            for window_no, (start, end) in enumerate(windows):
+                excerpt = text[start:end]
+                search_text = excerpt.casefold() if contextual else folded
+                matches = [term for term in terms if term.casefold() in search_text]
+                score = len(matches) * 10 + (
+                    20 if category in category_candidates else 0
+                )
+                if not text:
+                    score -= 100
+                if score <= 0:
+                    continue
+                locator = {
+                    **segment_locator,
+                    "characterStart": start,
+                    "characterEnd": end,
+                }
+                evidence = (
+                    _evidence_for_excerpt(segment_evidence, excerpt)
+                    or (
+                        list(document_evidence)[:5]
+                        if isinstance(document_evidence, list)
+                        else []
+                    )
+                )
+                evidence_pages = sorted(
+                    {
+                        int(value["page"])
+                        for value in evidence
+                        if isinstance(value.get("page"), int)
+                    }
+                )
+                if evidence_pages:
+                    locator["pages"] = evidence_pages
+                ranked.append(
+                    (
+                        score,
+                        f"{document_version_id}:{segment_no:04d}:{window_no:04d}",
+                        {
+                            "documentId": str(document.get("documentId", "")),
+                            "documentVersionId": document_version_id,
+                            "sourceRef": str(document.get("sourceRef", "")),
+                            "sourceRecordId": str(document.get("sourceRecordId", "")),
+                            "name": str(
+                                document.get("name") or document.get("filename") or ""
+                            ),
+                            "category": category,
+                            "score": score,
+                            "matchedKeywords": matches,
+                            "excerpt": excerpt,
+                            "locator": locator,
+                            "evidence": evidence,
+                        },
+                    )
+                )
     ranked.sort(key=lambda item: (-item[0], item[1]))
     hits = [item[2] for item in ranked[:max_hits]]
     return {
@@ -218,6 +297,107 @@ def search_evidence(
         "hits": hits,
         "contentHash": canonical_hash(hits),
     }
+
+
+def _contextual_content_segments(
+    document: dict[str, Any],
+) -> list[tuple[str, dict[str, Any], list[dict[str, Any]]]]:
+    data = document.get("data")
+    if not isinstance(data, dict):
+        return [("", {}, [])]
+    content = data.get("content")
+    if not isinstance(content, dict):
+        return [("", {}, [])]
+    chunks = content.get("chunks")
+    if isinstance(chunks, list):
+        segments: list[tuple[str, dict[str, Any], list[dict[str, Any]]]] = []
+        for index, raw_chunk in enumerate(chunks, start=1):
+            if not isinstance(raw_chunk, dict):
+                continue
+            text = str(raw_chunk.get("text") or "").strip()
+            if not text:
+                continue
+            pages = [
+                int(value)
+                for value in raw_chunk.get("pages") or []
+                if isinstance(value, int)
+            ]
+            if not pages:
+                page_start = raw_chunk.get("pageStart")
+                page_end = raw_chunk.get("pageEnd")
+                if isinstance(page_start, int) and isinstance(page_end, int):
+                    pages = list(range(page_start, page_end + 1))
+            locator: dict[str, Any] = {
+                "chunkOrdinal": int(raw_chunk.get("ordinal") or index),
+            }
+            if pages:
+                locator["pages"] = pages
+            evidence = [
+                dict(value)
+                for value in (
+                    raw_chunk.get("evidence")
+                    or raw_chunk.get("evidenceRefs")
+                    or []
+                )
+                if isinstance(value, dict)
+            ]
+            segments.append((text, locator, evidence))
+        if segments:
+            return segments
+    return [(_content_text(document), {}, [])]
+
+
+def _evidence_for_excerpt(
+    evidence: list[dict[str, Any]],
+    excerpt: str,
+) -> list[dict[str, Any]]:
+    if not evidence:
+        return []
+    excerpt_tokens = set(excerpt.casefold().split())
+    ranked: list[tuple[int, int, dict[str, Any]]] = []
+    for index, item in enumerate(evidence):
+        evidence_text = str(item.get("text") or "")
+        evidence_tokens = set(evidence_text.casefold().split())
+        overlap = len(excerpt_tokens & evidence_tokens)
+        if overlap:
+            ranked.append((overlap, -index, item))
+    ranked.sort(key=lambda value: (-value[0], -value[1]))
+    return [dict(value[2]) for value in ranked[:5]]
+
+
+def _context_windows(
+    text: str,
+    terms: tuple[str, ...],
+    *,
+    radius: int = 700,
+) -> list[tuple[int, int]]:
+    folded = text.casefold()
+    ranges: list[tuple[int, int]] = []
+    for term in terms:
+        needle = term.casefold()
+        if not needle:
+            continue
+        offset = 0
+        while (position := folded.find(needle, offset)) >= 0:
+            ranges.append(
+                (
+                    max(0, position - radius),
+                    min(len(text), position + len(needle) + radius),
+                )
+            )
+            offset = position + len(needle)
+    if not ranges:
+        return [(0, min(len(text), 1_500))]
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(ranges):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return [
+        (start, min(end, start + 1_500))
+        for start, end in merged
+    ]
 
 
 def check_document_coverage(

@@ -11,6 +11,7 @@ from swarmcore_application import (
     CapabilityReadinessService,
     ModelRuntimeStatus,
     ProjectConfigurationService,
+    RunService,
     ToolRuntimeStatus,
     synthesize_project_model_registration,
 )
@@ -29,6 +30,24 @@ class ReadyRuntime:
 
     async def inspect_agent(self, **_: object) -> AgentRuntimeStatus:
         return AgentRuntimeStatus(True)
+
+
+class UnhealthyModelRuntime(ReadyRuntime):
+    async def inspect_model(self, **_: object) -> ModelRuntimeStatus:
+        return ModelRuntimeStatus(True, True, False)
+
+
+class CapturingRuns:
+    def __init__(self) -> None:
+        self.arguments: dict[str, Any] | None = None
+
+    async def create_inline(self, session: object, **arguments: Any):
+        del session
+        self.arguments = arguments
+        return (
+            SimpleNamespace(id=uuid4(), status="PENDING", plan_hash="plan"),
+            SimpleNamespace(id=uuid4(), status="PENDING"),
+        )
 
 
 def test_synthesize_project_model_registration_accepts_uuid_refs() -> None:
@@ -141,6 +160,67 @@ async def test_capability_center_lists_project_runtime_models() -> None:
     assert project_model.name == "业务模型"
     assert project_model.source == "project"
     assert project_model.readiness.status.value == "READY"
+
+
+@pytest.mark.asyncio
+async def test_verified_runtime_provider_overrides_generic_probe_failure() -> None:
+    row = SimpleNamespace(
+        id=uuid4(),
+        revision=1,
+        name="__runtime_provider__:model://general",
+        source_ref="model://general",
+        configuration={
+            "providerUrl": "https://api.example.com/v1",
+            "modelName": "provider-model",
+            "secretRef": "secret://projects/demo/models/general",
+            "connectionVerifiedAt": "2026-07-28T10:00:00+00:00",
+        },
+    )
+
+    class ProjectModels:
+        async def list(self, session: object, **kwargs: Any):
+            del session
+            return ([row], 1) if kwargs.get("kind").value == "model" else ([], 0)
+
+        async def get(self, session: object, **_: Any):
+            del session
+            return None
+
+    runtime = UnhealthyModelRuntime()
+    runs = CapturingRuns()
+    center = CapabilityCenterService(
+        builtin_registry(),
+        CapabilityReadinessService(tools=runtime, models=runtime, agents=runtime),
+        runs=cast(RunService, runs),
+        configurations=cast(ProjectConfigurationService, ProjectModels()),
+    )
+
+    items = await center.list(
+        tenant_id=uuid4(),
+        project_id=uuid4(),
+        environment="development",
+        session=cast(Any, object()),
+    )
+
+    general = next(item for item in items if item.ref == "model://general@1")
+    researcher = next(item for item in items if item.ref == "agent://builtin/researcher@1")
+    assert general.readiness.status.value == "READY"
+    assert researcher.readiness.status.value == "READY"
+
+    await center.run(
+        cast(Any, object()),
+        tenant_id=uuid4(),
+        project_id=uuid4(),
+        environment="development",
+        capability_ref=researcher.ref,
+        input_data={"topic": "verified provider"},
+        preset_id=None,
+        idempotency_key="verified-provider-run",
+        initiated_by="test",
+        submitted_scopes=("run:create",),
+        auth_context_hash="context",
+    )
+    assert runs.arguments is not None
 
 
 @pytest.mark.asyncio

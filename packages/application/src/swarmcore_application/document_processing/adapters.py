@@ -126,8 +126,10 @@ class TesseractOcrAdapter:
     ) -> None:
         self._tesseract_cmd = Path(tesseract_cmd)
         self._pdftoppm_cmd = Path(pdftoppm_cmd) if pdftoppm_cmd else None
-        self._language = language or os.getenv(
-            "SWARMCORE_TESSERACT_LANG", "chi_sim+eng"
+        self._language = (
+            language
+            or os.getenv("SWARMCORE_TESSERACT_LANG")
+            or "chi_sim+eng"
         )
 
     @property
@@ -152,6 +154,7 @@ class TesseractOcrAdapter:
                 selected_pages=pages,
             )
             page_results: list[dict[str, Any]] = []
+            blocks: list[dict[str, Any]] = []
             for page_number, input_path in inputs:
                 completed = subprocess.run(
                     [
@@ -160,6 +163,7 @@ class TesseractOcrAdapter:
                         "stdout",
                         "-l",
                         self._language,
+                        "tsv",
                     ],
                     check=False,
                     capture_output=True,
@@ -170,13 +174,63 @@ class TesseractOcrAdapter:
                 )
                 if completed.returncode != 0:
                     raise RuntimeError("OCR_PROVIDER_UNAVAILABLE")
+                page_blocks = self._parse_tsv(completed.stdout, page_number)
+                blocks.extend(page_blocks)
+                page_text = " ".join(
+                    str(block["text"]) for block in page_blocks
+                ).strip()
+                confidences = [
+                    float(block["confidence"])
+                    for block in page_blocks
+                    if block.get("confidence") is not None
+                ]
                 page_results.append(
-                    {"page": page_number, "text": completed.stdout.strip()}
+                    {
+                        "page": page_number,
+                        "text": page_text,
+                        "confidence": (
+                            sum(confidences) / len(confidences)
+                            if confidences
+                            else 0.0
+                        ),
+                        "blocks": page_blocks,
+                    }
                 )
         text = "\n\n".join(str(item["text"]) for item in page_results).strip()
         if not text:
             raise RuntimeError("OCR_EMPTY_RESULT")
-        return {"text": text, "pages": page_results}
+        return {"text": text, "pages": page_results, "blocks": blocks, "tables": []}
+
+    @staticmethod
+    def _parse_tsv(value: str, page_number: int) -> list[dict[str, Any]]:
+        blocks: list[dict[str, Any]] = []
+        for line in value.splitlines()[1:]:
+            cells = line.split("\t", 11)
+            if len(cells) != 12 or not cells[11].strip():
+                continue
+            try:
+                left, top, width, height = map(int, cells[6:10])
+                confidence = max(0.0, min(1.0, float(cells[10]) / 100))
+                block_number = int(cells[2])
+                paragraph_number = int(cells[3])
+                line_number = int(cells[4])
+                word_number = int(cells[5])
+            except ValueError:
+                continue
+            blocks.append(
+                {
+                    "page": page_number,
+                    "text": cells[11].strip(),
+                    "bbox": [left, top, left + width, top + height],
+                    "confidence": confidence,
+                    "sourceKind": "OCR",
+                    "block": block_number,
+                    "paragraph": paragraph_number,
+                    "line": line_number,
+                    "word": word_number,
+                }
+            )
+        return blocks
 
     def _prepare_inputs(
         self,
@@ -201,9 +255,17 @@ class TesseractOcrAdapter:
             "-png",
             "-r",
             "220",
-            str(source),
-            str(prefix),
         ]
+        if selected_pages:
+            command.extend(
+                [
+                    "-f",
+                    str(min(selected_pages)),
+                    "-l",
+                    str(max(selected_pages)),
+                ]
+            )
+        command.extend([str(source), str(prefix)])
         completed = subprocess.run(
             command,
             check=False,
@@ -215,10 +277,11 @@ class TesseractOcrAdapter:
             raise RuntimeError("PDF_OCR_RENDER_FAILED")
         rendered = sorted(root.glob("page-*.png"))
         allowed = set(selected_pages or [])
+        first_page = min(selected_pages) if selected_pages else 1
         return [
-            (index, path)
+            (first_page + index - 1, path)
             for index, path in enumerate(rendered, start=1)
-            if not allowed or index in allowed
+            if not allowed or first_page + index - 1 in allowed
         ]
 
 
@@ -323,7 +386,7 @@ class ExtractionSchema:
 
 class SchemaDrivenExtractor:
     name = "schema-rules"
-    version = "1"
+    version = "2"
 
     def extract(
         self,
@@ -345,15 +408,23 @@ class SchemaDrivenExtractor:
             patterns = [str(item) for item in field.get("patterns", [])]
             machine_value = None
             evidence: list[dict[str, Any]] = []
+            quality_flags: list[str] = []
             confidence = 0.0
             for pattern in patterns:
                 match = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
                 if match:
-                    machine_value = match.group(1) if match.lastindex else match.group(0)
+                    candidate = (
+                        match.group(1) if match.lastindex else match.group(0)
+                    ).strip()
+                    if field.get("placeholderAware") and _is_placeholder(candidate):
+                        machine_value = None
+                        quality_flags.append("PLACEHOLDER_NOT_FILLED")
+                    else:
+                        machine_value = candidate
                     confidence = 0.92
                     evidence.append(
                         {
-                            "page": 1,
+                            "page": _evidence_page(content, match.group(0)),
                             "text": match.group(0)[:500],
                             "pattern": pattern,
                         }
@@ -367,18 +438,26 @@ class SchemaDrivenExtractor:
                 )
             review_status: Literal[
                 "AUTO_ACCEPTED", "PENDING", "CONFIRMED", "CORRECTED", "UNCONFIRMED"
-            ] = "AUTO_ACCEPTED" if confidence >= threshold else "PENDING"
+            ] = (
+                "UNCONFIRMED"
+                if "PLACEHOLDER_NOT_FILLED" in quality_flags
+                else "AUTO_ACCEPTED"
+                if confidence >= threshold
+                else "PENDING"
+            )
             results.append(
                 ExtractionField(
                     fieldPath=path,
                     displayName=display,
                     value=machine_value,
                     valueType=value_type,
+                    critical=bool(field.get("critical", False)),
                     confidence=confidence,
                     reviewStatus=review_status,
                     evidenceRefs=evidence,
                     machineValue=machine_value,
                     confirmedValue=None,
+                    qualityFlags=quality_flags,
                 )
             )
         return results
@@ -418,10 +497,87 @@ GENERIC_TEXT_SCHEMA = ExtractionSchema(
     ),
 )
 
+CONTRACT_STRUCTURE_SCHEMA = ExtractionSchema(
+    schema_ref="schema://document/contract-structure@1",
+    fields=(
+        {
+            "fieldPath": "document.title",
+            "displayName": "文档标题",
+            "valueType": "string",
+            "patterns": [
+                r"(?im)^(Digital Outcomes and Specialists 4 Framework Agreement"
+                r"(?:\s+Call-Off Contract(?:\s+v\d+)?)?)$",
+                r"(?im)^(?:标题|title)\s*[:\N{FULLWIDTH COLON}]\s*(.+)$",
+            ],
+            "critical": True,
+        },
+        {
+            "fieldPath": "contract.reference",
+            "displayName": "合同/框架编号",
+            "valueType": "string",
+            "patterns": [r"\b(RM\d+(?:\.\d+)*)\b"],
+            "critical": True,
+        },
+        {
+            "fieldPath": "contract.buyer",
+            "displayName": "买方",
+            "valueType": "string",
+            "patterns": [
+                r"(?im)^(?:Buyer|买方)(?:['\u2019]s)?\s*(?:name)?\s*[:\N{FULLWIDTH COLON}]?\s*(.+)$"
+            ],
+            "placeholderAware": True,
+            "critical": True,
+        },
+        {
+            "fieldPath": "contract.supplier",
+            "displayName": "供应商",
+            "valueType": "string",
+            "patterns": [
+                r"(?im)^(?:Supplier|供应商)(?:['\u2019]s)?\s*(?:name)?\s*"
+                r"[:\N{FULLWIDTH COLON}]?\s*(.+)$"
+            ],
+            "placeholderAware": True,
+            "critical": True,
+        },
+        {
+            "fieldPath": "contract.value",
+            "displayName": "合同金额",
+            "valueType": "string",
+            "patterns": [
+                r"(?im)^(?:Call-Off Contract value|合同金额)\s*[:\N{FULLWIDTH COLON}]?\s*(.+)$"
+            ],
+            "placeholderAware": True,
+            "critical": True,
+        },
+        {
+            "fieldPath": "contract.partA",
+            "displayName": "Part A",
+            "valueType": "string",
+            "patterns": [r"(?im)^(Part A\s*[-\u2013]\s*Order Form)$"],
+        },
+        {
+            "fieldPath": "contract.partB",
+            "displayName": "Part B",
+            "valueType": "string",
+            "patterns": [
+                r"(?im)^(Part B\s*[-\u2013]\s*Terms and conditions)$"
+            ],
+        },
+        {
+            "fieldPath": "contract.partC",
+            "displayName": "Part C",
+            "valueType": "string",
+            "patterns": [r"(?im)^(Part C\s*[-\u2013]\s*The Schedules)$"],
+        },
+    ),
+)
+
 
 def schema_for_ref(schema_ref: str | None) -> ExtractionSchema | None:
     if not schema_ref:
         return None
+    if schema_ref == CONTRACT_STRUCTURE_SCHEMA.schema_ref:
+        return CONTRACT_STRUCTURE_SCHEMA
     if schema_ref in {
         "schema://document/generic-text@1",
         "schema://contract/document-extraction@1",
@@ -429,3 +585,31 @@ def schema_for_ref(schema_ref: str | None) -> ExtractionSchema | None:
     }:
         return GENERIC_TEXT_SCHEMA
     return ExtractionSchema(schema_ref=schema_ref, fields=GENERIC_TEXT_SCHEMA.fields)
+
+
+_PLACEHOLDER_PATTERNS = (
+    re.compile(r"(?i)\bclick (?:here )?to enter\b"),
+    re.compile(r"(?i)^enter (?:information|text|date|name|.* here)"),
+    re.compile(r"(?i)^buyer to insert"),
+    re.compile(r"(?i)^\[[^\]]+\]$"),
+    re.compile(r"(?i)^x{2,}(?:\s+\w+)?$"),
+    re.compile(r"(?i)^(?:tbc|tbd|n/?a|not applicable)$"),
+)
+
+
+def _is_placeholder(value: str) -> bool:
+    normalized = value.strip().rstrip(".")
+    return not normalized or any(
+        pattern.search(normalized) for pattern in _PLACEHOLDER_PATTERNS
+    )
+
+
+def _evidence_page(content: ParsedContent, matched_text: str) -> int:
+    needle = matched_text.strip()
+    for page in content.pages:
+        if needle and needle in str(page.get("text") or ""):
+            try:
+                return int(page.get("page") or 1)
+            except (TypeError, ValueError):
+                return 1
+    return 1

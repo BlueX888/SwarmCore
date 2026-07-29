@@ -1,0 +1,96 @@
+{
+  "executionConfig": {
+    "taskQueue": {
+      "name": "swarm-control-document-verification",
+      "kind": "TASK_QUEUE_KIND_NORMAL"
+    },
+    "defaultWorkflowTaskTimeout": "10s"
+  },
+  "workflowExecutionInfo": {
+    "execution": {
+      "workflowId": "swarm:00000000-0000-0000-0000-000000000001:019fa6f0-f69f-701d-bff4-1eec4a9da397",
+      "runId": "019fa6f0-f7dc-7cc8-933b-96ca3ef0f816"
+    },
+    "type": {
+      "name": "SwarmRunWorkflow"
+    },
+    "startTime": "2026-07-28T04:17:17.788840027Z",
+    "status": "WORKFLOW_EXECUTION_STATUS_RUNNING",
+    "historyLength": "303",
+    "executionTime": "2026-07-28T04:17:17.788840027Z",
+    "memo": {},
+    "searchAttributes": {
+      "indexedFields": {
+        "BuildIds": {
+          "metadata": {
+            "encoding": "anNvbi9wbGFpbg==",
+            "type": "S2V5d29yZExpc3Q="
+          },
+          "data": "WyJ1bnZlcnNpb25lZCIsInVudmVyc2lvbmVkOmVjNzE0ZWQ2NTM1ZTA1NTAzMjNiNTg5NDBiNWMyZGU1Il0="
+        },
+        "TemporalChangeVersion": {
+          "metadata": {
+            "encoding": "anNvbi9wbGFpbg==",
+            "type": "S2V5d29yZExpc3Q="
+          },
+          "data": "WyJpbml0aWFsLXJ1bi1ldmVudC1tZXRhZGF0YS12MSIsInRyYW5zaXRpdmUtZmFpbHVyZS1ibG9ja2luZy12MSJd"
+        }
+      }
+    },
+    "autoResetPoints": {
+      "points": [
+        {
+          "buildId": "ec714ed6535e0550323b58940b5c2de5",
+          "runId": "019fa6f0-f7dc-7cc8-933b-96ca3ef0f816",
+          "firstWorkflowTaskCompletedId": "4",
+          "createTime": "2026-07-28T04:17:17.880545621Z",
+          "resettable": true
+        }
+      ]
+    },
+    "taskQueue": "swarm-control-document-verification",
+    "stateTransitionCount": "209",
+    "historySizeBytes": "3915330",
+    "mostRecentWorkerVersionStamp": {
+      "buildId": "ec714ed6535e0550323b58940b5c2de5"
+    },
+    "rootExecution": {
+      "workflowId": "swarm:00000000-0000-0000-0000-000000000001:019fa6f0-f69f-701d-bff4-1eec4a9da397",
+      "runId": "019fa6f0-f7dc-7cc8-933b-96ca3ef0f816"
+    },
+    "firstRunId": "019fa6f0-f7dc-7cc8-933b-96ca3ef0f816",
+    "priority": {}
+  },
+  "pendingActivities": [
+    {
+      "activityId": "50",
+      "activityType": {
+        "name": "execute_agent"
+      },
+      "state": "PENDING_ACTIVITY_STATE_STARTED",
+      "heartbeatDetails": [
+        {
+          "nodeKey": "clause-analysis",
+          "stage": "running"
+        }
+      ],
+      "lastHeartbeatTime": "2026-07-28T04:18:14.260018242Z",
+      "lastStartedTime": "2026-07-28T04:17:25.530666333Z",
+      "attempt": 1,
+      "maximumAttempts": 3,
+      "scheduledTime": "2026-07-28T04:17:25.498016372Z",
+      "lastWorkerIdentity": "43860@Admin",
+      "priority": {}
+    }
+  ],
+  "workflowExtendedInfo": {
+    "runExpirationTime": "0001-01-01T00:00:00Z",
+    "originalStartTime": "2026-07-28T04:17:17.788840027Z",
+    "requestIdInfos": {
+      "743f33bf-c39b-4ad6-9095-8003a0121f70": {
+        "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
+        "eventId": "1"
+      }
+    }
+  }
+}

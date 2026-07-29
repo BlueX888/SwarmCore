@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://swarmcore:swarmcore@localhost:5433/swarmcore"
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"
+    tool_task_queue: str = "tool-trusted"
     tool_capability_secret: str = "development-only-capability-secret-32-bytes"
     otlp_endpoint: str = "http://localhost:4317"
     telemetry_enabled: bool = True
@@ -57,6 +58,20 @@ class Settings(BaseSettings):
     filesystem_sandbox_image: str = ""
     filesystem_sandbox_capability_secret: str = ""
     filesystem_sandbox_timeout_seconds: int = 60
+    github_token: str = ""
+    github_api_url: str = ""
+    calibration_sandbox_enabled: bool = False
+    calibration_sandbox_image: str = ""
+    calibration_sandbox_docker_binary: str = "docker"
+    calibration_sandbox_timeout_seconds: int = 600
+    supplier_risk_allowed_hosts: list[str] = Field(
+        default_factory=lambda: [
+            "www.ccgp.gov.cn",
+            "api.qichacha.com",
+            "open.api.tianyancha.com",
+        ]
+    )
+    supplier_risk_timeout_seconds: int = 30
 
     def filesystem_config(self) -> FilesystemToolConfig:
         return FilesystemToolConfig(
@@ -76,7 +91,12 @@ class Settings(BaseSettings):
             sandbox_timeout_seconds=self.filesystem_sandbox_timeout_seconds,
         )
 
-    @field_validator("filesystem_allowed_mounts", "filesystem_deny_names", mode="before")
+    @field_validator(
+        "filesystem_allowed_mounts",
+        "filesystem_deny_names",
+        "supplier_risk_allowed_hosts",
+        mode="before",
+    )
     @classmethod
     def _split_csv(cls, value: Any) -> Any:
         if isinstance(value, str):
@@ -108,7 +128,19 @@ async def serve() -> None:
         PostgresEffectJournal(database.sessions),
         assemble_tool_executors(
             filesystem=settings.filesystem_config(),
-            extra=capability_executors(database.sessions),
+            extra=capability_executors(
+                database.sessions,
+                github_token=settings.github_token,
+                github_api_url=settings.github_api_url,
+                calibration_sandbox_enabled=settings.calibration_sandbox_enabled,
+                calibration_sandbox_image=settings.calibration_sandbox_image,
+                calibration_sandbox_docker_binary=settings.calibration_sandbox_docker_binary,
+                calibration_sandbox_timeout_seconds=(
+                    settings.calibration_sandbox_timeout_seconds
+                ),
+                supplier_risk_allowed_hosts=tuple(settings.supplier_risk_allowed_hosts),
+                supplier_risk_timeout_seconds=settings.supplier_risk_timeout_seconds,
+            ),
         ),
         secrets=(
             VaultSecretProvider(
@@ -130,7 +162,7 @@ async def serve() -> None:
     activities = ToolActivities(gateway)
     worker = Worker(
         temporal,
-        task_queue="tool-trusted",
+        task_queue=settings.tool_task_queue,
         activities=[activities.execute_tool, activities.compensate_tool],
     )
     try:

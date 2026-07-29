@@ -58,11 +58,25 @@ from .commands import (
 )
 from .compilation import CompilationResult, CompilationService
 from .configurations import ConfigurationKind, ProjectConfigurationService
-from .project_models import (
-    is_project_model_ref,
-    project_model_capability_summary,
-    synthesize_project_model_registration,
+from .contract_performance import (
+    PLAN_SCHEMA_VERSION as CONTRACT_PERFORMANCE_PLAN_SCHEMA_VERSION,
 )
+from .contract_performance import (
+    SCHEMA_VERSION as CONTRACT_PERFORMANCE_SCHEMA_VERSION,
+)
+from .contract_performance import (
+    apply_approved_changes,
+    build_daily_reminders,
+    build_schedule,
+    calculate_status,
+    contract_performance_report_lines,
+    dependency_cycle,
+    finalize_contract_performance,
+    match_evidence,
+    normalize_plan,
+    validate_contract_performance_result,
+)
+from .contract_performance_service import ContractPerformanceService
 from .decision_assets import (
     DecisionAssetService,
     DecisionEnvelope,
@@ -84,30 +98,6 @@ from .deviation_analysis import (
 )
 from .deviation_analysis import (
     SCHEMA_VERSION as DEVIATION_ANALYSIS_SCHEMA_VERSION,
-)
-from .invoice_assurance import (
-    SCHEMA_VERSION as INVOICE_ASSURANCE_SCHEMA_VERSION,
-)
-from .invoice_assurance import (
-    arithmetic_check,
-    commercial_match,
-    deduplicate,
-    enterprise_public_status_check,
-    finalize_invoice_assurance,
-    invoice_assurance_report_lines,
-    official_verify,
-    parse_invoice,
-    party_check,
-    payment_gate,
-    read_business_snapshot,
-    validate_invoice_assurance_result,
-)
-from .invoice_assurance_operations import (
-    InvoiceAssuranceOperationsService,
-    InvoiceBatchInput,
-    InvoiceBatchItemSnapshot,
-    InvoiceBatchSnapshot,
-    build_rule_trends,
 )
 from .document_intelligence import (
     AccuracyBaseline,
@@ -163,6 +153,30 @@ from .integrity import (
     rule_matches,
     select_unique_rule,
 )
+from .invoice_assurance import (
+    SCHEMA_VERSION as INVOICE_ASSURANCE_SCHEMA_VERSION,
+)
+from .invoice_assurance import (
+    arithmetic_check,
+    commercial_match,
+    deduplicate,
+    enterprise_public_status_check,
+    finalize_invoice_assurance,
+    invoice_assurance_report_lines,
+    official_verify,
+    parse_invoice,
+    party_check,
+    payment_gate,
+    read_business_snapshot,
+    validate_invoice_assurance_result,
+)
+from .invoice_assurance_operations import (
+    InvoiceAssuranceOperationsService,
+    InvoiceBatchInput,
+    InvoiceBatchItemSnapshot,
+    InvoiceBatchSnapshot,
+    build_rule_trends,
+)
 from .post_evaluation import (
     ContractFacts,
     DeviationFact,
@@ -198,6 +212,21 @@ from .post_evaluation_expanded import (
     search_evidence,
     validate_expanded_result,
 )
+from .project_models import (
+    is_project_model_ref,
+    project_model_capability_summary,
+    synthesize_project_model_registration,
+)
+from .procurement_supplier_risk import (
+    calculate_supplier_performance,
+    collect_risk_observations,
+    compare_procurement_clauses,
+    decide_supplier_risk,
+    diff_supplier_risk_snapshots,
+    finalize_procurement_supplier_risk,
+    validate_procurement_supplier_risk_result,
+)
+from .procurement_supplier_risk_service import ProcurementSupplierRiskService
 from .queries import RunQueryService, is_retryable_run_failure, render_run_snapshot
 from .resource_plane import (
     CapabilityBindingService,
@@ -221,6 +250,8 @@ from .workbench import WorkbenchService
 
 __all__ = [
     "BUSINESS_WORK_DEFINITIONS",
+    "CONTRACT_PERFORMANCE_PLAN_SCHEMA_VERSION",
+    "CONTRACT_PERFORMANCE_SCHEMA_VERSION",
     "DEFAULT_BUSINESS_PROFILE",
     "DEVIATION_ANALYSIS_SCHEMA_VERSION",
     "DIMENSIONS",
@@ -256,10 +287,8 @@ __all__ = [
     "CompilationService",
     "ConfigurationKind",
     "ConnectionService",
-    "is_project_model_ref",
-    "project_model_capability_summary",
-    "synthesize_project_model_registration",
     "ContractFacts",
+    "ContractPerformanceService",
     "CrossFileFinding",
     "CrossFileRule",
     "DecisionAssetService",
@@ -292,6 +321,10 @@ __all__ = [
     "IntegrityResult",
     "IntegrityRuleDocument",
     "IntelligenceDiagnostic",
+    "InvoiceAssuranceOperationsService",
+    "InvoiceBatchInput",
+    "InvoiceBatchItemSnapshot",
+    "InvoiceBatchSnapshot",
     "InvoiceFact",
     "ModelReadinessPort",
     "ModelRuntimeStatus",
@@ -305,6 +338,7 @@ __all__ = [
     "PostEvaluationResult",
     "ProcessingResultEnvelope",
     "ProjectConfigurationService",
+    "ProcurementSupplierRiskService",
     "QualityStatus",
     "ResourceCatalogService",
     "ResourceReadiness",
@@ -331,20 +365,21 @@ __all__ = [
     "ToolRuntimeStatus",
     "UploadBatchService",
     "WorkbenchService",
-    "InvoiceAssuranceOperationsService",
-    "InvoiceBatchInput",
-    "InvoiceBatchItemSnapshot",
-    "InvoiceBatchSnapshot",
     "aggregate_deviations",
     "aggregate_responsibility",
     "aggregate_risks",
+    "apply_approved_changes",
     "arithmetic_check",
-    "assure_invoices",
     "assess_document_readability",
+    "assure_invoices",
+    "build_daily_reminders",
     "build_deviation_trends",
     "build_rule_trends",
+    "build_schedule",
     "calculate_accuracy_baseline",
     "calculate_cost_deviation",
+    "calculate_supplier_performance",
+    "calculate_status",
     "calculate_time_deviation",
     "calculate_timeline",
     "capability_executors",
@@ -352,28 +387,39 @@ __all__ = [
     "check_evidence_consistency",
     "command_request_id",
     "commercial_match",
+    "collect_risk_observations",
+    "compare_procurement_clauses",
     "compare_content_deviation",
     "compose_formal_post_evaluation_report",
+    "contract_performance_report_lines",
     "cross_file_consistency",
     "deduplicate",
-    "enterprise_public_status_check",
+    "dependency_cycle",
+    "decide_supplier_risk",
     "deviation_report_lines",
     "document_binding_keys",
     "document_read",
+    "diff_supplier_risk_snapshots",
+    "enterprise_public_status_check",
     "evaluate_cross_file_consistency",
     "evaluate_integrity",
     "evaluate_post_evaluation",
     "execute_decision",
+    "finalize_contract_performance",
     "finalize_deviation_result",
     "finalize_expanded_result",
     "finalize_formal_report_quality",
     "finalize_invoice_assurance",
+    "finalize_procurement_supplier_risk",
     "get_business_work_definition",
     "invoice_assurance_report_lines",
+    "is_project_model_ref",
     "is_retryable_run_failure",
+    "match_evidence",
     "merge_deviation_facts",
     "merge_domain_analyses",
     "normalize_decision",
+    "normalize_plan",
     "normalize_post_evaluation_payload",
     "official_verify",
     "pack_name_for_work_key",
@@ -392,6 +438,7 @@ __all__ = [
     "post_evaluation_report_render_v2",
     "post_evaluation_report_render_v3",
     "post_evaluation_report_render_v4",
+    "project_model_capability_summary",
     "read_business_snapshot",
     "reconcile_amounts",
     "render_evidence_pdf",
@@ -404,10 +451,13 @@ __all__ = [
     "rules_evaluate",
     "search_evidence",
     "select_unique_rule",
+    "synthesize_project_model_registration",
+    "validate_contract_performance_result",
     "validate_deviation_result",
     "validate_evidence_ref",
     "validate_expanded_result",
     "validate_invoice_assurance_result",
-    "work_key_for_pack_name",
+    "validate_procurement_supplier_risk_result",
     "verify_report_citations",
+    "work_key_for_pack_name",
 ]

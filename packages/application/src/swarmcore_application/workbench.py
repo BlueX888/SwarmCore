@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ from swarmcore_persistence.models import (
     WorkItemSubject,
 )
 from swarmcore_persistence.repositories import canonical_hash
+from swarmcore_registry import CapabilityPackManifest
 
 from .capability_packs import CapabilityPackService
 from .decision_assets import DecisionExecutionService, normalize_decision
@@ -57,6 +59,35 @@ class WorkbenchService:
         self._audit = AuditRepository()
         self._decision_executions = DecisionExecutionService()
         self._documents = DocumentLibraryService()
+
+    @staticmethod
+    def _select_strategy_snapshot(
+        manifest: CapabilityPackManifest,
+        dependency_snapshot: Mapping[str, Any],
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        selected = dependency_snapshot.get("strategy")
+        if not isinstance(selected, dict):
+            raise RuntimeError("capability pack strategy version snapshot is missing")
+        if not manifest.spec.strategies.operations:
+            return dict(selected)
+        operation = str(payload.get("operation") or "").strip().upper()
+        strategy_ref = manifest.spec.strategies.operations.get(operation)
+        if strategy_ref is None:
+            raise ValueError(f"CAPABILITY_OPERATION_UNSUPPORTED: {operation or 'MISSING'}")
+        snapshots = dependency_snapshot.get("strategies")
+        if not isinstance(snapshots, dict):
+            raise RuntimeError("capability pack operation strategy snapshots are missing")
+        operation_snapshot = snapshots.get(operation)
+        if not isinstance(operation_snapshot, dict):
+            raise RuntimeError(
+                f"capability pack operation strategy snapshot is missing: {operation}"
+            )
+        if operation_snapshot.get("ref") != strategy_ref:
+            raise RuntimeError(
+                f"capability pack operation strategy snapshot does not match: {operation}"
+            )
+        return dict(operation_snapshot)
 
     async def list_work_items(
         self,
@@ -564,23 +595,15 @@ class WorkbenchService:
         selection = revision.payload.get("documentSelection", {})
         if not isinstance(selection, dict):
             selection = {}
-        include_ids = {
-            str(value) for value in selection.get("includeVersionIds", [])
-        }
-        exclude_ids = {
-            str(value) for value in selection.get("excludeVersionIds", [])
-        }
-        baseline_ids = {
-            str(value) for value in selection.get("baselineVersionIds", [])
-        }
+        include_ids = {str(value) for value in selection.get("includeVersionIds", [])}
+        exclude_ids = {str(value) for value in selection.get("excludeVersionIds", [])}
+        baseline_ids = {str(value) for value in selection.get("baselineVersionIds", [])}
         available_version_ids = {str(row[1].id) for row in document_versions}
         if (include_ids | baseline_ids) - available_version_ids:
             raise ValueError("DOCUMENT_SELECTION_INVALID")
         if (include_ids | baseline_ids) & exclude_ids:
             raise ValueError("DOCUMENT_SELECTION_INVALID")
-        document_versions = [
-            row for row in document_versions if str(row[1].id) not in exclude_ids
-        ]
+        document_versions = [row for row in document_versions if str(row[1].id) not in exclude_ids]
         if manifest.metadata.name == "deviation-analysis":
             baseline_categories = {
                 "SCOPE_BASELINE",
@@ -588,12 +611,8 @@ class WorkbenchService:
                 "COST_BASELINE",
             }
             for category in baseline_categories:
-                candidates = [
-                    row for row in document_versions if row[0].category == category
-                ]
-                selected_baselines = [
-                    row for row in candidates if str(row[1].id) in baseline_ids
-                ]
+                candidates = [row for row in document_versions if row[0].category == category]
+                selected_baselines = [row for row in candidates if str(row[1].id) in baseline_ids]
                 if len(candidates) > 1 and not selected_baselines:
                     raise ValueError("BASELINE_SELECTION_REQUIRED")
                 if selected_baselines:
@@ -611,9 +630,7 @@ class WorkbenchService:
         ] = {}
         for row in document_versions:
             documents_by_category.setdefault(row[0].category, []).append(row)
-        selected_documents: list[
-            tuple[BusinessDocument, BusinessDocumentVersion, BlobObject]
-        ] = []
+        selected_documents: list[tuple[BusinessDocument, BusinessDocumentVersion, BlobObject]] = []
         for requirement in requirements:
             rows = documents_by_category.get(requirement.category, [])
             rows.sort(
@@ -630,18 +647,17 @@ class WorkbenchService:
         document_versions = selected_documents[:100]
         selected_counts: dict[str, int] = {}
         for document, _, _ in document_versions:
-            selected_counts[document.category] = (
-                selected_counts.get(document.category, 0) + 1
-            )
+            selected_counts[document.category] = selected_counts.get(document.category, 0) + 1
         if any(
             requirement.required
             and selected_counts.get(requirement.category, 0) < requirement.min_count
             for requirement in manifest.spec.document_requirements()
         ):
             raise ValueError("DOCUMENT_SELECTION_REQUIRED")
-        if self._schema_requires_non_empty(
-            manifest.spec.input_schema, "documents"
-        ) and not document_versions:
+        if (
+            self._schema_requires_non_empty(manifest.spec.input_schema, "documents")
+            and not document_versions
+        ):
             raise ValueError("DOCUMENT_SELECTION_REQUIRED")
         if (
             manifest.api_version == "swarmcore.io/v2"
@@ -691,8 +707,7 @@ class WorkbenchService:
                     "sha256": version.sha256,
                 }
                 for document, version, _ in document_versions
-                if document.category
-                in {"SCOPE_BASELINE", "SCHEDULE_BASELINE", "COST_BASELINE"}
+                if document.category in {"SCOPE_BASELINE", "SCHEDULE_BASELINE", "COST_BASELINE"}
             ]
         )
         configuration_hash = canonical_hash(
@@ -700,9 +715,7 @@ class WorkbenchService:
                 "binding": binding.configuration,
                 "currency": revision.payload.get("currency", "CNY"),
                 "timezone": revision.payload.get("timezone", "Asia/Shanghai"),
-                "dimensions": revision.payload.get(
-                    "dimensions", ["TIME", "CONTENT", "COST"]
-                ),
+                "dimensions": revision.payload.get("dimensions", ["TIME", "CONTENT", "COST"]),
                 "thresholds": revision.payload.get("thresholds", {}),
                 "approval": revision.payload.get("approval", {}),
                 "approvalRules": revision.payload.get("approvalRules", {}),
@@ -773,7 +786,11 @@ class WorkbenchService:
                 }
             )
         self._validate_schema(manifest.spec.input_schema, input_data)
-        strategy_snapshot = pack_version.dependency_snapshot.get("strategy", {})
+        strategy_snapshot = self._select_strategy_snapshot(
+            manifest,
+            pack_version.dependency_snapshot,
+            revision.payload,
+        )
         strategy_version_id = strategy_snapshot.get("strategyVersionId")
         if not isinstance(strategy_version_id, str):
             raise RuntimeError("capability pack strategy version snapshot is missing")
@@ -794,6 +811,7 @@ class WorkbenchService:
                 "packVersionId": str(pack_version.id),
                 "attachmentManifestHash": attachment_hash,
                 "bindingConfigurationHash": canonical_hash(binding.configuration),
+                "strategyRef": strategy_snapshot.get("ref"),
             }
         )
         evaluation = Evaluation(
@@ -812,6 +830,7 @@ class WorkbenchService:
             plan_hash=run.plan_hash,
             registry_snapshot={
                 **dict(pack_version.dependency_snapshot),
+                "selectedStrategy": dict(strategy_snapshot),
                 "bindingConfiguration": dict(binding.configuration),
                 "bindingConfigurationHash": canonical_hash(binding.configuration),
             },
@@ -917,7 +936,13 @@ class WorkbenchService:
 
     @staticmethod
     def _requires_selection_provenance(manifest_name: str) -> bool:
-        return manifest_name in {"deviation-analysis", "invoice-assurance"}
+        return manifest_name in {
+            "contract-performance",
+            "deviation-analysis",
+            "document-structuring",
+            "invoice-assurance",
+            "procurement-supplier-risk",
+        }
 
     async def _complete_inline_run(
         self,

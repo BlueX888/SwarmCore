@@ -14,6 +14,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
 PROJECTED: list[dict[str, Any]] = []
+ROLLING_EVENTS: list[str] = []
 REGISTRY = builtin_registry().snapshot_id
 AGENT = {"role": "worker", "instructions": "Do the assigned work."}
 PLANS = {
@@ -41,6 +42,21 @@ PLANS = {
     "supervisor": Compiler()
     .compile(
         supervisor("supervisor", AGENT, {"one": AGENT, "two": AGENT}),
+        registry_snapshot=REGISTRY,
+        policy_revision="p1",
+    )
+    .model_dump(mode="json"),
+    "rolling": Compiler()
+    .compile(
+        dag(
+            "rolling",
+            {"root": AGENT, "fast": AGENT, "slow": AGENT, "downstream": AGENT},
+            {
+                "fast": ["root"],
+                "slow": ["root"],
+                "downstream": ["fast"],
+            },
+        ),
         registry_snapshot=REGISTRY,
         policy_revision="p1",
     )
@@ -81,6 +97,59 @@ async def slow_execute_agent(_: dict[str, Any]) -> dict[str, Any]:
     while True:
         activity.heartbeat("waiting")
         await asyncio.sleep(0.05)
+
+
+@activity.defn(name="execute_agent")
+async def rolling_execute_agent(value: dict[str, Any]) -> dict[str, Any]:
+    key = str(value["node"]["key"])
+    ROLLING_EVENTS.append(f"{key}:started")
+    if key == "fast":
+        await asyncio.sleep(0.05)
+    elif key == "slow":
+        await asyncio.sleep(0.3)
+    ROLLING_EVENTS.append(f"{key}:completed")
+    return {key: True}
+
+
+@pytest.mark.asyncio
+async def test_scheduler_fills_capacity_without_batch_barrier(
+    temporal_environment: TemporalTestEnvironment,
+) -> None:
+    ROLLING_EVENTS.clear()
+    client = temporal_environment.client
+    control_worker = Worker(
+        client,
+        task_queue="swarm-control-rolling",
+        workflows=[SwarmRunWorkflow],
+        activities=[load_execution_plan, project_transition, execute_control_node],
+    )
+    agent_worker = Worker(
+        client,
+        task_queue="agent-rolling",
+        activities=[rolling_execute_agent],
+    )
+    async with control_worker, agent_worker:
+        result = await client.execute_workflow(
+            SwarmRunWorkflow.run,
+            {
+                "tenantId": str(uuid4()),
+                "projectId": str(uuid4()),
+                "runId": str(uuid4()),
+                "planHash": "d" * 64,
+                "input": {},
+                "fixture": "rolling",
+                "controlTaskQueue": "swarm-control-rolling",
+                "agentTaskQueue": "agent-rolling",
+                "startCommand": {"commandSeq": 1},
+            },
+            id=f"swarm:rolling:{uuid4()}",
+            task_queue="swarm-control-rolling",
+        )
+
+    assert result["status"] == "SUCCEEDED"
+    assert ROLLING_EVENTS.index("downstream:started") < ROLLING_EVENTS.index(
+        "slow:completed"
+    )
 
 
 @pytest.mark.asyncio

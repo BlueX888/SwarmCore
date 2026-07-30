@@ -67,14 +67,13 @@ class CapabilityCenterService:
         environment: str,
         session: AsyncSession | None = None,
     ) -> tuple[CapabilitySummary, ...]:
-        builtins = await self._readiness.project(
-            tenant_id=tenant_id,
-            project_id=project_id,
-            environment=environment,
-            registry=self._registry,
-        )
         if session is None:
-            return builtins
+            return await self._readiness.project(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                environment=environment,
+                registry=self._registry,
+            )
         try:
             agent_rows, _ = await self._configurations.list(
                 session,
@@ -91,8 +90,21 @@ class CapabilityCenterService:
                 limit=1000,
             )
         except Exception:
-            return builtins
+            return await self._readiness.project(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                environment=environment,
+                registry=self._registry,
+            )
+        builtins = await self._readiness.project(
+            tenant_id=tenant_id,
+            project_id=project_id,
+            environment=environment,
+            registry=self._registry,
+            include_unrouted_models=True,
+        )
         builtins = self._apply_verified_model_overrides(builtins, model_rows)
+        builtins = self._hide_unrouted_models(builtins)
         project_models = self._project_model_summaries(model_rows)
         projection = (*builtins, *project_models)
         builtin_agents = {item.ref: item for item in builtins if item.kind is CapabilityKind.AGENT}
@@ -289,6 +301,20 @@ class CapabilityCenterService:
             )
             reconciled.append(item.model_copy(update={"readiness": readiness}))
         return tuple(reconciled)
+
+    @staticmethod
+    def _hide_unrouted_models(
+        items: tuple[CapabilitySummary, ...],
+    ) -> tuple[CapabilitySummary, ...]:
+        return tuple(
+            item
+            for item in items
+            if item.kind is not CapabilityKind.MODEL
+            or not any(
+                reason.code is ReadinessReasonCode.MODEL_ROUTE_MISSING
+                for reason in item.readiness.reasons
+            )
+        )
 
     @staticmethod
     def _agent_declaration(configuration: dict[str, Any]) -> AgentSpec | None:

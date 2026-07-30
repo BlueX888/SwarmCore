@@ -134,7 +134,7 @@ flowchart TB
 
 项目也可在能力中心通过三要素（API URL、ModelName、API Key）直接创建项目级模型能力，引用形如 `model://project/{uuid}@{revision}`。这类模型不进入全局 Registry / `SWARMCORE_MODEL_ROUTES`，凭证仍写入 Vault；Model Gateway 在存在项目运行时 Provider 配置时允许调用。能力目录与智能体/策略模型选择器会合并展示项目模型。模型详情页只负责连通与保存配置，不提供运行输入、预设、加入画布或立即运行。保存模型配置后，Web 自动发起一次真实模型调用；检测成功且被检测的 URL、ModelName 和 API Key 与已保存配置一致时，记录项目级连接验证并立即标记可用，据此覆盖不适用于该 Provider 的通用 `/health` / `/models` 探测结果；保存配置变更会清除旧验证。项目范围内的配置页可通过专用 `no-store` 接口按需读取已保存的 API Key，以支持再次打开后由用户主动显示；密钥不得进入普通配置 JSON、URL、日志或浏览器持久化存储。
 
-`ProjectConfiguration` 继续使用 `project_configurations` 表和旧 API。Tool 的用户层配置称为 Capability Preset，只保存能力引用和可复用参数，不保存 Secret。Agent 配置则投影为项目级、版本化的 `agent://project/{configurationId}@{revision}` 能力，参与 Readiness、能力中心直接运行和画布编排；执行时仍由 Agent Worker 通过 Agno Adapter 按任务创建运行实例，不把 SDK 对象作为持久状态。能力中心的直接运行和 REST/MCP 均复用同一应用服务，不建立旁路。
+`ProjectConfiguration` 继续使用 `project_configurations` 表和旧 API。Tool 的用户层配置称为 Capability Preset，只保存能力引用和可复用参数，不保存 Secret。Agent 配置则投影为项目级、版本化的 `agent://project/{configurationId}@{revision}` 能力，参与 Readiness、能力中心直接运行；策略画布中智能体节点可绑定已保存的项目 Agent 配置，绑定时把入口 Agent 声明复制进当前 SwarmSpec，并把 `configurationId/revision/name/sourceRef` 记入草稿 `editorState.agentBindings`（非执行元数据）。后续配置更新或删除不自动改写已保存草稿快照；用户需显式重新绑定。发布后的执行语义完全来自 StrategyVersion 冻结的 SwarmSpec / ExecutionPlan，运行时不得旁路读取可变 ProjectConfiguration。执行时仍由 Agent Worker 通过 Agno Adapter 按任务创建运行实例，不把 SDK 对象作为持久状态。能力中心的直接运行和 REST/MCP 均复用同一应用服务，不建立旁路。
 
 ## 5. 执行与一致性契约
 
@@ -181,6 +181,9 @@ stateDiagram-v2
 - 状态投影、RunEvent 与 destination=nats 的 Outbox 同事务写入；Publisher 取得 PubAck 后标记完成。
 - PostgreSQL 对外部查询和审计权威，Temporal 对实时调度权威；Reconciler 修复停滞投影。
 - 单 Run 的 `event_seq` 严格递增；`transition_id`、`event_id`、Attempt `producer_seq` 和 Tool `effect_id` 分别负责重放幂等。
+- Outbox 与 ToolEffect 的可接管租约必须携带 owner 和单调递增 generation；续租、完成、失败和重试均校验 fencing identity，旧副本不得覆盖新持有者状态。
+- 文档处理 start/cancel 与 RunCommand 一样按数据库 partition 顺序领取；进程内集合不承担跨副本互斥。
+- 模型预算预约携带过期时间；Gateway 崩溃留下的预约在 TTL 后惰性回收，已提交的 ModelUsageRecord 仍是防重放事实。
 - Agent 内只允许无副作用 Tool；有副作用 Tool 展开为显式节点，必须声明幂等、补偿或人工恢复策略。
 - Workflow 关闭前必须等待终态投影成功；NATS、Trace 和 Cache 均不是最终事实源。
 
@@ -194,7 +197,7 @@ stateDiagram-v2
 
 ### 6.1 通用模型
 
-产品入口是 **Business Work（业务工作）**：用户按业务目标进入配置、准备资料、办理案件并发起 Assessment。Capability Pack 仍是不可变的内部执行定义，组合 WorkItem/Input/Output Schema、Strategy、Agent、Tool、Rule、Report、权限、事件和 View Definition；产品路由与文案不再把 Capability Pack 暴露为业务入口。`BusinessWorkService` 维护稳定 `workKey` 到内部 Pack 的映射（例如 `document-integrity→contract-integrity`、`contract-post-evaluation→contract-post-evaluation`），并投影运行资格、阻塞项与配置摘要；REST/MCP 的 `/business-works` 与兼容 `/capability-packs` 复用同一套应用服务。规划中的业务工作（如独立“报告生成”）不伪装为可运行。
+产品入口是 **Business Work（业务工作）**：用户按业务目标进入配置、准备资料、办理案件并发起 Assessment。Capability Pack 仍是不可变的内部执行定义，组合 WorkItem/Input/Output Schema、Strategy、Agent、Tool、Rule、Report、权限、事件和 View Definition；产品路由与文案不再把 Capability Pack 暴露为业务入口。`BusinessWorkService` 维护稳定 `workKey` 到内部 Pack 的映射（例如 `document-integrity→contract-integrity`、`report-generation→contract-post-evaluation`、`contract-post-evaluation→contract-post-evaluation`），并投影运行资格、阻塞项与配置摘要；REST/MCP 的 `/business-works` 与兼容 `/capability-packs` 复用同一套应用服务。“报告生成”复用合同七维后评价的 Case、Assessment、Run 与 Report 执行链，不建立第二套评分或报告逻辑；其他未映射业务工作保持规划状态，不伪装为可运行。
 
 Capability Pack Manifest 不允许 `module`、`script`、`classPath`、`componentUrl` 等代码入口；项目显式绑定不可变版本。项目可编辑绑定级 `configuration`，更新配置只更新当前项目的绑定参数，不修改已发布 Manifest、内容哈希或历史评估快照。未启用且无历史评估引用的版本可删除；已删除的可信清单版本不会被 `ensure_trusted` 再次自动发布到该项目。仍启用或仍被评估引用的版本不可删除。
 
@@ -479,6 +482,10 @@ Event Gateway 提供 SSE `after`/`Last-Event-ID`、心跳、背压、历史补�
 生产由无状态 API/Gateway、Dispatcher/Publisher、Control/Agent/Tool/Webhook Worker、Projector/Ingestor、Artifact Gateway 组成；依赖 PostgreSQL、Temporal、NATS、S3、Vault、OPA 和模型 Provider。各 Worker 使用独立 Temporal Task Queue，按队列延迟和 Provider 容量扩缩容。
 
 本地 Compose 提供 PostgreSQL、Temporal、NATS、OPA、Vault dev、Phoenix 及核心服务；Artifact 可使用本地文件 Adapter。生产默认 PostgreSQL PITR、NATS 三副本、S3 Versioning、Vault Audit、Temporal HA/Cloud，并定期恢复演练。
+
+Control/Agent/Tool Worker 显式限制并发 Activity、Workflow Task 与 Poller 数；增加 Worker 副本可扩展队列消费能力。单 Run 仍受冻结 ExecutionPlan 的 `maxParallelism` 约束，当前执行图是编译期静态 DAG，运行中的 Agent 不能动态创建 Team/子任务。Workflow 使用滚动就绪窗口：任一节点完成即补充其已就绪下游，不设置整批屏障。
+
+Dispatcher、Publisher、Webhook Worker 和 Reconciler 使用 PostgreSQL `FOR UPDATE SKIP LOCKED`、租约与 fencing 分片领取，不使用 Server 全局锁。Reconciler 以 `reconciled_at` 轮转扫描，避免多副本重复锁住同一批最旧 Run。生产 Control Worker 的文档处理只接受共享 S3 Artifact Store；本地文件 Store 仅用于 local 模式。
 
 背压顺序：租户配额 → 项目配额 → Strategy 并行度 → Temporal Queue → Provider RPM/TPM → Tool/Sandbox 容量。饱和时保持有界队列和明确状态，不以无限协程或缓存吸收压力。
 

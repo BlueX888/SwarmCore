@@ -2,6 +2,7 @@ import { AlertTriangle, FileDiff, Gauge, History, ShieldAlert } from "lucide-rea
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export const PROCUREMENT_SUPPLIER_RISK_SCHEMA =
   "schema://procurement-supplier-risk/result@1";
@@ -196,7 +197,7 @@ export function ProcurementSupplierRiskResultView({
               </tbody>
             </table>
           </div>
-          {!lineages.length ? <Empty text="尚无可展示的条款链" /> : null}
+          {!lineages.length ? <EmptyState compact tone="neutral" title="尚无可展示的条款链" /> : null}
         </CardContent>
       </Card>
 
@@ -229,7 +230,7 @@ export function ProcurementSupplierRiskResultView({
                   evidenceCount={finding.evidenceRefs?.length ?? 0}
                 />
               ))}
-              {!hardGates.length && !findings.length ? <Empty text="未发现差异或准入门禁" /> : null}
+              {!hardGates.length && !findings.length ? <EmptyState compact tone="neutral" title="未发现差异或准入门禁" /> : null}
             </div>
           </CardContent>
         </Card>
@@ -273,7 +274,7 @@ export function ProcurementSupplierRiskResultView({
                   </Badge>
                 </div>
               ))}
-              {!sources.length && !metrics.length ? <Empty text="尚无风控源或绩效记录" /> : null}
+              {!sources.length && !metrics.length ? <EmptyState compact tone="neutral" title="尚无风控源或绩效记录" /> : null}
             </div>
           </CardContent>
         </Card>
@@ -387,14 +388,6 @@ function TraceItem({ label, value }: { label: string; value: string }) {
       <p className="text-xs text-gray-500">{label}</p>
       <p className="mt-1 text-sm font-medium text-gray-900 dark:text-white">{value}</p>
     </div>
-  );
-}
-
-function Empty({ text }: { text: string }) {
-  return (
-    <p className="mt-4 rounded-xl border border-dashed border-gray-200 p-4 text-center text-sm text-gray-500 dark:border-gray-800">
-      {text}
-    </p>
   );
 }
 

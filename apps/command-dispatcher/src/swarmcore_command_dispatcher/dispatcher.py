@@ -7,6 +7,12 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from swarmcore_observability import SwarmMetrics
+from swarmcore_persistence import (
+    OutboxClaim,
+    OutboxLeaseKeeper,
+    claim_outbox,
+    owns_outbox_claim,
+)
 from swarmcore_persistence.models import (
     DocumentProcessingRun,
     OutboxEvent,
@@ -50,16 +56,19 @@ class CommandDispatcher:
 
     async def run_once(self) -> int:
         claimed = await self._claim()
-        for outbox_id in claimed:
+        for claim in claimed:
             try:
-                await self._deliver(outbox_id)
+                async with OutboxLeaseKeeper(
+                    self._sessions, claim, worker_id=self._worker_id
+                ):
+                    await self._deliver(claim)
             except Exception as exc:
-                await self._retry(outbox_id, str(exc))
+                await self._retry(claim, str(exc))
         return len(claimed)
 
-    async def _claim(self) -> list[UUID]:
+    async def _claim(self) -> list[OutboxClaim]:
         now = datetime.now(UTC)
-        claimed: list[UUID] = []
+        claimed: list[OutboxClaim] = []
         partitions: set[str] = set()
         async with self._sessions() as session, session.begin():
             pending = int(
@@ -77,11 +86,8 @@ class CommandDispatcher:
             for event in candidates:
                 if event.partition_key in partitions:
                     continue
-                event.status = "DELIVERING"
-                event.locked_by = self._worker_id
-                event.locked_until = now + timedelta(seconds=30)
                 partitions.add(event.partition_key)
-                claimed.append(event.id)
+                claimed.append(claim_outbox(event, worker_id=self._worker_id, now=now))
                 if self._metrics is not None:
                     self._metrics.queue_schedule_latency.record(
                         max(0.0, (now - event.available_at).total_seconds()),
@@ -96,24 +102,26 @@ class CommandDispatcher:
             self._last_pending = pending
         return claimed
 
-    async def _deliver(self, outbox_id: UUID) -> None:
+    async def _deliver(self, claim: OutboxClaim) -> None:
         async with self._sessions() as session:
-            outbox = await session.get(OutboxEvent, outbox_id)
-            if outbox is None or outbox.status != "DELIVERING":
+            outbox = await session.get(OutboxEvent, claim.id)
+            if outbox is None or not owns_outbox_claim(
+                outbox, claim, worker_id=self._worker_id
+            ):
                 return
             if outbox.type in {
                 "document.processing.requested",
                 "document.processing.cancel.requested",
             }:
-                await self._deliver_document_processing(outbox)
+                await self._deliver_document_processing(claim, outbox)
                 return
             command = await session.get(RunCommand, outbox.source_id)
             if command is None:
-                await self._dead(outbox_id, "source RunCommand does not exist")
+                await self._dead(claim, "source RunCommand does not exist")
                 return
             run = await session.get(Run, command.run_id)
             if run is None:
-                await self._dead(outbox_id, "Run does not exist")
+                await self._dead(claim, "Run does not exist")
                 return
             command_payload = {
                 "commandId": str(command.id),
@@ -170,11 +178,13 @@ class CommandDispatcher:
                 )
                 temporal_run_id = None
             else:
-                await self._dead(outbox_id, f"unknown command type: {command.type}")
+                await self._dead(claim, f"unknown command type: {command.type}")
                 return
-        await self._complete(outbox_id, result, temporal_run_id=temporal_run_id)
+        await self._complete(claim, result, temporal_run_id=temporal_run_id)
 
-    async def _deliver_document_processing(self, outbox: OutboxEvent) -> None:
+    async def _deliver_document_processing(
+        self, claim: OutboxClaim, outbox: OutboxEvent
+    ) -> None:
         payload = dict(outbox.payload)
         workflow_id = f"document-processing/{payload['processingRunId']}"
         temporal_run_id: str | None = None
@@ -195,8 +205,10 @@ class CommandDispatcher:
             await handle.cancel()
         now = datetime.now(UTC)
         async with self._sessions() as session, session.begin():
-            current = await session.get(OutboxEvent, outbox.id, with_for_update=True)
-            if current is None:
+            current = await session.get(OutboxEvent, claim.id, with_for_update=True)
+            if current is None or not owns_outbox_claim(
+                current, claim, worker_id=self._worker_id
+            ):
                 return
             current.status = "DELIVERED"
             current.delivered_at = now
@@ -222,12 +234,14 @@ class CommandDispatcher:
                 }
 
     async def _complete(
-        self, outbox_id: UUID, result: dict[str, Any], *, temporal_run_id: str | None
+        self, claim: OutboxClaim, result: dict[str, Any], *, temporal_run_id: str | None
     ) -> None:
         now = datetime.now(UTC)
         async with self._sessions() as session, session.begin():
-            outbox = await session.get(OutboxEvent, outbox_id, with_for_update=True)
-            if outbox is None:
+            outbox = await session.get(OutboxEvent, claim.id, with_for_update=True)
+            if outbox is None or not owns_outbox_claim(
+                outbox, claim, worker_id=self._worker_id
+            ):
                 return
             command = await session.get(RunCommand, outbox.source_id, with_for_update=True)
             if command is None:
@@ -270,12 +284,14 @@ class CommandDispatcher:
             if temporal_run_id and run is not None:
                 run.temporal_run_id = temporal_run_id
 
-    async def _retry(self, outbox_id: UUID, error: str) -> None:
+    async def _retry(self, claim: OutboxClaim, error: str) -> None:
         if self._metrics is not None:
             self._metrics.activity_retries.add(1, {"category": "command_dispatch"})
         async with self._sessions() as session, session.begin():
-            outbox = await session.get(OutboxEvent, outbox_id, with_for_update=True)
-            if outbox is None or outbox.status == "DEAD":
+            outbox = await session.get(OutboxEvent, claim.id, with_for_update=True)
+            if outbox is None or not owns_outbox_claim(
+                outbox, claim, worker_id=self._worker_id
+            ):
                 return
             outbox.attempts += 1
             outbox.status = "PENDING"
@@ -284,10 +300,12 @@ class CommandDispatcher:
             outbox.locked_by = None
             outbox.locked_until = None
 
-    async def _dead(self, outbox_id: UUID, error: str) -> None:
+    async def _dead(self, claim: OutboxClaim, error: str) -> None:
         async with self._sessions() as session, session.begin():
-            outbox = await session.get(OutboxEvent, outbox_id, with_for_update=True)
-            if outbox is None:
+            outbox = await session.get(OutboxEvent, claim.id, with_for_update=True)
+            if outbox is None or not owns_outbox_claim(
+                outbox, claim, worker_id=self._worker_id
+            ):
                 return
             outbox.status = "DEAD"
             outbox.last_error = error

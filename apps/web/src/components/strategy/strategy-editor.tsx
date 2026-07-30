@@ -1,4 +1,4 @@
-import type { Diagnostic } from "@/api/types";
+import type { Diagnostic, SavedConfiguration } from "@/api/types";
 import { StrategyCanvas } from "./strategy-canvas";
 import type { EditorState, SwarmSpecDocument } from "./strategy-editor-model";
 
@@ -7,6 +7,10 @@ export function StrategyEditor({
   editorState,
   nodeTypes,
   models = [],
+  tools = [],
+  agentConfigurations = [],
+  agentConfigurationsLoading = false,
+  agentConfigurationsError,
   diagnostics,
   onSpecChange,
   onEditorStateChange,
@@ -16,6 +20,10 @@ export function StrategyEditor({
   editorState: EditorState;
   nodeTypes: string[];
   models?: string[];
+  tools?: string[];
+  agentConfigurations?: SavedConfiguration[];
+  agentConfigurationsLoading?: boolean;
+  agentConfigurationsError?: string;
   diagnostics: Diagnostic[];
   onSpecChange: (spec: SwarmSpecDocument) => void;
   onEditorStateChange: (state: EditorState) => void;
@@ -33,6 +41,10 @@ export function StrategyEditor({
       editorState={editorState}
       nodeTypes={nodeTypes}
       models={models}
+      tools={tools}
+      agentConfigurations={agentConfigurations}
+      agentConfigurationsLoading={agentConfigurationsLoading}
+      agentConfigurationsError={agentConfigurationsError}
       diagnostics={diagnostics}
       onSpecChange={onSpecChange}
       onEditorStateChange={onEditorStateChange}

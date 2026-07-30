@@ -12,9 +12,16 @@ export const SUPPORTED_NODE_TYPES = [
 
 export type SupportedNodeType = (typeof SUPPORTED_NODE_TYPES)[number];
 export type Position = { x: number; y: number };
+export interface AgentBindingState {
+  configurationId: string;
+  revision: number;
+  name: string;
+  sourceRef: string;
+}
 export interface EditorState {
   positions: Record<string, Position>;
   viewport: { x: number; y: number; zoom: number };
+  agentBindings: Record<string, AgentBindingState>;
 }
 
 export type StrategyNode = Record<string, unknown> & {
@@ -52,7 +59,20 @@ export interface ConnectResult {
 export const EMPTY_EDITOR_STATE: EditorState = {
   positions: {},
   viewport: { x: 0, y: 0, zoom: 1 },
+  agentBindings: {},
 };
+
+export function normalizeEditorState(
+  value?: Partial<EditorState> | null,
+): EditorState {
+  return {
+    positions: value?.positions ? { ...value.positions } : {},
+    viewport: value?.viewport
+      ? { ...value.viewport }
+      : { x: 0, y: 0, zoom: 1 },
+    agentBindings: value?.agentBindings ? { ...value.agentBindings } : {},
+  };
+}
 
 export function isSwarmSpecDocument(value: Record<string, unknown>): value is SwarmSpecDocument {
   const spec = value["spec"];
@@ -96,14 +116,9 @@ export function applySavedConfiguration(spec: SwarmSpecDocument, saved: SavedCon
   }
 
   if (saved.kind === "agent") {
-    const savedSpec = objectValue(saved.configuration["spec"]);
-    const declarations = Object.entries(objectValue(savedSpec["agents"]));
-    const [sourceKey, declaration] = declarations[0] ?? [];
-    if (!sourceKey || !declaration || typeof declaration !== "object" || Array.isArray(declaration)) {
-      throw new Error("智能体配置缺少智能体声明。");
-    }
-    const nodeKey = uniqueNodeKey(sourceKey, next.spec.graph.nodes);
-    next.spec.agents = { ...next.spec.agents, [nodeKey]: structuredClone(declaration as Record<string, unknown>) };
+    const extracted = extractProjectAgentDeclaration(saved);
+    const nodeKey = uniqueNodeKey(extracted.declarationKey, next.spec.graph.nodes);
+    next.spec.agents = { ...next.spec.agents, [nodeKey]: extracted.declaration };
     next.spec.graph.nodes[nodeKey] = { type: "agent", agent: nodeKey, dependsOn: [] };
     if (!next.spec.graph.entrypoint) next.spec.graph.entrypoint = nodeKey;
     return next;
@@ -121,10 +136,123 @@ export function applySavedConfiguration(spec: SwarmSpecDocument, saved: SavedCon
   return next;
 }
 
+export function extractProjectAgentDeclaration(saved: SavedConfiguration): {
+  declarationKey: string;
+  declaration: Record<string, unknown>;
+} {
+  if (saved.kind !== "agent") {
+    throw new Error("只能绑定智能体配置。");
+  }
+  const savedSpec = objectValue(saved.configuration["spec"]);
+  const agents = objectValue(savedSpec["agents"]);
+  const graph = objectValue(savedSpec["graph"]);
+  const entrypoint = typeof graph["entrypoint"] === "string" ? graph["entrypoint"] : "";
+  const nodes = objectValue(graph["nodes"]);
+  const entryNode = entrypoint ? objectValue(nodes[entrypoint]) : {};
+  let declarationKey = "";
+  if (entryNode["type"] === "agent" && typeof entryNode["agent"] === "string" && agents[entryNode["agent"]]) {
+    declarationKey = entryNode["agent"];
+  } else if (entrypoint && agents[entrypoint]) {
+    declarationKey = entrypoint;
+  } else {
+    declarationKey = Object.keys(agents)[0] ?? "";
+  }
+  const declaration = agents[declarationKey];
+  if (!declarationKey || !declaration || typeof declaration !== "object" || Array.isArray(declaration)) {
+    throw new Error("配置格式无效：缺少有效入口智能体声明。");
+  }
+  return {
+    declarationKey,
+    declaration: structuredClone(declaration as Record<string, unknown>),
+  };
+}
+
+export function isBindableAgentConfiguration(saved: SavedConfiguration): boolean {
+  try {
+    extractProjectAgentDeclaration(saved);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function bindProjectAgentToNode(
+  spec: SwarmSpecDocument,
+  editorState: EditorState,
+  nodeKey: string,
+  saved: SavedConfiguration,
+): { spec: SwarmSpecDocument; editorState: EditorState } {
+  const node = spec.spec.graph.nodes[nodeKey];
+  if (!node || node.type !== "agent") {
+    throw new Error("只能绑定智能体节点。");
+  }
+  const extracted = extractProjectAgentDeclaration(saved);
+  const next = cloneSpec(spec);
+  next.spec.agents ??= {};
+  const currentAgentKey = typeof node["agent"] === "string" ? node["agent"] : "";
+  const referenceCount = currentAgentKey
+    ? Object.values(next.spec.graph.nodes).filter(
+      (candidate) => candidate.type === "agent" && candidate["agent"] === currentAgentKey,
+    ).length
+    : 0;
+  const shared = referenceCount > 1;
+  const targetKey = shared
+    ? uniqueDeclarationKey(nodeKey, next.spec.agents)
+    : (currentAgentKey || uniqueDeclarationKey(nodeKey, next.spec.agents));
+  next.spec.agents[targetKey] = extracted.declaration;
+  next.spec.graph.nodes[nodeKey] = { ...next.spec.graph.nodes[nodeKey], agent: targetKey };
+  if (currentAgentKey && currentAgentKey !== targetKey) {
+    const stillUsed = Object.values(next.spec.graph.nodes).some(
+      (candidate) => candidate.type === "agent" && candidate["agent"] === currentAgentKey,
+    );
+    if (!stillUsed) {
+      const { [currentAgentKey]: removedAgent, ...remainingAgents } = next.spec.agents;
+      void removedAgent;
+      next.spec.agents = remainingAgents;
+    }
+  }
+  const normalized = normalizeEditorState(editorState);
+  return {
+    spec: next,
+    editorState: {
+      ...normalized,
+      agentBindings: {
+        ...normalized.agentBindings,
+        [nodeKey]: {
+          configurationId: saved.configurationId,
+          revision: saved.revision,
+          name: saved.name,
+          sourceRef: saved.sourceRef,
+        },
+      },
+    },
+  };
+}
+
+export function unbindAgentFromNode(
+  editorState: EditorState,
+  nodeKey: string,
+): EditorState {
+  const normalized = normalizeEditorState(editorState);
+  const { [nodeKey]: removedBinding, ...agentBindings } = normalized.agentBindings;
+  void removedBinding;
+  return { ...normalized, agentBindings };
+}
+
 function uniqueNodeKey(preferred: string, nodes: Record<string, StrategyNode>): string {
   if (!nodes[preferred]) return preferred;
   let suffix = 2;
   while (nodes[`${preferred}-${suffix}`]) suffix += 1;
+  return `${preferred}-${suffix}`;
+}
+
+function uniqueDeclarationKey(
+  preferred: string,
+  agents: Record<string, Record<string, unknown>>,
+): string {
+  if (!agents[preferred]) return preferred;
+  let suffix = 2;
+  while (agents[`${preferred}-${suffix}`]) suffix += 1;
   return `${preferred}-${suffix}`;
 }
 
@@ -242,10 +370,11 @@ export function layoutStrategyGraph(spec: SwarmSpecDocument): Record<string, Pos
 
 export function layoutStrategyEditorState(
   spec: SwarmSpecDocument,
-  editorState: EditorState = EMPTY_EDITOR_STATE,
+  editorState: EditorState | Partial<EditorState> = EMPTY_EDITOR_STATE,
 ): EditorState {
+  const normalized = normalizeEditorState(editorState);
   return {
-    ...editorState,
+    ...normalized,
     positions: layoutStrategyGraph(spec),
   };
 }
@@ -324,11 +453,15 @@ export function addNode(
       instructions: "完成分配的任务。",
     };
   }
+  const normalized = normalizeEditorState(editorState);
   return {
     spec: next,
     editorState: {
-      ...editorState,
-      positions: { ...editorState.positions, [nodeKey]: position ?? autoPosition(Object.keys(next.spec.graph.nodes).length - 1) },
+      ...normalized,
+      positions: {
+        ...normalized.positions,
+        [nodeKey]: position ?? autoPosition(Object.keys(next.spec.graph.nodes).length - 1),
+      },
     },
     nodeKey,
   };
@@ -365,9 +498,12 @@ export function deleteNode(
       next.spec.agents = remainingAgents;
     }
   }
-  const { [nodeKey]: removedPosition, ...positions } = editorState.positions;
+  const normalized = normalizeEditorState(editorState);
+  const { [nodeKey]: removedPosition, ...positions } = normalized.positions;
   void removedPosition;
-  return { spec: next, editorState: { ...editorState, positions } };
+  const { [nodeKey]: removedBinding, ...agentBindings } = normalized.agentBindings;
+  void removedBinding;
+  return { spec: next, editorState: { ...normalized, positions, agentBindings } };
 }
 
 export function setEntrypoint(spec: SwarmSpecDocument, nodeKey: string): SwarmSpecDocument {
@@ -396,6 +532,69 @@ export function updateAgentDeclaration(
   const next = cloneSpec(spec);
   next.spec.agents ??= {};
   next.spec.agents[agentKey] = { ...(next.spec.agents[agentKey] ?? {}), ...patch };
+  return next;
+}
+
+const AGENT_KEY_RE = /^[a-z][a-z0-9_-]{0,62}$/;
+
+export function isValidAgentDeclarationKey(key: string): boolean {
+  return AGENT_KEY_RE.test(key);
+}
+
+/** Assign or rename the agent declaration referenced by a node. */
+export function assignAgentDeclaration(
+  spec: SwarmSpecDocument,
+  nodeKey: string,
+  nextAgentKey: string,
+): SwarmSpecDocument {
+  const node = spec.spec.graph.nodes[nodeKey];
+  if (!node || node.type !== "agent") {
+    throw new Error("只能为智能体节点设置声明名称。");
+  }
+  const trimmed = nextAgentKey.trim();
+  const currentKey = typeof node["agent"] === "string" ? node["agent"] : "";
+  if (!trimmed || trimmed === currentKey) return spec;
+  if (!isValidAgentDeclarationKey(trimmed)) {
+    throw new Error("智能体声明名称无效：须以小写字母开头，仅含小写字母、数字、下划线或连字符，最长 63 个字符。");
+  }
+
+  const next = cloneSpec(spec);
+  next.spec.agents ??= {};
+  const agents = next.spec.agents;
+
+  if (agents[trimmed]) {
+    next.spec.graph.nodes[nodeKey] = { ...next.spec.graph.nodes[nodeKey], agent: trimmed };
+    if (currentKey && currentKey !== trimmed) {
+      const stillUsed = Object.values(next.spec.graph.nodes).some(
+        (candidate) => candidate.type === "agent" && candidate["agent"] === currentKey,
+      );
+      if (!stillUsed) {
+        const { [currentKey]: removedAgent, ...remainingAgents } = next.spec.agents;
+        void removedAgent;
+        next.spec.agents = remainingAgents;
+      }
+    }
+    return next;
+  }
+
+  const declaration = (currentKey ? agents[currentKey] : undefined) ?? {
+    role: "执行者",
+    instructions: "完成分配的任务。",
+  };
+  if (currentKey && agents[currentKey]) {
+    const { [currentKey]: removedAgent, ...remainingAgents } = agents;
+    void removedAgent;
+    next.spec.agents = { ...remainingAgents, [trimmed]: declaration };
+    for (const [key, candidate] of Object.entries(next.spec.graph.nodes)) {
+      if (candidate.type === "agent" && candidate["agent"] === currentKey) {
+        next.spec.graph.nodes[key] = { ...candidate, agent: trimmed };
+      }
+    }
+    return next;
+  }
+
+  next.spec.agents = { ...agents, [trimmed]: declaration };
+  next.spec.graph.nodes[nodeKey] = { ...next.spec.graph.nodes[nodeKey], agent: trimmed };
   return next;
 }
 

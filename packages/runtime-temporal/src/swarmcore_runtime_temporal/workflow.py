@@ -94,15 +94,24 @@ class SwarmRunWorkflow:
             await self._project(event_type, data)
 
         max_parallelism = int(plan["budget"]["maxParallelism"])
+        by_key = {str(node["key"]): node for node in self._nodes}
+        running: dict[asyncio.Task[dict[str, Any]], str] = {}
         while True:
             if self._cancel_requested:
+                for task in running:
+                    task.cancel()
+                if running:
+                    await asyncio.gather(*running, return_exceptions=True)
+                    self._in_flight.difference_update(running)
+                    running.clear()
                 await self._cancel_run()
                 await workflow.wait_condition(workflow.all_handlers_finished)
                 return {"status": "CANCELLED", "outputs": self._outputs}
-            await self._pause_barrier()
+            if not running:
+                await self._pause_barrier()
             if self._cancel_requested:
                 continue
-            if self._budget_exhausted():
+            if not running and self._budget_exhausted():
                 terminal = await self._handle_budget_exhaustion()
                 if terminal is not None:
                     await workflow.wait_condition(workflow.all_handlers_finished)
@@ -118,7 +127,7 @@ class SwarmRunWorkflow:
             ):
                 await self._project("task.skipped", {"nodeKey": key})
 
-            if self._all_terminal():
+            if not running and self._all_terminal():
                 if any(state == NodeState.FAILED for state in self._states.values()):
                     if not self._failure_wait:
                         self._failure_wait = True
@@ -134,16 +143,19 @@ class SwarmRunWorkflow:
                 await workflow.wait_condition(workflow.all_handlers_finished)
                 return {"status": "SUCCEEDED", "result": result, "outputs": self._outputs}
 
-            batch = ready_nodes(self._nodes, self._states, max_parallelism=max_parallelism)
-            if not batch:
-                await self._compensate_effects()
-                await self._project("run.failed", {"code": "GRAPH_DEADLOCK"})
-                await workflow.wait_condition(workflow.all_handlers_finished)
-                return {"status": "FAILED", "code": "GRAPH_DEADLOCK"}
-
-            by_key = {str(node["key"]): node for node in self._nodes}
-            tasks = {
-                key: asyncio.create_task(
+            scheduling_allowed = not self._pause_requested and not self._budget_exhausted()
+            available_slots = max_parallelism - len(running)
+            batch = (
+                ready_nodes(
+                    self._nodes,
+                    self._states,
+                    max_parallelism=available_slots,
+                )
+                if scheduling_allowed and available_slots > 0
+                else []
+            )
+            for key in batch:
+                task = asyncio.create_task(
                     self._execute_node(
                         by_key[key],
                         plan.get("resolved_agents", {}),
@@ -151,12 +163,23 @@ class SwarmRunWorkflow:
                         plan.get("resolved_tools", {}),
                     )
                 )
-                for key in batch
-            }
-            self._in_flight.update(tasks.values())
-            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-            self._in_flight.difference_update(tasks.values())
-            for key, outcome in zip(tasks, results, strict=True):
+                running[task] = key
+                self._in_flight.add(task)
+
+            if not running:
+                await self._compensate_effects()
+                await self._project("run.failed", {"code": "GRAPH_DEADLOCK"})
+                await workflow.wait_condition(workflow.all_handlers_finished)
+                return {"status": "FAILED", "code": "GRAPH_DEADLOCK"}
+
+            done, _ = await workflow.wait(running, return_when=asyncio.FIRST_COMPLETED)
+            completed = sorted((running.pop(task), task) for task in done)
+            self._in_flight.difference_update(done)
+            for key, task in completed:
+                try:
+                    outcome: dict[str, Any] | BaseException = task.result()
+                except BaseException as exc:
+                    outcome = exc
                 if isinstance(outcome, asyncio.CancelledError):
                     self._states[key] = NodeState.CANCELLED
                 elif isinstance(outcome, BaseException):

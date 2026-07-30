@@ -151,6 +151,7 @@ class Run(Base, IdMixin, TenantMixin, TimestampMixin):
         ),
         Index("ix_runs_tenant_created", "tenant_id", "created_at"),
         Index("ix_runs_project_status", "project_id", "status"),
+        Index("ix_runs_reconciled_at", "reconciled_at"),
     )
 
     project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
@@ -169,6 +170,7 @@ class Run(Base, IdMixin, TenantMixin, TimestampMixin):
     earliest_available_seq: Mapped[int] = mapped_column(BigInteger, default=1, nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     projection_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     parent_run_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -322,6 +324,9 @@ class OutboxEvent(Base, IdMixin, TenantMixin):
     )
     locked_by: Mapped[str | None] = mapped_column(String(512))
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lock_generation: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
 
@@ -464,6 +469,10 @@ class ToolEffect(Base, IdMixin, TenantMixin, TimestampMixin):
     error: Mapped[str | None] = mapped_column(Text)
     attempts: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(String(128))
+    lease_generation: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
 
 class ProjectConfiguration(Base, IdMixin, TenantMixin, TimestampMixin):

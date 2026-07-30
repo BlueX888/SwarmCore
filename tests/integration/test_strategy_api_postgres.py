@@ -58,6 +58,7 @@ async def test_strategy_queries_are_project_scoped_and_versioned() -> None:
         initial_editor_state = {
             "positions": {"one": {"x": 10, "y": 20}},
             "viewport": {"x": 1, "y": 2, "zoom": 0.8},
+            "agentBindings": {},
         }
         created = client.post(
             base,
@@ -137,6 +138,7 @@ async def test_strategy_queries_are_project_scoped_and_versioned() -> None:
         moved_editor_state = {
             "positions": {"one": {"x": 900, "y": 700}},
             "viewport": {"x": -50, "y": 25, "zoom": 1.25},
+            "agentBindings": {},
         }
         moved = client.put(
             draft_url,

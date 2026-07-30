@@ -2,7 +2,7 @@ import type {
   ApprovalListResponse, AuditListResponse, CapabilityCatalog, CapabilityCenterResponse, CapabilityPreset, CapabilityPresetListResponse, CapabilityPresetRequest, CommandHandle, CompileResponse, ConfigurationKind, CreateSavedConfiguration,
   DraftSnapshot, EditorState, EventHistory, ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, SavedConfiguration,
   CapabilityPackListResponse, CapabilityPackSnapshot, CreateCapabilityPackRequest,
-  AssessmentDetailSnapshot, AssessmentListResponse, BusinessObjectSnapshot, BusinessWorkListResponse, BusinessWorkSnapshot, CaseSnapshot, CaseSubjectInput, ContractPerformanceCaseSnapshot, ContractPerformanceEvidenceList, ContractPerformancePlanSnapshot, ContractPerformanceSnapshot, DocumentDownloadHandle, DocumentListResponse, DocumentProcessingEventListResponse, DocumentProcessingResultSnapshot, DocumentProcessingRunSnapshot, DocumentRequirementListResponse, DocumentSnapshot, DocumentUploadHandle, EvaluationSnapshot, FindingListResponse, InitiateDocumentRequest, InvoiceAssuranceBatchRequest, InvoiceAssuranceBatchSnapshot, InvoiceRuleTrendSnapshot, PackBindings, ReportListResponse, SupplierRiskAlertListResponse, SupplierRiskHistoryResponse, SupplierRiskMonitorSnapshot, SupplierRiskWorkOrderListResponse, SupplierRiskWorkOrderSnapshot,
+  AssessmentDetailSnapshot, AssessmentDocumentUsageListResponse, AssessmentListResponse, BusinessObjectSnapshot, BusinessWorkListResponse, BusinessWorkSnapshot, CaseSnapshot, CaseSubjectInput, ContractPerformanceCaseSnapshot, ContractPerformanceEvidenceList, ContractPerformancePlanSnapshot, ContractPerformanceSnapshot, DocumentDownloadHandle, DocumentListResponse, DocumentProcessingEventListResponse, DocumentProcessingResultSnapshot, DocumentProcessingRunSnapshot, DocumentRequirementListResponse, DocumentSnapshot, DocumentUploadHandle, EvaluationSnapshot, FindingListResponse, InitiateDocumentRequest, InvoiceAssuranceBatchRequest, InvoiceAssuranceBatchSnapshot, InvoiceRuleTrendSnapshot, PackBindings, ReportListResponse, SupplierRiskAlertListResponse, SupplierRiskHistoryResponse, SupplierRiskMonitorSnapshot, SupplierRiskWorkOrderListResponse, SupplierRiskWorkOrderSnapshot,
   SavedConfigurationListResponse, StrategyDeleteImpact, StrategyHandle,
   ModelProviderApiKeySnapshot, ModelProviderConfiguration, ModelProviderConfigurationRequest, ModelProviderTestResult,
   StrategyListResponse, StrategyVersionDetail,
@@ -175,7 +175,7 @@ export const api = {
   createInvoiceAssuranceBatch: (tenantId: string, projectId: string, body: InvoiceAssuranceBatchRequest) => request<InvoiceAssuranceBatchSnapshot>(`/v1/projects/${projectId}/business-works/invoice-assurance/batches`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
   getInvoiceAssuranceBatch: (tenantId: string, projectId: string, batchId: string) => request<InvoiceAssuranceBatchSnapshot>(`/v1/projects/${projectId}/business-works/invoice-assurance/batches/${batchId}`, tenantId),
   getInvoiceAssuranceRuleTrends: (tenantId: string, projectId: string, bucket: "day" | "week" | "month" = "day") => request<InvoiceRuleTrendSnapshot>(`/v1/projects/${projectId}/business-works/invoice-assurance/rule-trends?bucket=${bucket}`, tenantId),
-  listAssessmentDocumentSnapshots: (tenantId: string, projectId: string, assessmentId: string) => request<{ items: Array<Record<string, unknown>> }>(`/v1/projects/${projectId}/assessments/${assessmentId}/document-snapshots`, tenantId),
+  listAssessmentDocumentSnapshots: (tenantId: string, projectId: string, assessmentId: string) => request<AssessmentDocumentUsageListResponse>(`/v1/projects/${projectId}/assessments/${assessmentId}/document-snapshots`, tenantId),
   createCapabilityPack: (tenantId: string, projectId: string, body: CreateCapabilityPackRequest) => request<CapabilityPackSnapshot>(`/v1/projects/${projectId}/capability-packs`, tenantId, { method: "POST", body: JSON.stringify(body) }),
   createRuleSet: (tenantId: string, projectId: string, body: { name: string; purpose: string; rules: Record<string, unknown> }) => request<RuleSetDraftSnapshot>(`/v1/projects/${projectId}/rule-sets`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
   validateRuleSet: (tenantId: string, projectId: string, draftId: string) => request<RuleSetValidationResponse>(`/v1/projects/${projectId}/rule-set-drafts/${draftId}:validate`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ attachments: null }) }),
@@ -290,6 +290,20 @@ export const api = {
     return { filename: handle.filename, content: await downloadBlob(handle) };
   },
   getPackBindings: (tenantId: string, projectId: string, versionId: string) => request<PackBindings>(`/v1/projects/${projectId}/capability-packs/${versionId}/bindings`, tenantId),
+  createDecisionAsset: (tenantId: string, projectId: string, body: { name: string; purpose: string; definition: Record<string, unknown> }) =>
+    request<{ decisionAssetId: string; draftId: string; revision: number; definition: Record<string, unknown> }>(`/v1/projects/${projectId}/decision-assets`, tenantId, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  publishDecisionAsset: (tenantId: string, projectId: string, decisionAssetId: string) =>
+    request<{ decisionAssetId: string; decisionVersionId: string; version: number; contentHash: string }>(`/v1/projects/${projectId}/decision-assets/${decisionAssetId}/draft:publish`, tenantId, {
+      method: "POST",
+    }),
+  bindCapabilityPackDecision: (tenantId: string, projectId: string, versionId: string, slot: string, decisionVersionId: string) =>
+    request<{ bindingId: string; slot: string; decisionVersionId: string; contentHash: string }>(`/v1/projects/${projectId}/capability-packs/${versionId}/decision-bindings/${encodeURIComponent(slot)}`, tenantId, {
+      method: "PUT",
+      body: JSON.stringify({ ruleSetVersionId: decisionVersionId }),
+    }),
   createContractPerformanceCase: (tenantId: string, projectId: string, body: { contractObjectId: string; timezone?: string; currency?: string }) =>
     request<ContractPerformanceCaseSnapshot>(`/v1/projects/${projectId}/contract-performance/cases`, tenantId, {
       method: "POST",

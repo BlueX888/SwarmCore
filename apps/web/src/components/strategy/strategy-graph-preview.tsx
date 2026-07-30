@@ -1,5 +1,6 @@
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import { Braces, GitBranch, Play } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { nodeTypeLabel } from "@/lib/display-text";
 import { isSwarmSpecDocument, layoutStrategyGraph, listEdges, type SwarmSpecDocument } from "./strategy-editor-model";
 
@@ -13,7 +14,7 @@ type PreviewNode = Node<PreviewNodeData, "preview">;
 
 export function StrategyGraphPreview({ spec }: { spec: Record<string, unknown> }) {
   if (!isSwarmSpecDocument(spec)) {
-    return <div className="grid h-64 place-items-center rounded-xl border border-dashed border-gray-300 text-sm text-gray-500 dark:border-gray-700">该策略版本没有可预览的图设计。</div>;
+    return <EmptyState compact tone="neutral" title="该策略版本没有可预览的图设计" />;
   }
   return <ReactFlowProvider><StrategyGraph spec={spec} /></ReactFlowProvider>;
 }

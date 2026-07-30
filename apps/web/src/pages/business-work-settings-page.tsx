@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Boxes, Check, Cpu, Files, Play, RefreshCw, Settings2, Workflow } from "lucide-react";
+import { Boxes, Check, Cpu, Files, Play, RefreshCw, Settings2, ShieldCheck, Workflow } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { api } from "@/api/client";
 import type { BusinessWorkSnapshot, DocumentSnapshot } from "@/api/types";
@@ -38,6 +38,14 @@ export function BusinessWorkSettingsPage() {
     queryKey: ["published-strategy-options", tenantId, projectId],
     enabled: Boolean(work.data && work.data.status !== "planned"),
     queryFn: () => listPublishedStrategyOptions(tenantId, projectId),
+  });
+  const decisionBindings = useQuery({
+    queryKey: ["capability-pack-bindings", tenantId, projectId, work.data?.packVersionId],
+    enabled: Boolean(work.data?.packVersionId && work.data.decisionSlots.length),
+    queryFn: () => {
+      if (!work.data?.packVersionId) throw new Error("能力包版本尚未载入。");
+      return api.getPackBindings(tenantId, projectId, work.data.packVersionId);
+    },
   });
 
   const bindingKeys = useMemo(
@@ -84,6 +92,37 @@ export function BusinessWorkSettingsPage() {
     },
     onMutate: () => setBindSuccess(false),
   });
+  const configureChecklist = useMutation({
+    mutationFn: async (slotName: string) => {
+      const snapshot = work.data;
+      if (!snapshot?.packVersionId) throw new Error("能力包版本尚未载入。");
+      const slot = snapshot.decisionSlots.find((item) => item.slot === slotName);
+      if (!slot?.inputSchema || !slot.outputSchema || !slot.allowedTypes?.includes("CHECKLIST")) {
+        throw new Error("该决策槽位不支持自动创建检查清单。");
+      }
+      const created = await api.createDecisionAsset(tenantId, projectId, {
+        name: `${snapshot.name}检查清单`,
+        purpose: `用于${snapshot.name}的项目级资料完整性校验`,
+        definition: buildChecklistDecision(snapshot, slot),
+      });
+      const published = await api.publishDecisionAsset(tenantId, projectId, created.decisionAssetId);
+      await api.bindCapabilityPackDecision(
+        tenantId,
+        projectId,
+        snapshot.packVersionId,
+        slot.slot,
+        published.decisionVersionId,
+      );
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        decisionBindings.refetch(),
+        queryClient.invalidateQueries({ queryKey: ["business-work", tenantId, projectId, workKey] }),
+        queryClient.invalidateQueries({ queryKey: ["business-works", tenantId, projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["capability-packs", tenantId, projectId] }),
+      ]);
+    },
+  });
 
   if (work.isPending) {
     return <div className="space-y-4"><Skeleton className="h-24" /><Skeleton className="h-72" /></div>;
@@ -118,6 +157,12 @@ export function BusinessWorkSettingsPage() {
     onBind={() => bindStrategy.mutate()}
     onRefresh={() => void Promise.all([work.refetch(), strategies.refetch(), documents.refetch()])}
     refreshing={work.isFetching || strategies.isFetching || documents.isFetching}
+    decisionBindings={decisionBindings.data?.decisions ?? []}
+    decisionBindingsPending={decisionBindings.isPending && decisionBindings.isEnabled}
+    decisionBindingsError={decisionBindings.isError ? decisionBindings.error.message : null}
+    configureChecklistPending={configureChecklist.isPending}
+    configureChecklistError={configureChecklist.isError ? configureChecklist.error.message : null}
+    onConfigureChecklist={(slot) => configureChecklist.mutate(slot)}
   />;
 }
 
@@ -125,6 +170,8 @@ function SettingsContent({
   work, workspacePath, strategyOptions, strategiesPending, strategiesError, selectedStrategyVersionId,
   onSelectStrategy, documentsPending, documentsError, boundDocuments, availableCategoryCounts, bindPending,
   bindError, bindSuccess, onBind, onRefresh, refreshing,
+  decisionBindings, decisionBindingsPending, decisionBindingsError, configureChecklistPending,
+  configureChecklistError, onConfigureChecklist,
 }: {
   work: BusinessWorkSnapshot;
   workspacePath: string;
@@ -143,6 +190,12 @@ function SettingsContent({
   onBind: () => void;
   onRefresh: () => void;
   refreshing: boolean;
+  decisionBindings: Array<{ slot: string; decisionVersionId: string; contentHash: string }>;
+  decisionBindingsPending: boolean;
+  decisionBindingsError: string | null;
+  configureChecklistPending: boolean;
+  configureChecklistError: string | null;
+  onConfigureChecklist: (slot: string) => void;
 }) {
   const requiredDocuments = work.documentRequirements.filter((item) => item.required);
   const preparedRequired = requiredDocuments.filter(
@@ -207,6 +260,37 @@ function SettingsContent({
         />
       </div>
     </CardContent></Card>
+
+    {work.decisionSlots.length ? <Card><CardContent className="space-y-5 p-5">
+      <SectionTitle
+        icon={ShieldCheck}
+        title="决策规则"
+        description="按能力包声明的输入、输出契约创建并绑定项目级不可变规则版本。"
+      />
+      {decisionBindingsError ? <p role="alert" className="text-sm text-error-600">决策绑定加载失败：{decisionBindingsError}</p> : null}
+      {configureChecklistError ? <p role="alert" className="text-sm text-error-600">{configureChecklistError}</p> : null}
+      <div className="grid gap-3">
+        {work.decisionSlots.map((slot) => {
+          const binding = decisionBindings.find((item) => item.slot === slot.slot);
+          const supportsChecklist = Boolean(slot.inputSchema && slot.outputSchema && slot.allowedTypes?.includes("CHECKLIST"));
+          return <article key={slot.slot} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+            <div className="min-w-0">
+              <h3 className="font-medium text-gray-900 dark:text-white">{slot.slot}</h3>
+              <p className="mt-1 text-xs text-gray-500">{slot.required ? "必需决策槽位" : "可选决策槽位"} · {binding ? "已绑定已发布版本" : "尚未绑定"}</p>
+            </div>
+            {binding ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-success-50 px-2 py-1 text-xs text-success-700 dark:bg-success-500/10"><Check className="size-3.5" />已绑定</span>
+            ) : supportsChecklist ? (
+              <Button size="sm" loading={configureChecklistPending || decisionBindingsPending} onClick={() => onConfigureChecklist(slot.slot)}>
+                <ShieldCheck />创建并绑定检查清单
+              </Button>
+            ) : (
+              <span className="text-xs text-warning-700">需要在决策资产接口中绑定兼容版本</span>
+            )}
+          </article>;
+        })}
+      </div>
+    </CardContent></Card> : null}
 
     <Card><CardContent className="space-y-5 p-5">
       <SectionTitle
@@ -329,6 +413,34 @@ function SettingsContent({
       ) : null}
     </CardContent></Card>
   </div>;
+}
+
+export function buildChecklistDecision(
+  work: BusinessWorkSnapshot,
+  slot: BusinessWorkSnapshot["decisionSlots"][number],
+): Record<string, unknown> {
+  return {
+    apiVersion: "swarmcore.io/decision/v1",
+    kind: "DecisionAsset",
+    type: "CHECKLIST",
+    engine: "swarmcore.rules.v1",
+    inputSchema: slot.inputSchema,
+    outputSchema: slot.outputSchema,
+    definition: {
+      schemaVersion: "schema://contract/checklist-rule@1",
+      match: {},
+      requirements: work.documentRequirements.map((item) => ({
+        key: item.key ?? item.category.toLowerCase(),
+        documentType: item.category.toLowerCase(),
+        required: item.required,
+        minCount: item.minCount ?? (item.required ? 1 : 0),
+        ...(item.maxCount ? { maxCount: item.maxCount } : {}),
+        mediaTypes: item.acceptedMediaTypes ?? [],
+        severity: item.required ? "CRITICAL" : "MEDIUM",
+      })),
+    },
+    tests: [],
+  };
 }
 
 function SummaryCard({ label, value, detail, icon: Icon }: { label: string; value: string; detail: string; icon: typeof Boxes }) {

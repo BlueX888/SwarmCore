@@ -121,10 +121,26 @@ describe("business works page", () => {
     expect(screen.getByRole("button", { name: "开始办理" })).toBeDisabled();
   });
 
-  it("offers the public-data demo from report generation", async () => {
+  it("starts the real report-generation workbench and keeps the public-data demo", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(snapshot({
+      workKey: "report-generation",
+      status: "runnable",
+      statusLabel: "可运行",
+      packName: "contract-post-evaluation",
+      packVersionId: "post-evaluation-version",
+      packVersion: "2.0.6",
+      enabled: true,
+      bindingStatus: "ENABLED",
+      workItemType: "contract-post-evaluation-case",
+      caseBased: true,
+    }));
     renderPage("/business-works/report-generation");
 
     expect(await screen.findByRole("heading", { name: "报告生成智能体" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "开始办理" })).toHaveAttribute(
+      "href",
+      "/business-works/report-generation/workbench",
+    );
     expect(screen.getByRole("link", { name: "体验公开数据 Demo" })).toHaveAttribute(
       "href",
       "/business-works/report-generation/demo",

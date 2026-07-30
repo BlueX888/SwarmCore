@@ -218,6 +218,7 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         short_name="报告生成",
         category="business",
         summary="聚合文件、履约、偏差、发票和风险事实，生成可追溯的后评价报告。",
+        pack_name="contract-post-evaluation",
         functions=(
             BusinessWorkFunction("多源结果聚合", "汇总结构化事实、规则结论、风险、问题和证据。"),
             BusinessWorkFunction("七维评价", "按七大评价维度计算指标、分值、结论和改进项。"),
@@ -805,7 +806,14 @@ class BusinessWorkService:
                 for item in manifest.spec.document_requirements()
             ),
             decision_slots=tuple(
-                {"slot": item.slot, "required": item.required} for item in manifest.spec.decisions
+                {
+                    "slot": item.slot,
+                    "required": item.required,
+                    "inputSchema": item.input_schema,
+                    "outputSchema": item.output_schema,
+                    "allowedTypes": list(item.allowed_types),
+                }
+                for item in manifest.spec.decisions
             ),
             functions=definition.functions,
             configuration=configuration,

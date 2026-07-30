@@ -1,6 +1,10 @@
+from datetime import UTC, datetime, timedelta
+
 from swarmcore_application import CapabilityCatalogService
 from swarmcore_model_gateway.main import (
     ModelProviderConfigurationBody,
+    _active_model_reservations,
+    _reserved_tokens,
     _tested_provider_matches,
 )
 from swarmcore_model_gateway.main import (
@@ -15,6 +19,27 @@ SUPPORTED_MODELS = {
     "model://kimi-k2.5": "kimi-k2.5",
     "model://kimi-k2.7-code": "kimi-k2.7-code",
 }
+
+
+def test_expired_model_reservations_do_not_consume_budget() -> None:
+    now = datetime(2026, 7, 29, tzinfo=UTC)
+    active = _active_model_reservations(
+        {
+            "expired": {
+                "tokens": 900,
+                "expiresAt": (now - timedelta(seconds=1)).isoformat(),
+            },
+            "active": {
+                "tokens": 100,
+                "expiresAt": (now + timedelta(seconds=1)).isoformat(),
+            },
+        },
+        now=now,
+        legacy_ttl_seconds=360,
+    )
+
+    assert set(active) == {"active"}
+    assert _reserved_tokens(active) == 100
 
 
 def test_agent_worker_default_output_budget_supports_large_structured_results() -> None:

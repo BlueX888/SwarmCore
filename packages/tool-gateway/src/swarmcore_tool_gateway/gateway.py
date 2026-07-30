@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 from collections.abc import Awaitable, Callable
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
+from uuid import uuid4
 
 from jsonschema import Draft202012Validator, ValidationError
 from pydantic import BaseModel, ConfigDict, Field
@@ -37,6 +39,10 @@ class EffectInProgress(GatewayError):
     pass
 
 
+class EffectLeaseLost(GatewayError):
+    pass
+
+
 class ToolInvocation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
@@ -58,6 +64,8 @@ class EffectReservation(BaseModel):
 
     owner: bool
     output: dict[str, Any] | None = None
+    lease_owner: str | None = None
+    lease_generation: int | None = None
 
 
 class EffectJournal(Protocol):
@@ -80,8 +88,10 @@ class EffectJournal(Protocol):
         project_id: str,
         tool_ref: str,
         effect_id: str,
+        lease_owner: str,
+        lease_generation: int,
         output: dict[str, Any],
-    ) -> None: ...
+    ) -> bool: ...
 
     async def fail(
         self,
@@ -90,8 +100,21 @@ class EffectJournal(Protocol):
         project_id: str,
         tool_ref: str,
         effect_id: str,
+        lease_owner: str,
+        lease_generation: int,
         error: str,
-    ) -> None: ...
+    ) -> bool: ...
+
+    async def renew(
+        self,
+        *,
+        tenant_id: str,
+        project_id: str,
+        tool_ref: str,
+        effect_id: str,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -251,6 +274,15 @@ class ToolGateway:
             if reservation.output is None:
                 raise EffectInProgress("tool effect is already in progress")
             return reservation.output
+        lease_owner, lease_generation = self._lease_identity(reservation)
+        lease_stop, lease_lost, lease_task = self._start_effect_renewal(
+            tenant_id=claims.tenant_id,
+            project_id=claims.project_id,
+            tool_ref=registration.ref,
+            effect_id=invocation.effect_id,
+            lease_owner=lease_owner,
+            lease_generation=lease_generation,
+        )
 
         try:
             event = self._event(
@@ -296,21 +328,29 @@ class ToolGateway:
                 "effectId": invocation.effect_id,
                 "metrics": {"cost_usd": registration.cost_usd},
             }
-            await self._journal.complete(
+            completed = await self._journal.complete(
                 tenant_id=claims.tenant_id,
                 project_id=claims.project_id,
                 tool_ref=registration.ref,
                 effect_id=invocation.effect_id,
+                lease_owner=lease_owner,
+                lease_generation=lease_generation,
                 output=output,
             )
+            if lease_lost.is_set() or not completed:
+                raise EffectLeaseLost("tool effect lease was lost before completion")
         except Exception as exc:
-            await self._journal.fail(
+            failed = await self._journal.fail(
                 tenant_id=claims.tenant_id,
                 project_id=claims.project_id,
                 tool_ref=registration.ref,
                 effect_id=invocation.effect_id,
+                lease_owner=lease_owner,
+                lease_generation=lease_generation,
                 error=f"{type(exc).__name__}: {exc}"[:2000],
             )
+            if not failed:
+                raise EffectLeaseLost("tool effect lease was lost during execution") from exc
             await self._audit.record(
                 self._event(
                     "tool.failed",
@@ -324,6 +364,8 @@ class ToolGateway:
                 )
             )
             raise
+        finally:
+            await self._stop_effect_renewal(lease_stop, lease_task)
         await self._audit.record(
             self._event(
                 "tool.completed",
@@ -416,6 +458,15 @@ class ToolGateway:
             if reservation.output is None:
                 raise EffectInProgress("tool compensation is already in progress")
             return reservation.output
+        lease_owner, lease_generation = self._lease_identity(reservation)
+        lease_stop, lease_lost, lease_task = self._start_effect_renewal(
+            tenant_id=claims.tenant_id,
+            project_id=claims.project_id,
+            tool_ref=registration.ref,
+            effect_id=compensation_effect,
+            lease_owner=lease_owner,
+            lease_generation=lease_generation,
+        )
         try:
             executor = self._executors[registration.compensation_operation]
             if isinstance(executor, ContextualToolExecutor):
@@ -439,24 +490,107 @@ class ToolGateway:
                 "effectId": invocation.effect_id,
                 "policyRevision": decision.policy_revision,
             }
-            await self._journal.complete(
+            completed = await self._journal.complete(
                 tenant_id=claims.tenant_id,
                 project_id=claims.project_id,
                 tool_ref=registration.ref,
                 effect_id=compensation_effect,
+                lease_owner=lease_owner,
+                lease_generation=lease_generation,
                 output=output,
             )
+            if lease_lost.is_set() or not completed:
+                raise EffectLeaseLost("tool compensation lease was lost before completion")
         except Exception as exc:
-            await self._journal.fail(
+            failed = await self._journal.fail(
                 tenant_id=claims.tenant_id,
                 project_id=claims.project_id,
                 tool_ref=registration.ref,
                 effect_id=compensation_effect,
+                lease_owner=lease_owner,
+                lease_generation=lease_generation,
                 error=f"{type(exc).__name__}: {exc}"[:2000],
             )
+            if not failed:
+                raise EffectLeaseLost("tool compensation lease was lost during execution") from exc
             raise
+        finally:
+            await self._stop_effect_renewal(lease_stop, lease_task)
         await self._audit.record(self._event("tool.compensated", claims, invocation.effect_id, {}))
         return output
+
+    @staticmethod
+    def _lease_identity(reservation: EffectReservation) -> tuple[str, int]:
+        if reservation.lease_owner is None or reservation.lease_generation is None:
+            raise EffectLeaseLost("effect journal did not return a fencing lease")
+        return reservation.lease_owner, reservation.lease_generation
+
+    def _start_effect_renewal(
+        self,
+        *,
+        tenant_id: str,
+        project_id: str,
+        tool_ref: str,
+        effect_id: str,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> tuple[asyncio.Event, asyncio.Event, asyncio.Task[None]]:
+        stop = asyncio.Event()
+        lost = asyncio.Event()
+        task = asyncio.create_task(
+            self._renew_effect_lease(
+                stop,
+                lost,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                tool_ref=tool_ref,
+                effect_id=effect_id,
+                lease_owner=lease_owner,
+                lease_generation=lease_generation,
+            )
+        )
+        return stop, lost, task
+
+    async def _renew_effect_lease(
+        self,
+        stop: asyncio.Event,
+        lost: asyncio.Event,
+        *,
+        tenant_id: str,
+        project_id: str,
+        tool_ref: str,
+        effect_id: str,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> None:
+        while not stop.is_set():
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=15)
+            except TimeoutError:
+                try:
+                    renewed = await self._journal.renew(
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        tool_ref=tool_ref,
+                        effect_id=effect_id,
+                        lease_owner=lease_owner,
+                        lease_generation=lease_generation,
+                    )
+                except Exception:
+                    lost.set()
+                    return
+                if not renewed:
+                    lost.set()
+                    return
+
+    @staticmethod
+    async def _stop_effect_renewal(
+        stop: asyncio.Event, task: asyncio.Task[None]
+    ) -> None:
+        stop.set()
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
     @staticmethod
     def _event(event_type: str, claims: Any, effect_id: str, data: dict[str, Any]) -> AuditEvent:
@@ -473,6 +607,8 @@ class ToolGateway:
 
 
 class InMemoryEffectJournal:
+    _lease_seconds = 45.0
+
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._effects: dict[tuple[str, str, str, str], dict[str, Any]] = {}
@@ -493,15 +629,37 @@ class InMemoryEffectJournal:
         async with self._lock:
             existing = self._effects.get(key)
             if existing is None:
-                self._effects[key] = {"requestHash": request_hash, "status": "PENDING"}
-                return EffectReservation(owner=True)
+                lease_owner = uuid4().hex
+                self._effects[key] = {
+                    "requestHash": request_hash,
+                    "status": "PENDING",
+                    "leaseOwner": lease_owner,
+                    "leaseGeneration": 1,
+                    "leaseExpiresAt": time.monotonic() + self._lease_seconds,
+                }
+                return EffectReservation(
+                    owner=True,
+                    lease_owner=lease_owner,
+                    lease_generation=1,
+                )
             if existing["requestHash"] != request_hash:
                 raise EffectConflict("effect id was reused with different input")
             if existing["status"] == "SUCCEEDED":
                 return EffectReservation(owner=False, output=existing["output"])
-            if existing["status"] == "FAILED":
+            if (
+                existing["status"] == "FAILED"
+                or float(existing["leaseExpiresAt"]) <= time.monotonic()
+            ):
+                lease_owner = uuid4().hex
                 existing["status"] = "PENDING"
-                return EffectReservation(owner=True)
+                existing["leaseOwner"] = lease_owner
+                existing["leaseGeneration"] = int(existing["leaseGeneration"]) + 1
+                existing["leaseExpiresAt"] = time.monotonic() + self._lease_seconds
+                return EffectReservation(
+                    owner=True,
+                    lease_owner=lease_owner,
+                    lease_generation=int(existing["leaseGeneration"]),
+                )
             return EffectReservation(owner=False)
 
     async def complete(
@@ -511,11 +669,16 @@ class InMemoryEffectJournal:
         project_id: str,
         tool_ref: str,
         effect_id: str,
+        lease_owner: str,
+        lease_generation: int,
         output: dict[str, Any],
-    ) -> None:
+    ) -> bool:
         async with self._lock:
             effect = self._effects[(tenant_id, project_id, tool_ref, effect_id)]
+            if not self._owns(effect, lease_owner, lease_generation):
+                return False
             effect.update(status="SUCCEEDED", output=output)
+            return True
 
     async def fail(
         self,
@@ -524,11 +687,41 @@ class InMemoryEffectJournal:
         project_id: str,
         tool_ref: str,
         effect_id: str,
+        lease_owner: str,
+        lease_generation: int,
         error: str,
-    ) -> None:
+    ) -> bool:
         async with self._lock:
             effect = self._effects[(tenant_id, project_id, tool_ref, effect_id)]
+            if not self._owns(effect, lease_owner, lease_generation):
+                return False
             effect.update(status="FAILED", error=error)
+            return True
+
+    async def renew(
+        self,
+        *,
+        tenant_id: str,
+        project_id: str,
+        tool_ref: str,
+        effect_id: str,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> bool:
+        async with self._lock:
+            effect = self._effects[(tenant_id, project_id, tool_ref, effect_id)]
+            if not self._owns(effect, lease_owner, lease_generation):
+                return False
+            effect["leaseExpiresAt"] = time.monotonic() + self._lease_seconds
+            return True
+
+    @staticmethod
+    def _owns(effect: dict[str, Any], lease_owner: str, lease_generation: int) -> bool:
+        return (
+            effect["status"] == "PENDING"
+            and effect["leaseOwner"] == lease_owner
+            and int(effect["leaseGeneration"]) == lease_generation
+        )
 
 
 def _secret_refs(value: Any) -> set[str]:

@@ -38,6 +38,36 @@ export function logicalCapabilityRef(ref: string): string {
   return ref.replace(/@[^@/]+$/, "");
 }
 
+const PROJECT_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Short label for a capability URI in selects (value stays the full ref).
+ * `model://general@1` → `general`; `tool://document/read@1` → `document/read`;
+ * `model://project/<uuid>@1` → `项目模型 · <uuid8>`.
+ */
+export function capabilityRefDisplayName(ref: string): string {
+  const trimmed = ref.trim();
+  const match = /^(agent|tool|model|policy):\/\/(.+)$/.exec(trimmed);
+  if (!match) return trimmed;
+  const scheme = match[1];
+  const rest = match[2];
+  const at = rest.lastIndexOf("@");
+  const path = at >= 0 && !rest.slice(at + 1).includes("/") ? rest.slice(0, at) : rest;
+  const projectMatch = /^project\/([^/]+)$/.exec(path);
+  if (projectMatch) {
+    const id = projectMatch[1];
+    const short = PROJECT_UUID_RE.test(id) ? id.slice(0, 8) : id;
+    const kindLabel =
+      scheme === "model" ? "项目模型"
+        : scheme === "tool" ? "项目工具"
+          : scheme === "agent" ? "项目智能体"
+            : "项目能力";
+    return `${kindLabel} · ${short}`;
+  }
+  return path;
+}
+
 export function capabilityLabel(ref: string): string | null {
   return CAPABILITY_LABELS[logicalCapabilityRef(ref)] ?? null;
 }

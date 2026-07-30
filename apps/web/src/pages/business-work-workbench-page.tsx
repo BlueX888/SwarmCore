@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3, Boxes, Braces, ChevronDown, ChevronUp, Files, Play, Settings2, ShieldCheck, Workflow,
 } from "lucide-react";
@@ -32,10 +32,50 @@ const WORKBENCH_ERROR_MESSAGES: Record<string, string> = {
   DOCUMENT_SELECTION_INVALID: "文件选择包含无效、已排除或不属于当前项目的版本。",
 };
 
+const INPUT_SCHEMA_FIELD_LABELS: Record<string, string> = {
+  title: "案件标题",
+  contractType: "合同类型",
+  contractObjectId: "合同业务对象",
+  projectNo: "采购项目编号",
+  lotNo: "标包编号",
+  procurementType: "采购类型",
+  asOf: "数据截止日",
+  supplier: "供应商",
+  "supplier.name": "供应商名称",
+  "supplier.creditCode": "统一社会信用代码",
+  subject: "分析对象",
+  "subject.subjectId": "分析对象编号",
+  "subject.subjectType": "分析对象类型",
+  period: "分析期",
+  "period.start": "分析期开始",
+  "period.end": "分析期结束",
+  issueUrl: "GitHub Issue URL",
+  objective: "校准目标",
+  acceptanceCriteria: "验收标准",
+  sandbox: "沙箱配置",
+  "sandbox.testCommand": "沙箱测试命令",
+  operation: "办理类型",
+  currency: "币种",
+  timezone: "业务时区",
+  sources: "采集源",
+  plan: "已发布履约计划",
+  contract: "合同信息",
+  "contract.contractId": "合同编号",
+  dimensions: "分析维度",
+};
+
 function workbenchErrorMessage(error: unknown): string {
   if (error instanceof SyntaxError) return "业务输入不是有效的 JSON。";
   if (error && typeof error === "object" && "code" in error) {
     const code = String((error as { code?: string }).code ?? "");
+    const detail = error instanceof Error ? error.message.trim() : "";
+    if (code === "INPUT_SCHEMA_INVALID") {
+      const clarified = formatInputSchemaDetail(detail);
+      if (clarified) return clarified;
+      return detail && detail !== WORKBENCH_ERROR_MESSAGES.INPUT_SCHEMA_INVALID
+        ? `${WORKBENCH_ERROR_MESSAGES.INPUT_SCHEMA_INVALID}（${detail}）`
+        : WORKBENCH_ERROR_MESSAGES.INPUT_SCHEMA_INVALID;
+    }
     if (code && WORKBENCH_ERROR_MESSAGES[code]) return WORKBENCH_ERROR_MESSAGES[code];
   }
   const message = error instanceof Error ? error.message : "提交失败，请稍后重试。";
@@ -44,6 +84,59 @@ function workbenchErrorMessage(error: unknown): string {
       ? (WORKBENCH_ERROR_MESSAGES.DOCUMENT_SELECTION_REQUIRED ?? message)
       : message
   );
+}
+
+function formatInputSchemaDetail(detail: string): string | null {
+  if (!detail) return null;
+  const nested = detail.match(/^([A-Za-z0-9_.-]+):\s*(.+)$/);
+  const pathPrefix = nested?.[1] && !nested[1].includes(" ") ? nested[1] : "";
+  const message = pathPrefix ? (nested?.[2] ?? detail) : detail;
+  const fieldPath = pathPrefix;
+
+  const required = message.match(/^'([^']+)' is a required property$/);
+  if (required?.[1]) {
+    const field = fieldPath ? `${fieldPath}.${required[1]}` : required[1];
+    const label = INPUT_SCHEMA_FIELD_LABELS[field]
+      ?? INPUT_SCHEMA_FIELD_LABELS[required[1]]
+      ?? field;
+    return `缺少必填字段：${label}（${field}）。`;
+  }
+  const tooShort = message.match(/^(?:'([^']*)' )?is too short$/);
+  if (tooShort) {
+    const label = fieldPath
+      ? (INPUT_SCHEMA_FIELD_LABELS[fieldPath] ?? fieldPath)
+      : null;
+    if (label) return `${label}不能为空。`;
+    return tooShort[1] === undefined || tooShort[1] === ""
+      ? "存在必填字段为空，请检查表单或高级 JSON。"
+      : `字段值过短：${tooShort[1]}`;
+  }
+  const pattern = message.match(/^'([^']*)' does not match '([^']+)'$/);
+  if (pattern) {
+    if (pattern[2] === "^[0-9A-Z]{18}$" || fieldPath.endsWith("creditCode")) {
+      return "统一社会信用代码须为 18 位数字或大写字母。";
+    }
+    const label = fieldPath
+      ? (INPUT_SCHEMA_FIELD_LABELS[fieldPath] ?? fieldPath)
+      : (pattern[1] || "字段");
+    return `${label}格式不正确。`;
+  }
+  const typeMismatch = message.match(/^([^ ]+) is not of type '([^']+)'$/);
+  if (typeMismatch) {
+    const label = fieldPath
+      ? (INPUT_SCHEMA_FIELD_LABELS[fieldPath] ?? fieldPath)
+      : "字段";
+    return `${label}类型不正确，期望 ${typeMismatch[2]}。`;
+  }
+  if (fieldPath) {
+    const label = INPUT_SCHEMA_FIELD_LABELS[fieldPath] ?? fieldPath;
+    return `${label}校验失败：${message}`;
+  }
+  return null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 export function BusinessWorkWorkbenchPage() {
@@ -155,6 +248,7 @@ export function BusinessWorkWorkbenchPage() {
   const run = useMutation({
     mutationFn: async () => {
       if (!pack || !work.data) throw new Error("业务工作尚未载入。");
+      const type = workItemType(pack);
       const payload = buildPayload(pack, {
         title,
         contractType,
@@ -180,7 +274,8 @@ export function BusinessWorkWorkbenchPage() {
         calibrationTestArgs,
         advancedSource: showAdvanced ? payloadSource : null,
       });
-      const type = workItemType(pack);
+      const localError = validateWorkbenchPayload(type, payload);
+      if (localError) throw new Error(localError);
       const subjectContracts = requiredSubjects(pack);
       if (!subjectContracts.length) {
         const item = await api.createWorkItem(tenantId, projectId, {
@@ -206,9 +301,10 @@ export function BusinessWorkWorkbenchPage() {
           subjectKey: contract.key,
         };
       }));
+      const casePayload = enrichCasePayload(type, payload, subjects);
       const businessCase = await api.createCase(tenantId, projectId, {
         scenarioType: type,
-        payload,
+        payload: casePayload,
         subjects,
         owner: owner.trim() || undefined,
       });
@@ -533,7 +629,44 @@ export function BusinessWorkWorkbenchPage() {
           <button
             type="button"
             className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-900/60"
-            onClick={() => setShowAdvanced((value) => !value)}
+            onClick={() => {
+              setShowAdvanced((open) => {
+                if (!open) {
+                  try {
+                    setPayloadSource(JSON.stringify(buildPayload(pack, {
+                      title,
+                      contractType,
+                      contractId,
+                      deviationSubjectId,
+                      deviationSubjectType,
+                      procurementProjectNo,
+                      procurementLotNo,
+                      procurementType,
+                      supplierName,
+                      supplierCreditCode,
+                      periodStart,
+                      periodEnd,
+                      asOf,
+                      contractOperation,
+                      contractCurrency,
+                      contractTimezone,
+                      contractSourcesSource,
+                      contractPlanSource,
+                      calibrationIssueUrl,
+                      calibrationObjective,
+                      calibrationCriteria,
+                      calibrationTestArgs,
+                      advancedSource: null,
+                    }), null, 2));
+                    setInputError(null);
+                  } catch (error) {
+                    setInputError(workbenchErrorMessage(error));
+                    return open;
+                  }
+                }
+                return !open;
+              });
+            }}
             aria-expanded={showAdvanced}
           >
             <span>{showAdvanced ? "收起高级 JSON 输入" : "展开高级 JSON 输入"}</span>
@@ -551,6 +684,9 @@ export function BusinessWorkWorkbenchPage() {
                   className="mt-2 min-h-64 w-full resize-y rounded-xl border border-gray-300 bg-gray-950 p-4 font-mono text-xs leading-5 text-gray-100 outline-none focus:border-brand-500 dark:border-gray-700"
                 />
               </label>
+              <p className="mt-2 text-xs leading-5 text-gray-500">
+                提交时表单字段优先；高级 JSON 用于补充自定义字段（如 riskSources）。展开时会先同步当前表单内容。
+              </p>
             </div>
           ) : null}
         </div>
@@ -684,36 +820,58 @@ function SummaryCard({
   );
 }
 
-function buildPayload(
-  pack: CapabilityPackSnapshot,
-  values: {
-    title: string;
-    contractType: string;
-    contractId: string;
-    deviationSubjectId: string;
-    deviationSubjectType: string;
-    procurementProjectNo: string;
-    procurementLotNo: string;
-    procurementType: string;
-    supplierName: string;
-    supplierCreditCode: string;
-    periodStart: string;
-    periodEnd: string;
-    asOf: string;
-    contractOperation: "INITIALIZE" | "COLLECT";
-    contractCurrency: string;
-    contractTimezone: string;
-    contractSourcesSource: string;
-    contractPlanSource: string;
-    calibrationIssueUrl: string;
-    calibrationObjective: string;
-    calibrationCriteria: string;
-    calibrationTestArgs: string;
-    advancedSource: string | null;
-  },
-) {
-  if (values.advancedSource) return parseObject(values.advancedSource, "业务输入必须是 JSON 对象。");
+type WorkbenchFormValues = {
+  title: string;
+  contractType: string;
+  contractId: string;
+  deviationSubjectId: string;
+  deviationSubjectType: string;
+  procurementProjectNo: string;
+  procurementLotNo: string;
+  procurementType: string;
+  supplierName: string;
+  supplierCreditCode: string;
+  periodStart: string;
+  periodEnd: string;
+  asOf: string;
+  contractOperation: "INITIALIZE" | "COLLECT";
+  contractCurrency: string;
+  contractTimezone: string;
+  contractSourcesSource: string;
+  contractPlanSource: string;
+  calibrationIssueUrl: string;
+  calibrationObjective: string;
+  calibrationCriteria: string;
+  calibrationTestArgs: string;
+  advancedSource: string | null;
+};
+
+/** Form-managed fields win; other advanced JSON keys (e.g. riskSources) are preserved. */
+const FORM_MANAGED_KEYS: Record<string, readonly string[]> = {
+  "contract-case": ["title", "contractType"],
+  "contract-post-evaluation-case": ["title", "contract"],
+  "deviation-analysis-case": ["title", "subject", "period", "asOf"],
+  "contract-performance-case": [
+    "title", "operation", "asOf", "currency", "timezone", "sources", "plan", "manualDocuments",
+  ],
+  "procurement-supplier-risk-case": [
+    "title", "projectNo", "lotNo", "procurementType", "asOf", "supplier",
+  ],
+  "swarm-calibration-case": [
+    "title", "issueUrl", "objective", "acceptanceCriteria", "sandbox",
+  ],
+  "invoice-assurance-case": ["title"],
+};
+
+function buildPayload(pack: CapabilityPackSnapshot, values: WorkbenchFormValues) {
   const type = workItemType(pack);
+  const formPayload = buildFormPayload(type, values);
+  if (!values.advancedSource) return formPayload;
+  const advanced = parseObject(values.advancedSource, "业务输入必须是 JSON 对象。");
+  return mergeFormPreferredPayload(type, formPayload, advanced);
+}
+
+function buildFormPayload(type: string, values: Omit<WorkbenchFormValues, "advancedSource">) {
   const base = defaultPayload(type);
   if (type === "contract-case") return { ...base, title: values.title || base.title, contractType: values.contractType };
   if (type === "contract-post-evaluation-case") {
@@ -721,10 +879,12 @@ function buildPayload(
     return { ...base, title: values.title || base.title, contract: { ...contract, contractId: values.contractId } };
   }
   if (type === "deviation-analysis-case") {
+    const subject = isPlainObject(base.subject) ? base.subject : {};
     return {
       ...base,
       title: values.title || base.title,
       subject: {
+        ...subject,
         subjectId: values.deviationSubjectId,
         subjectType: values.deviationSubjectType,
       },
@@ -759,6 +919,7 @@ function buildPayload(
     return payload;
   }
   if (type === "procurement-supplier-risk-case") {
+    const supplier = isPlainObject(base.supplier) ? base.supplier : {};
     return {
       ...base,
       title: values.title || base.title,
@@ -767,6 +928,7 @@ function buildPayload(
       procurementType: values.procurementType,
       asOf: values.asOf,
       supplier: {
+        ...supplier,
         name: values.supplierName.trim(),
         creditCode: values.supplierCreditCode.trim().toUpperCase(),
       },
@@ -786,6 +948,75 @@ function buildPayload(
     };
   }
   return { ...base, title: values.title || base.title };
+}
+
+/** Overlay only form-managed fields so advanced custom keys stay intact. */
+function mergeFormPreferredPayload(
+  type: string,
+  form: Record<string, unknown>,
+  advanced: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...advanced };
+  const keys = FORM_MANAGED_KEYS[type] ?? ["title"];
+  for (const key of keys) {
+    if (!(key in form)) continue;
+    const formValue = form[key];
+    const advancedValue = merged[key];
+    if (isPlainObject(formValue) && isPlainObject(advancedValue)) {
+      merged[key] = { ...advancedValue, ...formValue };
+    } else {
+      merged[key] = formValue;
+    }
+  }
+  return merged;
+}
+
+function enrichCasePayload(
+  type: string,
+  payload: Record<string, unknown>,
+  subjects: Array<{ businessObjectId: string; role: SubjectRole; subjectKey: string }>,
+) {
+  if (type !== "contract-performance-case") return payload;
+  if (typeof payload.contractObjectId === "string" && payload.contractObjectId.trim()) return payload;
+  const primary = subjects.find((item) => item.subjectKey === "contract")
+    ?? subjects.find((item) => item.role === "PRIMARY")
+    ?? subjects[0];
+  if (!primary) return payload;
+  return { ...payload, contractObjectId: primary.businessObjectId };
+}
+
+function validateWorkbenchPayload(type: string, payload: Record<string, unknown>): string | null {
+  if (type === "procurement-supplier-risk-case") {
+    const supplier = isPlainObject(payload.supplier) ? payload.supplier : {};
+    if (typeof supplier.name !== "string" || !supplier.name.trim()) return "请填写供应商名称。";
+    if (typeof supplier.creditCode !== "string" || !/^[0-9A-Z]{18}$/.test(supplier.creditCode)) {
+      return "统一社会信用代码须为 18 位数字或大写字母。";
+    }
+  }
+  if (type === "swarm-calibration-case") {
+    if (typeof payload.issueUrl !== "string" || !payload.issueUrl.trim()) return "请填写真实 GitHub Issue URL。";
+    if (typeof payload.objective !== "string" || !payload.objective.trim()) return "请填写本次校准目标。";
+    if (!Array.isArray(payload.acceptanceCriteria) || payload.acceptanceCriteria.length === 0) {
+      return "请至少填写一条验收标准。";
+    }
+    const sandbox = isPlainObject(payload.sandbox) ? payload.sandbox : {};
+    if (!Array.isArray(sandbox.testCommand) || sandbox.testCommand.length === 0) {
+      return "请填写沙箱测试命令参数。";
+    }
+  }
+  if (type === "contract-performance-case") {
+    if (typeof payload.currency !== "string" || !/^[A-Z]{3}$/.test(payload.currency)) {
+      return "币种必须是 3 位大写字母代码。";
+    }
+    if (payload.operation === "COLLECT") {
+      if (!Array.isArray(payload.sources)) return "采集源必须是 JSON 数组。";
+      if (!isPlainObject(payload.plan) || Object.keys(payload.plan).length === 0) {
+        return "采集前必须提供已人工发布的履约计划。";
+      }
+    }
+  }
+  if (typeof payload.title === "string" && !payload.title.trim()) return "请填写案件标题。";
+  return null;
 }
 
 function nonEmptyLines(value: string) {
@@ -849,6 +1080,7 @@ function DocumentWorkbenchPanel({
   tenantId: string;
   projectId: string;
 }) {
+  const queryClient = useQueryClient();
   const requirements = useQuery({
     queryKey: ["document-requirements", tenantId, projectId, workKey],
     queryFn: () => api.listWorkDocumentRequirements(tenantId, projectId, workKey),
@@ -893,14 +1125,21 @@ function DocumentWorkbenchPanel({
               context={{
                 businessWorkKey: workKey,
                 businessWorkKeys: [workKey],
-                processingProfileRef: requirements.data?.processingProfileRef ?? undefined,
+                processingProfileRef: selectedRequirement?.processingProfileRef
+                  ?? requirements.data?.processingProfileRef
+                  ?? undefined,
                 extractionSchemaRef: selectedRequirement?.extractionSchemaRef ?? undefined,
                 classificationLabels: labels,
                 category: selectedRequirement?.category ?? "OTHER",
               }}
               onCompleted={async () => {
                 setShowUpload(false);
-                await requirements.refetch();
+                await Promise.all([
+                  requirements.refetch(),
+                  queryClient.invalidateQueries({
+                    queryKey: ["business-work", tenantId, projectId, workKey],
+                  }),
+                ]);
               }}
             />
           </div>

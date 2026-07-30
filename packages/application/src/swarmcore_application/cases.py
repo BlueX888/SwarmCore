@@ -65,12 +65,13 @@ class CaseService:
             manifest=manifest,
             subjects=subjects,
         )
+        enriched_payload = _enrich_case_payload(scenario_type, payload, subjects)
         item, revision = await self._workbench.create_work_item(
             session,
             tenant_id=tenant_id,
             project_id=project_id,
             work_item_type=scenario_type,
-            payload=payload,
+            payload=enriched_payload,
             owner=owner,
             idempotency_key=idempotency_key,
             actor=actor,
@@ -162,12 +163,22 @@ class CaseService:
                 }
                 for value in replacements
             ]
+        subject_source = replacements if replacements is not None else [
+            CaseSubjectInput(
+                business_object_id=value.business_object_id,
+                business_object_version_id=value.business_object_version_id,
+                role=value.role,
+                subject_key=value.subject_key,
+            )
+            for value in current_subjects
+        ]
+        enriched_payload = _enrich_case_payload(item.work_item_type, payload, subject_source)
         item, revision = await self._workbench.update_work_item(
             session,
             tenant_id=tenant_id,
             project_id=project_id,
             work_item_id=case_id,
-            payload=payload,
+            payload=enriched_payload,
             owner=owner,
             expected_revision=expected_revision,
             idempotency_key=idempotency_key,
@@ -360,3 +371,26 @@ class CaseService:
             count = counts.get(key, 0)
             if count < contract.min or (contract.max is not None and count > contract.max):
                 raise ValueError("CASE_SUBJECT_REQUIRED")
+
+
+def _enrich_case_payload(
+    scenario_type: str,
+    payload: dict[str, Any],
+    subjects: list[CaseSubjectInput],
+) -> dict[str, Any]:
+    """Fill schema-required identifiers that the workbench derives from subjects."""
+    if scenario_type != "contract-performance-case":
+        return payload
+    existing = payload.get("contractObjectId")
+    if isinstance(existing, str) and existing.strip():
+        return payload
+    primary = next(
+        (item for item in subjects if item.subject_key == "contract"),
+        None,
+    ) or next(
+        (item for item in subjects if item.role == "PRIMARY"),
+        None,
+    ) or (subjects[0] if subjects else None)
+    if primary is None:
+        return payload
+    return {**payload, "contractObjectId": str(primary.business_object_id)}

@@ -8,6 +8,9 @@ import type { CapabilityKind, CapabilityPreset, CapabilitySummary, ReadinessReas
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 import { capabilityDisplayName, capabilitySearchHaystack, normalizeCapabilitySearch } from "@/lib/capability-labels";
@@ -120,11 +123,25 @@ export function CapabilitiesPage({ kind }: { kind: CapabilityKind }) {
     void navigate(`${workspacePath}/canvas`, { state: { capability: selected, input: value } });
   };
   return <div className="min-w-0 space-y-6">
-    <header className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm font-medium text-brand-500">能力中心</p><h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{kindLabels[kind]}</h1><p className="mt-1 text-sm text-gray-500">{pageDescriptions[kind]}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void Promise.all([query.refetch(), presets.refetch()])} loading={query.isFetching || presets.isFetching}><RefreshCw />刷新</Button>{kind === "tool" ? <Button onClick={() => void navigate(`${workspacePath}/tools/new`)}><Plus />新建工具</Button> : null}{kind === "model" ? <Button onClick={() => setCreatingModel(true)}><Plus />新建模型</Button> : null}{kind === "agent" ? <Button onClick={() => void navigate(`${workspacePath}/agents/configure?new=1`)}><Plus />创建智能体</Button> : null}{kind === "policy" ? <Button onClick={() => void navigate(`${workspacePath}/policies/new`)}><Plus />新建策略</Button> : null}</div></header>
+    <PageHeader
+      eyebrow="能力中心"
+      title={kindLabels[kind]}
+      description={pageDescriptions[kind]}
+      actions={<>
+        <Button variant="outline" onClick={() => void Promise.all([query.refetch(), presets.refetch()])} loading={query.isFetching || presets.isFetching}><RefreshCw />刷新</Button>
+        {kind === "tool" ? <Button onClick={() => void navigate(`${workspacePath}/tools/new`)}><Plus />新建工具</Button> : null}
+        {kind === "model" ? <Button onClick={() => setCreatingModel(true)}><Plus />新建模型</Button> : null}
+        {kind === "agent" ? <Button onClick={() => void navigate(`${workspacePath}/agents/configure?new=1`)}><Plus />创建智能体</Button> : null}
+        {kind === "policy" ? <Button onClick={() => void navigate(`${workspacePath}/policies/new`)}><Plus />新建策略</Button> : null}
+      </>}
+    />
     <Card><CardContent className="grid gap-3 pt-5 md:grid-cols-[minmax(0,1fr)_auto]"><label className="relative md:col-span-1"><Search className="absolute left-3 top-2.5 size-5 text-gray-400" /><input aria-label={`搜索${kindLabels[kind]}`} className={`${fieldClass} pl-10`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`搜索${kindLabels[kind]}名称或用途`} /></label><div className="flex flex-wrap items-center gap-3 justify-self-end"><label className="flex items-center gap-2 whitespace-nowrap text-sm text-gray-600"><input type="checkbox" checked={showNotReady} onChange={(event) => setShowNotReady(event.target.checked)} />{kind === "model" ? "显示已配置但未就绪" : "显示未就绪"}</label>{kind === "tool" ? <div role="group" aria-label="按风险分类" className="flex rounded-lg bg-gray-100 p-1 dark:bg-gray-800">{riskFilterOptions.map((option) => <Button key={option.value || "all"} type="button" size="sm" variant={riskFilter === option.value ? "primary" : "ghost"} aria-pressed={riskFilter === option.value} onClick={() => setRiskFilter(option.value)} className="h-9 px-3">{option.label}</Button>)}</div> : null}</div></CardContent></Card>
     {query.isPending ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-52" />)}</div> : null}
-    {query.isError ? <Card><CardContent className="py-12 text-center text-error-600">无法加载能力中心：{query.error.message}</CardContent></Card> : null}
-    {!query.isPending && !query.isError && !filtered.length ? <Card><CardContent className="space-y-2 py-12 text-center text-sm text-gray-500"><p>{kind === "model" ? (showNotReady ? "当前项目还没有模型配置。" : "没有可用模型。") : "当前筛选条件下没有可显示的能力。"}</p>{kind === "model" ? <p className="text-xs text-gray-400">点击“新建模型”，只需填写 API URL、ModelName 和 API Key。</p> : null}</CardContent></Card> : null}
+    {query.isError ? <Card><CardContent className="pt-5"><ErrorState title="无法加载能力中心" message={query.error.message} onRetry={() => void query.refetch()} /></CardContent></Card> : null}
+    {!query.isPending && !query.isError && !filtered.length ? <Card><CardContent className="pt-5"><EmptyState
+      title={kind === "model" ? (showNotReady ? "当前项目还没有模型配置。" : "没有可用模型。") : "当前筛选条件下没有可显示的能力。"}
+      description={kind === "model" ? "点击“新建模型”，只需填写 API URL、ModelName 和 API Key。" : undefined}
+    /></CardContent></Card> : null}
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{filtered.map((item) => <CapabilityCard key={item.ref} item={item} selected={selected?.ref === item.ref} onSelect={() => choose(item)} onConfigure={item.kind === "agent" ? () => void navigate(agentConfigurationPath(workspacePath, item)) : undefined} />)}</div>
     {kind === "model" && creatingModel ? <NewModelConfigurationDialog tenantId={tenantId} projectId={projectId} onClose={() => setCreatingModel(false)} onSaved={async () => { setCreatingModel(false); await query.refetch(); }} /> : null}
     {selected ? <Dialog.Root open onOpenChange={(open) => { if (!open) setSelected(undefined); }}><Dialog.Portal>

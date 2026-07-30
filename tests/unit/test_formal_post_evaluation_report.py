@@ -233,6 +233,52 @@ def test_quality_gate_does_not_publish_raw_english_review_diagnostics() -> None:
     ]
 
 
+def test_formal_report_corrects_model_claim_about_insufficient_dimension_weight() -> None:
+    source = _source_result()
+    insufficient_names = [name for _, name in DIMENSIONS[:4]]
+    for dimension, weight in zip(source["dimensions"][:4], (10, 20, 15, 15), strict=True):
+        dimension["score"] = None
+        dimension["status"] = "DATA_INSUFFICIENT"
+        dimension["weight"] = weight
+    source["narrative"] = {
+        "managementConclusions": [
+            f"{'、'.join(insufficient_names)}数据不足，合计权重45%，需补充资料。"
+        ],
+        "limitations": [
+            f"{'、'.join(insufficient_names)}无法评价，合计约占总权重45%。"
+        ],
+    }
+    coverage = {
+        "documentCount": 10,
+        "contentAvailableCount": 10,
+        "missingRequired": [],
+        "complete": True,
+        "warnings": [],
+    }
+    readability = assess_document_readability(coverage)
+
+    report = compose_formal_post_evaluation_report(
+        title="采购合同履约后评价报告",
+        result=source,
+        readability=readability,
+        section_drafts={},
+        editorial={
+            "executiveSummary": (
+                f"{'、'.join(insufficient_names)}数据不足，合计权重为45%。"
+            )
+        },
+        review={},
+        coverage=coverage,
+        consistency={},
+        diagnostics={},
+        approval=None,
+    )
+
+    visible = str(report)
+    assert "45%" not in visible
+    assert visible.count("合计权重60%") == 3
+
+
 def test_formal_report_pdf_is_deterministic_and_business_sized() -> None:
     result = _formal_result()
 

@@ -6,6 +6,9 @@ import { api } from "@/api/client";
 import type { AgentCapability, CapabilityCatalog, ConfigurationKind, CreateSavedConfiguration, SavedConfiguration, ToolCapability } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 import { filesystemToolInputError } from "@/lib/filesystem-tool-config";
@@ -95,17 +98,27 @@ function ConfigurationShell({ kind, icon, title, description, initialCreate = fa
     setSelectedId("new");
   };
   return <div className="min-w-0 space-y-6">
-    <div className="flex flex-wrap items-end justify-between gap-4">
-      <div className="flex items-start gap-3"><span className="mt-1 grid size-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15">{icon}</span><div><p className="text-sm font-medium text-brand-500">构建</p><h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{title}</h1><p className="mt-1 max-w-3xl text-sm text-gray-500">{description}</p></div></div>
-      {editorOnly ? <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh} loading={query.isFetching || savedQuery.isFetching}><RefreshCw />刷新</Button><Button asChild variant="outline"><Link to={`${workspacePath}/agents`}><ArrowLeft />返回智能体</Link></Button></div> : <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh} loading={query.isFetching || savedQuery.isFetching}><RefreshCw />刷新</Button><Button asChild variant="outline"><Link to={`${workspacePath}/${kind === "tool" ? "tools" : kind === "model" ? "models" : "agents"}`}><Boxes />能力目录</Link></Button><Button asChild variant="outline"><Link to={`${workspacePath}/canvas`}><Network />打开画布</Link></Button><Button onClick={startCreating}><Plus />新建{itemLabel}配置</Button></div>}
-    </div>
+    <PageHeader
+      eyebrow="构建"
+      title={title}
+      description={description}
+      actions={editorOnly ? <>
+        <Button variant="outline" onClick={refresh} loading={query.isFetching || savedQuery.isFetching}><RefreshCw />刷新</Button>
+        <Button asChild variant="outline"><Link to={`${workspacePath}/agents`}><ArrowLeft />返回智能体</Link></Button>
+      </> : <>
+        <Button variant="outline" onClick={refresh} loading={query.isFetching || savedQuery.isFetching}><RefreshCw />刷新</Button>
+        <Button asChild variant="outline"><Link to={`${workspacePath}/${kind === "tool" ? "tools" : kind === "model" ? "models" : "agents"}`}><Boxes />能力目录</Link></Button>
+        <Button asChild variant="outline"><Link to={`${workspacePath}/canvas`}><Network />打开画布</Link></Button>
+        <Button onClick={startCreating}><Plus />新建{itemLabel}配置</Button>
+      </>}
+    />
     <p className="rounded-xl border border-warning-200 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10">{kind === "agent" ? "系统内置智能体保持只读；创建后会生成当前项目的版本化智能体能力，并在执行时由 Agno Adapter 实例化。" : kind === "tool" ? "平台工具目录保持只读；新建工具会保存当前项目的名称和默认参数，不会修改工具执行器或系统注册表。" : "内置能力目录保持只读；你在这里保存的是当前项目可复用的配置，不会修改系统注册表。"}</p>
     {notice && !editing ? <p role="status" className="rounded-xl bg-brand-50 p-3 text-sm text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">{notice}</p> : null}
     {editorOnly ? <div className="min-w-0 space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900"><div><h2 className="font-semibold text-gray-900 dark:text-white">{selected ? `编辑“${selected.name}”` : "新建智能体配置"}</h2><p className="mt-1 text-sm text-gray-500">直接编辑并保存；此页面不再重复展示能力目录。</p></div><label className="text-sm font-medium text-gray-700 dark:text-gray-300">打开已有配置<select aria-label="打开已有智能体配置" className={`${fieldClass} min-w-64`} value={selectedId} onChange={(event) => { setNotice(""); setSelectedId(event.target.value); }}><option value="new">新建智能体配置</option>{items.map((item) => <option key={item.configurationId} value={item.configurationId}>{item.name}</option>)}</select></label></div>
       {savedQuery.isError ? <p role="alert" className="rounded-xl bg-error-50 p-3 text-sm text-error-600">无法加载已有配置：{savedQuery.error.message}</p> : null}
       {query.isPending ? <Skeleton className="h-[520px]" /> : null}
-      {query.isError ? <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-error-600">无法加载能力配置</p><p className="text-sm text-gray-500">{query.error.message}</p><Button onClick={() => void query.refetch()}>重试</Button></CardContent></Card> : null}
+      {query.isError ? <Card><CardContent className="pt-5"><ErrorState title="无法加载能力配置" message={query.error.message} onRetry={() => void query.refetch()} /></CardContent></Card> : null}
       {query.data && (selected || selectedId === "new") ? children(query.data, selected, (body) => saveMutation.mutate(body), saveMutation.isPending, notice) : null}
     </div> : !editing ? <div className="space-y-8"><RuntimeCapabilityLibrary kind={kind} catalog={query.data} loading={query.isPending} error={query.error?.message} /><ConfigurationLibrary itemLabel={itemLabel} itemIcon={icon} items={items} loading={savedQuery.isPending} error={savedQuery.error?.message} deleting={deleteMutation.isPending} onSelect={setSelectedId} onDelete={(configurationId) => deleteMutation.mutate(configurationId)} /></div> : <div className="min-w-0 space-y-5">
       <div className="flex flex-wrap items-center gap-3">
@@ -114,7 +127,7 @@ function ConfigurationShell({ kind, icon, title, description, initialCreate = fa
       </div>
       <div className="min-w-0">
         {query.isPending ? <Skeleton className="h-[520px]" /> : null}
-        {query.isError ? <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-error-600">无法加载能力配置</p><p className="text-sm text-gray-500">{query.error.message}</p><Button onClick={() => void query.refetch()}>重试</Button></CardContent></Card> : null}
+        {query.isError ? <Card><CardContent className="pt-5"><ErrorState title="无法加载能力配置" message={query.error.message} onRetry={() => void query.refetch()} /></CardContent></Card> : null}
         {query.data && (selected || selectedId === "new") ? children(query.data, selected, (body) => saveMutation.mutate(body), saveMutation.isPending, notice) : null}
       </div>
     </div>}
@@ -226,7 +239,7 @@ function ConfigurationLibrary({ itemLabel, itemIcon, items, loading, error, dele
   return <section aria-labelledby="configured-items-title" className="space-y-4"><div><h2 id="configured-items-title" className="text-lg font-semibold text-gray-900 dark:text-white">已配置{itemLabel}</h2><p className="mt-1 text-sm text-gray-500">当前项目共 {items.length} 项，点击卡片查看和修改参数。</p></div>
     {loading ? <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3"><Skeleton className="h-44" /><Skeleton className="h-44" /></div> : null}
     {error ? <div className="rounded-xl border border-error-200 bg-error-50 p-4 text-sm text-error-700">无法加载已配置{itemLabel}：{error}</div> : null}
-    {!loading && !error && items.length === 0 ? <div className="rounded-2xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700"><p className="text-sm text-gray-500">还没有已配置{itemLabel}，请点击页面上方的“新建{itemLabel}配置”。</p></div> : null}
+    {!loading && !error && items.length === 0 ? <div className="rounded-2xl border border-dashed border-gray-300 px-6 dark:border-gray-700"><EmptyState compact title={`还没有已配置${itemLabel}，请点击页面上方的“新建${itemLabel}配置”。`} /></div> : null}
     {!loading && !error && items.length > 0 ? <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">{items.map((item) => <Card key={item.configurationId} className="group flex min-h-44 flex-col transition hover:border-brand-300 hover:shadow-theme-sm dark:hover:border-brand-500/50"><button type="button" aria-label={`打开：${item.name}`} className="min-w-0 flex-1 p-5 text-left focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-500/20" onClick={() => onSelect(item.configurationId)}><span className="flex items-start justify-between gap-4"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15">{itemIcon}</span><span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500 dark:bg-gray-800">版本 {item.revision}</span></span><span className="mt-4 block truncate font-semibold text-gray-900 dark:text-white">{item.name}</span><span className="mt-1 block break-all font-mono text-xs text-gray-500">{item.sourceRef}</span><span className="mt-3 block text-xs text-gray-400">更新于 {new Date(item.updatedAt).toLocaleString("zh-CN")}</span></button><div className="flex items-center justify-between border-t border-gray-100 px-5 py-2 dark:border-gray-800"><button type="button" className="text-sm font-medium text-brand-500 hover:text-brand-600" onClick={() => onSelect(item.configurationId)}>查看并编辑</button><Button variant="ghost" size="icon" aria-label={`删除${item.name}`} disabled={deleting} onClick={() => onDelete(item.configurationId)}><Trash2 /></Button></div></Card>)}</div> : null}
   </section>;
 }

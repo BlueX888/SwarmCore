@@ -3521,6 +3521,19 @@ async def list_document_snapshots(
             .order_by(DocumentUsageSnapshot.created_at)
         )
     )
+    document_ids = {value.business_document_id for value in values}
+    documents_by_id: dict[UUID, BusinessDocument] = {}
+    if document_ids:
+        documents_by_id = {
+            document.id: document
+            for document in await session.scalars(
+                select(BusinessDocument).where(
+                    BusinessDocument.id.in_(document_ids),
+                    BusinessDocument.tenant_id == scope.tenant_id,
+                    BusinessDocument.project_id == scope.project_id,
+                )
+            )
+        }
     return {
         "items": [
             {
@@ -3529,6 +3542,16 @@ async def list_document_snapshots(
                 "documentVersionId": value.business_document_version_id,
                 "blobId": value.blob_id,
                 "businessWorkKey": value.business_work_key,
+                "documentName": (
+                    documents_by_id[value.business_document_id].name
+                    if value.business_document_id in documents_by_id
+                    else None
+                ),
+                "documentCategory": (
+                    documents_by_id[value.business_document_id].category
+                    if value.business_document_id in documents_by_id
+                    else None
+                ),
                 "version": value.document_version,
                 "sha256": value.sha256,
                 "sizeBytes": value.size_bytes,

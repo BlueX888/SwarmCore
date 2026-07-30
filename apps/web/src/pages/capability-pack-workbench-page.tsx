@@ -6,6 +6,8 @@ import { api } from "@/api/client";
 import type { CapabilityPackSnapshot, CaseSubjectInput } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 
@@ -91,15 +93,15 @@ export function CapabilityPackWorkbenchPage() {
   ];
 
   return <div className="min-w-0 space-y-6">
-    <header className="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <Link to={`${workspacePath}/capability-packs`} className="mb-3 inline-flex items-center gap-1 text-xs text-gray-500 hover:text-brand-600"><ArrowLeft className="size-4" />返回业务能力包</Link>
-        <p className="text-sm font-medium text-brand-500">业务能力包 · 工作台</p>
-        <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{businessName(pack.name)}</h1>
-        <p className="mt-1 text-sm text-gray-500">填写本次业务输入，一次完成业务对象创建、能力包评估和耐久运行提交。</p>
-      </div>
-      <Button asChild variant="outline"><Link to={`${workspacePath}/capability-packs/${encodeURIComponent(pack.name)}`}><Settings2 />项目配置</Link></Button>
-    </header>
+    <div>
+      <Link to={`${workspacePath}/capability-packs`} className="mb-3 inline-flex items-center gap-1 text-xs text-gray-500 hover:text-brand-600"><ArrowLeft className="size-4" />返回业务能力包</Link>
+      <PageHeader
+        eyebrow="业务能力包 · 工作台"
+        title={businessName(pack.name)}
+        description="填写本次业务输入，一次完成业务对象创建、能力包评估和耐久运行提交。"
+        actions={<Button asChild variant="outline"><Link to={`${workspacePath}/capability-packs/${encodeURIComponent(pack.name)}`}><Settings2 />项目配置</Link></Button>}
+      />
+    </div>
 
     <section className="grid gap-3 sm:grid-cols-3" aria-label="运行资格">
       <Summary label="能力包版本" value={`v${pack.version}`} ok={pack.enabled} />
@@ -215,5 +217,5 @@ function Summary({ label, value, ok }: { label: string; value: string; ok: boole
 }
 
 function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 p-5 text-center"><Boxes className="size-8 text-gray-400" /><p className="font-medium text-gray-900 dark:text-white">能力包工作台无法加载</p><p className="text-sm text-gray-500">{message}</p><Button onClick={onRetry}>重试</Button></CardContent></Card>;
+  return <Card><CardContent className="pt-5"><ErrorState title="能力包工作台无法加载" message={message} onRetry={onRetry} /></CardContent></Card>;
 }

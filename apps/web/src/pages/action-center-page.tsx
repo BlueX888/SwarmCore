@@ -7,6 +7,9 @@ import type { CommandHandle } from "@/api/types";
 import { HumanApprovalCard, HumanInputCard } from "@/components/operations/human-action-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 import { statusLabel } from "@/lib/display-text";
@@ -48,16 +51,12 @@ export function ActionCenterPage() {
   const noticeTone = control.isError ? "error" : "ok";
 
   return <div className="min-w-0 space-y-6">
-    <div className="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <p className="text-sm font-medium text-brand-500">运行管理</p>
-        <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">待办中心</h1>
-        <p className="mt-1 max-w-2xl text-sm text-gray-500">
-          这里汇集需要你拍板的审批和需要你补充的信息。先打开运行详情核对材料，再在卡片里批准、拒绝或提交。
-        </p>
-      </div>
-      <Button variant="outline" onClick={refresh} loading={approvals.isFetching || inputs.isFetching}><RefreshCw />刷新</Button>
-    </div>
+    <PageHeader
+      eyebrow="运行管理"
+      title="待办中心"
+      description="这里汇集需要你拍板的审批和需要你补充的信息。先打开运行详情核对材料，再在卡片里批准、拒绝或提交。"
+      actions={<Button variant="outline" onClick={refresh} loading={approvals.isFetching || inputs.isFetching}><RefreshCw />刷新</Button>}
+    />
 
     {!loading && !error && total > 0 ? (
       <div className="flex flex-wrap gap-3 text-sm">
@@ -72,8 +71,8 @@ export function ActionCenterPage() {
 
     {notice ? <p role="status" className={noticeTone === "error" ? "rounded-xl border border-error-200 bg-error-50 p-3 text-sm text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300" : "rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300"}>{notice}</p> : null}
     {loading ? <div className="grid gap-4 xl:grid-cols-2"><Skeleton className="h-80" /><Skeleton className="h-80" /></div> : null}
-    {error ? <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-error-600">无法加载待办事项</p><p className="text-sm text-gray-500">{error.message}</p><Button onClick={refresh}>重试</Button></CardContent></Card> : null}
-    {!loading && !error && total === 0 ? <Card><CardContent className="flex min-h-72 flex-col items-center justify-center gap-3 pt-5 text-center"><span className="grid size-14 place-items-center rounded-2xl bg-success-50 text-success-600 dark:bg-success-500/15"><Inbox /></span><p className="font-medium text-gray-900 dark:text-white">待办已清空</p><p className="max-w-md text-sm text-gray-500">当前没有待审批事项或外部输入请求。</p><Button asChild variant="outline"><Link to={`${workspacePath}/runs`}>打开运行记录</Link></Button></CardContent></Card> : null}
+    {error ? <Card><CardContent className="pt-5"><ErrorState title="无法加载待办事项" message={error.message} onRetry={refresh} /></CardContent></Card> : null}
+    {!loading && !error && total === 0 ? <Card><CardContent className="pt-5"><EmptyState icon={Inbox} tone="success" title="待办已清空" description="当前没有待审批事项或外部输入请求。" action={<Button asChild variant="outline"><Link to={`${workspacePath}/runs`}>打开运行记录</Link></Button>} /></CardContent></Card> : null}
     {total ? <div className="grid min-w-0 gap-5 xl:grid-cols-2">
       {approvalItems.map((request) => (
         <HumanApprovalCard

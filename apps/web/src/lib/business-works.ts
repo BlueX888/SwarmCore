@@ -200,7 +200,7 @@ export const DOCUMENT_CATEGORY_LABELS: Record<string, string> = {
 
 /** Keys that count when matching documents to a business work (mirrors backend). */
 export function documentBindingKeys(workKey: string, workItemType: string | null = null): string[] {
-  if (workKey === "contract-post-evaluation") {
+  if (workKey === "contract-post-evaluation" || workKey === "report-generation") {
     return [
       workKey,
       workItemType ?? "contract-post-evaluation-case",

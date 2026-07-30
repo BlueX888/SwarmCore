@@ -28,6 +28,7 @@ async def test_canvas_strategy_completes_real_api_run_with_approval_and_parallel
             "result": {"x": 880, "y": 0},
         },
         "viewport": {"x": 20, "y": 30, "zoom": 0.9},
+        "agentBindings": {},
     }
 
     created = api.post(

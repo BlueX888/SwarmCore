@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  Activity, ArrowRight, Bot, Boxes, Cpu, Inbox, Network, Plus, RefreshCw, Rocket, ScrollText, Workflow, Wrench,
+  Activity, ArrowRight, Bot, Boxes, Clock3, Cpu, Inbox, Network, Plus, RefreshCw, Rocket, ScrollText, Workflow, Wrench,
 } from "lucide-react";
 import type * as React from "react";
 import { Link } from "react-router";
@@ -8,6 +8,9 @@ import { api } from "@/api/client";
 import type { RunSnapshot } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useWorkspaceScope } from "@/lib/demo-scope";
@@ -16,11 +19,12 @@ const activeStatuses = new Set(["RUNNING", "QUEUED", "PAUSING", "CANCELLING"]);
 
 export function OverviewPage() {
   const { tenantId, projectId, workspacePath } = useWorkspaceScope();
-  const runs = useQuery({ queryKey: ["runs", tenantId, projectId], queryFn: () => api.listRuns(tenantId, projectId), refetchInterval: 5000 });
-  const strategies = useQuery({ queryKey: ["strategies", tenantId, projectId], queryFn: () => api.listStrategies(tenantId, projectId) });
-  const approvals = useQuery({ queryKey: ["approvals", tenantId, projectId, "all"], queryFn: () => api.listApprovals(tenantId, projectId), refetchInterval: 10000 });
-  const inputs = useQuery({ queryKey: ["inputs", tenantId, projectId, "all"], queryFn: () => api.listInputs(tenantId, projectId), refetchInterval: 10000 });
-  const capabilities = useQuery({ queryKey: ["capabilities", tenantId, projectId], queryFn: () => api.getCapabilities(tenantId, projectId) });
+  const runs = useQuery({ queryKey: ["runs", tenantId, projectId], queryFn: () => api.listRuns(tenantId, projectId), refetchInterval: 8000, staleTime: 4000 });
+  const strategies = useQuery({ queryKey: ["strategies", tenantId, projectId], queryFn: () => api.listStrategies(tenantId, projectId), staleTime: 60000 });
+  // approvals/inputs 复用 AppShell 导航 badge 的缓存，不再单独轮询，仅在其失效时跟随
+  const approvals = useQuery({ queryKey: ["approvals", tenantId, projectId, "all"], queryFn: () => api.listApprovals(tenantId, projectId), staleTime: 10000 });
+  const inputs = useQuery({ queryKey: ["inputs", tenantId, projectId, "all"], queryFn: () => api.listInputs(tenantId, projectId), staleTime: 10000 });
+  const capabilities = useQuery({ queryKey: ["capabilities", tenantId, projectId], queryFn: () => api.getCapabilities(tenantId, projectId), staleTime: 60000 });
   const queries = [runs, strategies, approvals, inputs, capabilities];
   const refreshing = queries.some((query) => query.isFetching);
   const hasError = queries.some((query) => query.isError);
@@ -41,10 +45,12 @@ export function OverviewPage() {
   ];
 
   return <div className="min-w-0 space-y-6">
-    <div className="flex flex-wrap items-end justify-between gap-4">
-      <div><p className="text-sm font-medium text-brand-500">项目总览</p><h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">工作台</h1><p className="mt-1 text-sm text-gray-500">掌握当前项目状态，并快速进入常用操作。</p></div>
-      <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh} loading={refreshing}><RefreshCw />刷新数据</Button><Button asChild variant="outline"><Link to={`${workspacePath}/canvas`}><Network />打开画布</Link></Button><Button asChild><Link to={`${workspacePath}/runs/new`}><Plus />新建运行</Link></Button></div>
-    </div>
+    <PageHeader
+      eyebrow="项目总览"
+      title="工作台"
+      description="掌握当前项目状态，并快速进入常用操作。"
+      actions={<><Button variant="outline" onClick={refresh} loading={refreshing}><RefreshCw />刷新数据</Button><Button asChild variant="outline"><Link to={`${workspacePath}/canvas`}><Network />打开画布</Link></Button><Button asChild><Link to={`${workspacePath}/runs/new`}><Plus />新建运行</Link></Button></>}
+    />
 
     {hasError ? <p role="alert" className="rounded-xl border border-warning-200 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10">部分概览数据暂时无法加载，快捷入口仍可正常使用。</p> : null}
 
@@ -105,5 +111,112 @@ function NavigationCard({ label, detail, to, icon: Icon }: { label: string; deta
 }
 
 function RecentRuns({ runs, loading, error, workspacePath }: { runs: RunSnapshot[] | undefined; loading: boolean; error: boolean; workspacePath: string }) {
-  return <Card className="min-w-0"><CardHeader><div><CardTitle>最近运行</CardTitle><p className="mt-1 text-sm text-gray-500">快速查看最新执行状态。</p></div><Button asChild variant="ghost" size="sm"><Link to={`${workspacePath}/runs`}>查看全部 <ArrowRight /></Link></Button></CardHeader><CardContent>{loading ? <div className="space-y-3">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-16" />)}</div> : null}{error ? <p className="rounded-xl bg-error-50 p-4 text-sm text-error-600 dark:bg-error-500/10">无法加载最近运行。</p> : null}{!loading && !error && !runs?.length ? <div className="flex min-h-48 flex-col items-center justify-center text-center"><span className="grid size-12 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15"><Rocket /></span><p className="mt-3 font-medium text-gray-900 dark:text-white">还没有运行记录</p><p className="mt-1 text-sm text-gray-500">发布策略后即可启动第一次运行。</p><Button asChild className="mt-4" size="sm"><Link to={`${workspacePath}/runs/new`}>新建运行</Link></Button></div> : null}{runs?.length ? <div className="divide-y divide-gray-100 dark:divide-gray-800">{runs.slice(0, 5).map((run) => <Link key={run.runId} to={`${workspacePath}/runs/${run.runId}`} className="flex min-w-0 items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"><span className="min-w-0"><span className="block truncate font-mono text-xs text-gray-700 dark:text-gray-300">{run.runId}</span><span className="mt-1 block text-xs text-gray-500">{Object.values(run.taskCounts).reduce((total, count) => total + count, 0)} 个任务 · {run.snapshotSeq} 个事件</span></span><StatusBadge status={run.status} /></Link>)}</div> : null}</CardContent></Card>;
+  return <Card className="min-w-0"><CardHeader><div><CardTitle>最近运行</CardTitle><p className="mt-1 text-sm text-gray-500">快速查看最新执行状态。</p></div><Button asChild variant="ghost" size="sm"><Link to={`${workspacePath}/runs`}>查看全部 <ArrowRight /></Link></Button></CardHeader><CardContent>{loading ? <div className="space-y-3">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-16" />)}</div> : null}{error ? <ErrorState compact title="无法加载最近运行" /> : null}{!loading && !error && !runs?.length ? <EmptyState icon={Rocket} title="还没有运行记录" description="发布策略后即可启动第一次运行。" action={<Button asChild size="sm"><Link to={`${workspacePath}/runs/new`}>新建运行</Link></Button>} /> : null}{runs?.length ? <div className="divide-y divide-gray-100 dark:divide-gray-800">{runs.slice(0, 5).map((run) => <RunRow key={run.runId} run={run} workspacePath={workspacePath} />)}</div> : null}</CardContent></Card>;
+}
+
+/** 单条运行摘要：状态、任务进度条、开始时间和耗时。 */
+function RunRow({ run, workspacePath }: { run: RunSnapshot; workspacePath: string }) {
+  const summary = summarizeTasks(run.taskCounts);
+  const startedAt = formatShortTime(run.startedAt);
+  const duration = formatDuration(run.startedAt, run.completedAt);
+  return (
+    <Link
+      to={`${workspacePath}/runs/${run.runId}`}
+      className="group block py-3 first:pt-0 last:pb-0"
+    >
+      <span className="flex min-w-0 items-center justify-between gap-3">
+        <span className="min-w-0">
+          <span className="block truncate font-mono text-xs font-medium text-gray-800 group-hover:text-brand-600 dark:text-gray-200">
+            {run.runId}
+          </span>
+          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500">
+            {startedAt ? (
+              <span className="inline-flex items-center gap-1">
+                <Clock3 aria-hidden className="size-3" />
+                {startedAt}
+              </span>
+            ) : null}
+            {duration ? <span>耗时 {duration}</span> : null}
+            <span>{summary.total} 个任务 · {run.snapshotSeq} 个事件</span>
+          </span>
+        </span>
+        <StatusBadge status={run.status} />
+      </span>
+      {summary.total > 0 ? <TaskProgressBar summary={summary} className="mt-2" /> : null}
+    </Link>
+  );
+}
+
+interface TaskSummary {
+  total: number;
+  succeeded: number;
+  failed: number;
+  running: number;
+  pending: number;
+}
+
+function summarizeTasks(taskCounts: Record<string, number>): TaskSummary {
+  let succeeded = 0;
+  let failed = 0;
+  let running = 0;
+  let pending = 0;
+  for (const [status, count] of Object.entries(taskCounts)) {
+    if (status === "SUCCEEDED") succeeded += count;
+    else if (status === "FAILED" || status === "TIMED_OUT" || status === "CANCELLED") failed += count;
+    else if (status === "RUNNING" || status === "QUEUED") running += count;
+    else pending += count;
+  }
+  return { total: succeeded + failed + running + pending, succeeded, failed, running, pending };
+}
+
+/** 分段进度条：成功绿 / 失败红 / 运行蓝 / 待处理灰。 */
+function TaskProgressBar({ summary, className }: { summary: TaskSummary; className?: string }) {
+  if (summary.total === 0) return null;
+  const segments = [
+    { value: summary.succeeded, className: "bg-success-500", label: `${summary.succeeded} 成功` },
+    { value: summary.failed, className: "bg-error-500", label: `${summary.failed} 失败` },
+    { value: summary.running, className: "bg-brand-500", label: `${summary.running} 运行` },
+    { value: summary.pending, className: "bg-gray-300 dark:bg-gray-700", label: `${summary.pending} 待处理` },
+  ].filter((segment) => segment.value > 0);
+  const title = segments.map((segment) => segment.label).join(" · ");
+  return (
+    <div
+      role="img"
+      aria-label={`任务进度：${title}`}
+      title={title}
+      className={`flex h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800 ${className ?? ""}`}
+    >
+      {segments.map((segment, index) => (
+        <span
+          key={index}
+          className={segment.className}
+          style={{ width: `${(segment.value / summary.total) * 100}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function formatShortTime(value?: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  return sameDay
+    ? date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDuration(start?: string | null, end?: string | null): string | null {
+  if (!start) return null;
+  const startMs = new Date(start).getTime();
+  if (Number.isNaN(startMs)) return null;
+  const endMs = end ? new Date(end).getTime() : Date.now();
+  if (Number.isNaN(endMs) || endMs < startMs) return null;
+  const ms = endMs - startMs;
+  if (ms < 1000) return `${ms} 毫秒`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} 秒`;
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} 分 ${Math.round((ms % 60_000) / 1000)} 秒`;
+  return `${(ms / 3_600_000).toFixed(1)} 小时`;
 }

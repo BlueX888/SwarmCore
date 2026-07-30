@@ -158,6 +158,63 @@ async def test_initialize_finalize_publishes_complete_minimum_plan() -> None:
 
 
 @pytest.mark.asyncio
+async def test_initialize_finalize_preserves_plan_gaps_and_change_history() -> None:
+    difference = {
+        "changeId": "chg-value",
+        "path": "/contract/totalAmount",
+        "before": 1_200_000,
+        "after": 1_280_000,
+    }
+    result = await contract_performance_finalize(
+        {
+            "operation": "INITIALIZE",
+            "caseId": "case-review",
+            "plan": {
+                "contract": {"contractNumber": "C-001", "totalAmount": 1_280_000},
+                "obligations": [{"id": "obl-1", "title": "Deliver"}],
+                "deliverables": [{"id": "del-1", "title": "Release"}],
+                "milestones": [{"id": "ms-1", "dependencies": []}],
+                "acceptanceCriteria": [{"id": "acc-1"}],
+                "serviceLevels": [{"id": "sla-1"}],
+                "paymentConditions": [{"id": "pay-1", "amount": 1_200_000}],
+                "changes": [{"id": "chg-value", "status": "APPROVED"}],
+                "conflicts": [],
+                "gaps": [
+                    {
+                        "code": "PAYMENT_TOTAL_MISMATCH",
+                        "contractTotal": 1_280_000,
+                        "paymentTotal": 1_200_000,
+                        "difference": 80_000,
+                    }
+                ],
+                "changeHistory": {
+                    "appliedChanges": [{"id": "chg-value", "status": "APPROVED"}],
+                    "differences": [difference],
+                    "unapprovedChangeRisks": [],
+                },
+            },
+            "approval": {"approved": True},
+            "asOf": "2026-07-27",
+        },
+        "effect-review",
+    )
+
+    assert result["status"] == "REVIEW_REQUIRED"
+    assert result["performance"]["reviewRequired"] is True
+    assert result["performance"]["findings"] == [
+        {
+            "code": "PAYMENT_TOTAL_MISMATCH",
+            "contractTotal": 1_280_000,
+            "paymentTotal": 1_200_000,
+            "difference": 80_000,
+            "severity": "HIGH",
+            "reviewType": "FINANCE",
+        }
+    ]
+    assert result["changeHistory"]["differences"] == [difference]
+
+
+@pytest.mark.asyncio
 async def test_source_collection_is_partial_and_does_not_advance_failed_source() -> None:
     result = await contract_performance_source_collect(
         {

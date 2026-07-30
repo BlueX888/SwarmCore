@@ -17,6 +17,7 @@ vi.mock("@/api/client", async (importOriginal) => {
       getDraft: vi.fn(),
       listVersions: vi.fn(),
       getCapabilities: vi.fn(),
+      listConfigurations: vi.fn(),
       compileStrategy: vi.fn(),
       updateDraft: vi.fn(),
       publishStrategy: vi.fn(),
@@ -84,13 +85,14 @@ describe("strategy delete ui", () => {
           graph: { entrypoint: "one", nodes: { one: { type: "agent" } }, output: {} },
         },
       },
-      editorState: { positions: {}, viewport: { x: 0, y: 0, zoom: 1 } },
+      editorState: { positions: {}, viewport: { x: 0, y: 0, zoom: 1 }, agentBindings: {} },
       diagnostics: [],
       updatedBy: "tester",
       updatedAt: "2026-07-23T00:00:00Z",
     });
     vi.mocked(api.listVersions).mockResolvedValue({ items: [], total: 0 });
     vi.mocked(api.getCapabilities).mockResolvedValue({ nodeTypes: [], agents: [], tools: [], models: [] } as never);
+    vi.mocked(api.listConfigurations).mockResolvedValue({ items: [], total: 0 });
   });
 
   it("shows delete entry on the strategies list", async () => {

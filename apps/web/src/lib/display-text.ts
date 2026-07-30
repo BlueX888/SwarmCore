@@ -117,3 +117,27 @@ export function resourceTypeLabel(type: string): string {
 export function eventTypeLabel(type: string): string {
   return eventTypeLabels[type] ?? type;
 }
+
+const MODEL_REF_RE = /^model:\/\/(.+?)(?:@([^@/]+))?$/;
+const PROJECT_MODEL_UUID_RE =
+  /^project\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/** Short label for a model capability ref; keeps the full ref for storage elsewhere. */
+export function modelRefDisplayName(ref: string): string {
+  const trimmed = ref.trim();
+  if (!trimmed) return trimmed;
+  const match = MODEL_REF_RE.exec(trimmed);
+  if (!match) return trimmed;
+
+  const path = match[1] ?? "";
+  const version = match[2];
+  const projectMatch = PROJECT_MODEL_UUID_RE.exec(path);
+  let name: string;
+  if (projectMatch) {
+    name = `项目模型 · ${projectMatch[1].slice(0, 8)}`;
+  } else {
+    const segments = path.split("/").filter(Boolean);
+    name = segments[segments.length - 1] ?? path;
+  }
+  return version ? `${name}@${version}` : name;
+}

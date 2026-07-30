@@ -7,7 +7,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal, cast
 from urllib.error import HTTPError
 from urllib.parse import urlsplit, urlunsplit
@@ -53,6 +53,7 @@ from swarmcore_registry import (
 )
 
 logger = logging.getLogger(__name__)
+DEFAULT_MODEL_RESERVATION_TTL_SECONDS = 360
 
 
 class Settings(BaseSettings):
@@ -72,6 +73,9 @@ class Settings(BaseSettings):
     model_price_version: str = "local-price:v1"
     litellm_url: str = "http://localhost:4000"
     litellm_timeout_seconds: float = 300
+    model_reservation_ttl_seconds: int = Field(
+        default=DEFAULT_MODEL_RESERVATION_TTL_SECONDS, ge=1
+    )
     litellm_secret_ref: str = "secret://platform/litellm"
     model_provider_url: str = ""
     model_provider_api_key: str = ""
@@ -234,6 +238,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             run_id=run_id,
             max_tokens=body.max_tokens,
             request_id=request_id,
+            reservation_ttl_seconds=configured.model_reservation_ttl_seconds,
         )
         provider = provider_model.partition("/")[0]
         span = get_tracer("model-gateway").start_span(
@@ -304,7 +309,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 tenant_id=tenant_id,
                 project_id=project_id,
                 run_id=run_id,
-                reserved=body.max_tokens,
                 request_id=request_id,
             )
             if isinstance(exc, HTTPException):
@@ -327,7 +331,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 logical_model=capability.logical_model,
                 provider_model=provider_model,
                 price_version=configured.model_price_version,
-                reserved=body.max_tokens,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 cost_usd=cost,
@@ -341,7 +344,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 tenant_id=tenant_id,
                 project_id=project_id,
                 run_id=run_id,
-                reserved=body.max_tokens,
                 request_id=request_id,
             )
             raise
@@ -634,6 +636,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
+def _active_model_reservations(
+    value: Any,
+    *,
+    now: datetime,
+    legacy_ttl_seconds: int,
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict):
+        return {}
+    active: dict[str, dict[str, Any]] = {}
+    for request_id, reservation in value.items():
+        if isinstance(reservation, dict):
+            try:
+                tokens = int(reservation.get("tokens", 0))
+            except (TypeError, ValueError):
+                continue
+            expires_raw = reservation.get("expiresAt")
+            try:
+                expires_at = datetime.fromisoformat(str(expires_raw))
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=UTC)
+            except (TypeError, ValueError):
+                continue
+        else:
+            try:
+                tokens = int(reservation)
+            except (TypeError, ValueError):
+                continue
+            expires_at = now + timedelta(seconds=max(1, legacy_ttl_seconds))
+        if tokens > 0 and expires_at > now:
+            active[str(request_id)] = {
+                "tokens": tokens,
+                "expiresAt": expires_at.isoformat(),
+            }
+    return active
+
+
+def _reserved_tokens(reservations: dict[str, dict[str, Any]]) -> int:
+    return sum(int(item["tokens"]) for item in reservations.values())
+
+
 async def _reserve(
     database: Database,
     *,
@@ -642,6 +684,7 @@ async def _reserve(
     run_id: UUID,
     max_tokens: int,
     request_id: str,
+    reservation_ttl_seconds: int = DEFAULT_MODEL_RESERVATION_TTL_SECONDS,
 ) -> None:
     async with tenant_transaction(
         database.sessions, tenant_id=tenant_id, project_id=project_id
@@ -659,17 +702,27 @@ async def _reserve(
         ):
             raise HTTPException(status_code=409, detail="model capability was replayed")
         usage = dict(run.usage)
-        reservations = dict(usage.get("modelReservations", {}))
+        now = datetime.now(UTC)
+        reservations = _active_model_reservations(
+            usage.get("modelReservations", {}),
+            now=now,
+            legacy_ttl_seconds=reservation_ttl_seconds,
+        )
         if request_id in reservations:
             raise HTTPException(status_code=409, detail="model request is already in progress")
         used = int(usage.get("tokens", 0))
-        reserved = int(usage.get("reservedTokens", 0))
+        reserved = _reserved_tokens(reservations)
         if used + reserved + max_tokens > int(run.budgets["maxTokens"]):
             raise HTTPException(status_code=409, detail="BUDGET_EXCEEDED")
         if float(usage.get("costUsd", 0)) >= float(run.budgets["maxCostUsd"]):
             raise HTTPException(status_code=409, detail="BUDGET_EXCEEDED")
-        usage["reservedTokens"] = reserved + max_tokens
-        reservations[request_id] = max_tokens
+        reservations[request_id] = {
+            "tokens": max_tokens,
+            "expiresAt": (
+                now + timedelta(seconds=max(1, reservation_ttl_seconds))
+            ).isoformat(),
+        }
+        usage["reservedTokens"] = _reserved_tokens(reservations)
         usage["modelReservations"] = reservations
         run.usage = usage
 
@@ -680,7 +733,6 @@ async def _release(
     tenant_id: UUID,
     project_id: UUID,
     run_id: UUID,
-    reserved: int,
     request_id: str,
 ) -> None:
     async with tenant_transaction(
@@ -689,9 +741,13 @@ async def _release(
         run = await session.get(Run, run_id, with_for_update=True)
         if run is not None:
             usage = dict(run.usage)
-            usage["reservedTokens"] = max(0, int(usage.get("reservedTokens", 0)) - reserved)
-            reservations = dict(usage.get("modelReservations", {}))
+            reservations = _active_model_reservations(
+                usage.get("modelReservations", {}),
+                now=datetime.now(UTC),
+                legacy_ttl_seconds=DEFAULT_MODEL_RESERVATION_TTL_SECONDS,
+            )
             reservations.pop(request_id, None)
+            usage["reservedTokens"] = _reserved_tokens(reservations)
             usage["modelReservations"] = reservations
             run.usage = usage
 
@@ -707,7 +763,6 @@ async def _commit(
     logical_model: str,
     provider_model: str,
     price_version: str,
-    reserved: int,
     input_tokens: int,
     output_tokens: int,
     cost_usd: float,
@@ -727,9 +782,13 @@ async def _commit(
         ):
             raise HTTPException(status_code=409, detail="model capability was replayed")
         usage = dict(run.usage)
-        usage["reservedTokens"] = max(0, int(usage.get("reservedTokens", 0)) - reserved)
-        reservations = dict(usage.get("modelReservations", {}))
+        reservations = _active_model_reservations(
+            usage.get("modelReservations", {}),
+            now=datetime.now(UTC),
+            legacy_ttl_seconds=DEFAULT_MODEL_RESERVATION_TTL_SECONDS,
+        )
         reservations.pop(capability_jti, None)
+        usage["reservedTokens"] = _reserved_tokens(reservations)
         usage["modelReservations"] = reservations
         usage["tokens"] = int(usage.get("tokens", 0)) + input_tokens + output_tokens
         usage["costUsd"] = float(usage.get("costUsd", 0)) + cost_usd

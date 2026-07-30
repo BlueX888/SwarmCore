@@ -10,7 +10,7 @@ export const buttonVariants = cva(
       variant: {
         primary: "bg-brand-500 text-white shadow-theme-float hover:-translate-y-0.5 hover:bg-brand-600",
         outline: "bg-white/80 text-gray-700 shadow-theme-xs ring-1 ring-gray-200 backdrop-blur hover:-translate-y-0.5 hover:bg-white hover:ring-gray-300 dark:bg-gray-800/80 dark:text-gray-300 dark:ring-gray-700 dark:hover:bg-gray-800",
-        ghost: "text-gray-700 hover:bg-gray-100/80 dark:text-gray-300 dark:hover:bg-white/5",
+        ghost: "text-gray-700 hover:bg-gray-100/80 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/5 dark:hover:text-white",
         destructive: "bg-error-500 text-white shadow-theme-xs hover:-translate-y-0.5 hover:bg-error-600",
       },
       size: { sm: "h-10 px-4", md: "h-11 px-5", icon: "size-11" },

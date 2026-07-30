@@ -1708,10 +1708,12 @@ name = "swarmcore-worker-control"
 version = "0.1.0"
 source = { editable = "apps/worker-control" }
 dependencies = [
+    { name = "boto3" },
     { name = "pydantic-settings" },
     { name = "pypdf" },
     { name = "swarmcore-application" },
     { name = "swarmcore-domain" },
+    { name = "swarmcore-governance" },
     { name = "swarmcore-observability" },
     { name = "swarmcore-persistence" },
     { name = "swarmcore-runtime-temporal" },
@@ -1721,10 +1723,12 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3", specifier = "==1.40.1" },
     { name = "pydantic-settings", specifier = "==2.14.2" },
     { name = "pypdf", specifier = "==6.1.1" },
     { name = "swarmcore-application", editable = "packages/application" },
     { name = "swarmcore-domain", editable = "packages/domain" },
+    { name = "swarmcore-governance", editable = "packages/governance" },
     { name = "swarmcore-observability", editable = "packages/observability" },
     { name = "swarmcore-persistence", editable = "packages/persistence" },
     { name = "swarmcore-runtime-temporal", editable = "packages/runtime-temporal" },

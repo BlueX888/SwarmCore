@@ -9,7 +9,13 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from swarmcore_domain import uuid7
 from swarmcore_observability import SwarmMetrics
-from swarmcore_persistence import tenant_transaction
+from swarmcore_persistence import (
+    OutboxClaim,
+    OutboxLeaseKeeper,
+    claim_outbox,
+    owns_outbox_claim,
+    tenant_transaction,
+)
 from swarmcore_persistence.models import (
     OutboxEvent,
     WebhookDelivery,
@@ -41,16 +47,19 @@ class EventPublisher:
 
     async def run_once(self) -> int:
         claimed = await self._claim()
-        for event_id in claimed:
+        for claim in claimed:
             try:
-                await self._publish(event_id)
+                async with OutboxLeaseKeeper(
+                    self._sessions, claim, worker_id=self._worker_id
+                ):
+                    await self._publish(claim)
             except Exception as exc:
-                await self._retry(event_id, str(exc))
+                await self._retry(claim, str(exc))
         return len(claimed)
 
-    async def _claim(self) -> list[UUID]:
+    async def _claim(self) -> list[OutboxClaim]:
         now = datetime.now(UTC)
-        claimed: list[UUID] = []
+        claimed: list[OutboxClaim] = []
         async with self._sessions() as session, session.begin():
             pending = int(
                 await session.scalar(
@@ -63,10 +72,7 @@ class EventPublisher:
             )
             events = list(await session.scalars(pending_nats_outbox_query(limit=self._batch_size)))
             for event in events:
-                event.status = "DELIVERING"
-                event.locked_by = self._worker_id
-                event.locked_until = now + timedelta(seconds=30)
-                claimed.append(event.id)
+                claimed.append(claim_outbox(event, worker_id=self._worker_id, now=now))
                 if self._metrics is not None:
                     self._metrics.queue_schedule_latency.record(
                         max(0.0, (now - event.available_at).total_seconds()),
@@ -79,10 +85,12 @@ class EventPublisher:
             self._last_pending = pending
         return claimed
 
-    async def _publish(self, event_id: UUID) -> None:
+    async def _publish(self, claim: OutboxClaim) -> None:
         async with self._sessions() as session:
-            event = await session.get(OutboxEvent, event_id)
-            if event is None or event.status != "DELIVERING":
+            event = await session.get(OutboxEvent, claim.id)
+            if event is None or not owns_outbox_claim(
+                event, claim, worker_id=self._worker_id
+            ):
                 return
             tenant_id = str(event.tenant_id)
             run_id = str(event.aggregate_id)
@@ -108,8 +116,10 @@ class EventPublisher:
             payload=event_payload,
         )
         async with self._sessions() as session, session.begin():
-            event = await session.get(OutboxEvent, event_id, with_for_update=True)
-            if event is not None:
+            event = await session.get(OutboxEvent, claim.id, with_for_update=True)
+            if event is not None and owns_outbox_claim(
+                event, claim, worker_id=self._worker_id
+            ):
                 event.status = "DELIVERED"
                 event.delivered_at = datetime.now(UTC)
                 event.locked_by = None
@@ -177,12 +187,14 @@ class EventPublisher:
                     )
                 )
 
-    async def _retry(self, event_id: UUID, error: str) -> None:
+    async def _retry(self, claim: OutboxClaim, error: str) -> None:
         if self._metrics is not None:
             self._metrics.activity_retries.add(1, {"category": "event_publish"})
         async with self._sessions() as session, session.begin():
-            event = await session.get(OutboxEvent, event_id, with_for_update=True)
-            if event is None:
+            event = await session.get(OutboxEvent, claim.id, with_for_update=True)
+            if event is None or not owns_outbox_claim(
+                event, claim, worker_id=self._worker_id
+            ):
                 return
             event.attempts += 1
             event.status = "PENDING"

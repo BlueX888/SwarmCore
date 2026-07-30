@@ -3,6 +3,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Boxes, Bot, Gauge, Route, Wrench, X } from "lucide-react";
 import type { CapabilityPackSnapshot, CreateCapabilityPackRequest, StrategyVersionDetail } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { StrategyGraphPreview } from "@/components/strategy/strategy-graph-preview";
 
 export interface CapabilityPackStrategyOption {
@@ -88,7 +90,7 @@ export function CapabilityPackCreateForm({ packs, strategies, loadingStrategies,
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">策略图设计</h3>
             <StrategyGraphPreview spec={selectedStrategy.version.spec} />
           </div>
-        </> : <p className="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400 dark:border-gray-700">选择策略后显示策略图设计预览。</p>}
+        </> : <EmptyState compact tone="neutral" title="选择策略后显示策略图设计预览" />}
       </section>
 
       <div className="grid gap-5 border-t border-gray-100 pt-6 md:grid-cols-3 dark:border-gray-800">
@@ -97,7 +99,7 @@ export function CapabilityPackCreateForm({ packs, strategies, loadingStrategies,
         <DependencyList icon={<Wrench />} title="工具依赖" items={dependencies.tools} empty="该策略未引用工具。" mono />
       </div>
     </div>
-    {(formError || error) ? <p role="alert" className="mx-5 mb-4 rounded-xl bg-error-50 p-3 text-sm text-error-600 dark:bg-error-500/10">{formError || `创建失败：${error}`}</p> : null}
+    {(formError || error) ? <ErrorState compact title="创建失败" message={formError || error} className="mx-5 mb-4" /> : null}
     <div className="flex shrink-0 justify-end gap-2 border-t border-gray-100 px-5 py-4 dark:border-gray-800"><Button type="button" variant="outline" onClick={onCancel}>取消</Button><Button type="submit" loading={pending} disabled={!packs.length || loadingStrategies || !strategies.length}>发布能力包</Button></div>
     </form>
     </Dialog.Content>
@@ -105,7 +107,7 @@ export function CapabilityPackCreateForm({ packs, strategies, loadingStrategies,
 }
 
 function DependencyList({ icon, title, items, empty, mono = false }: { icon: ReactNode; title: string; items: string[]; empty: string; mono?: boolean }) {
-  return <section><SectionTitle icon={icon} title={title} description="来自所选 StrategyVersion 的冻结执行计划。" />{items.length ? <ul className="mt-3 space-y-2">{items.map((item) => <li key={item} className={`break-all rounded-xl border border-gray-200 p-3 text-xs text-gray-700 dark:border-gray-800 dark:text-gray-300 ${mono ? "font-mono" : ""}`}>{item}</li>)}</ul> : <p className="mt-3 text-sm text-gray-400">{empty}</p>}</section>;
+  return <section><SectionTitle icon={icon} title={title} description="来自所选 StrategyVersion 的冻结执行计划。" />{items.length ? <ul className="mt-3 space-y-2">{items.map((item) => <li key={item} className={`break-all rounded-xl border border-gray-200 p-3 text-xs text-gray-700 dark:border-gray-800 dark:text-gray-300 ${mono ? "font-mono" : ""}`}>{item}</li>)}</ul> : <EmptyState compact tone="neutral" title={empty} />}</section>;
 }
 
 function SectionTitle({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {

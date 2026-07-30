@@ -4,6 +4,8 @@ import { api } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function SupplierRiskOperations({
@@ -107,9 +109,7 @@ export function SupplierRiskOperations({
           </p>
         ) : null}
         {error ? (
-          <p role="alert" className="rounded-xl bg-error-50 px-3 py-2 text-xs text-error-700">
-            {error}
-          </p>
+          <ErrorState compact title="操作失败" message={error} />
         ) : null}
 
         <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
@@ -195,7 +195,7 @@ export function SupplierRiskOperations({
                 })}
               </div>
             ) : (
-              <Empty text="当前没有预警" />
+              <EmptyState compact tone="neutral" title="当前没有预警" />
             )}
           </div>
 
@@ -238,20 +238,12 @@ export function SupplierRiskOperations({
                 ))}
               </ol>
             ) : (
-              <Empty text="尚无历史快照" />
+              <EmptyState compact tone="neutral" title="尚无历史快照" />
             )}
           </div>
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function Empty({ text }: { text: string }) {
-  return (
-    <p className="rounded-xl border border-dashed border-gray-200 p-4 text-center text-sm text-gray-500 dark:border-gray-800">
-      {text}
-    </p>
   );
 }
 

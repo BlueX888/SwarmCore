@@ -1,19 +1,60 @@
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "@/api/types";
+import type { Diagnostic, SavedConfiguration } from "@/api/types";
 import {
   EMPTY_EDITOR_STATE,
   addNode,
   applySavedConfiguration,
+  assignAgentDeclaration,
+  bindProjectAgentToNode,
   connectNodes,
   createBlankSpec,
   deleteNode,
   diagnosticNodeKey,
   disconnectNodes,
+  extractProjectAgentDeclaration,
+  isBindableAgentConfiguration,
   layoutStrategyEditorState,
   layoutStrategyGraph,
   listEdges,
+  normalizeEditorState,
+  unbindAgentFromNode,
   wouldCreateCycle,
 } from "./strategy-editor-model";
+
+const CONFIG_META = {
+  createdBy: "test",
+  updatedBy: "test",
+  createdAt: "2026-01-01",
+  updatedAt: "2026-01-01",
+};
+
+function agentConfiguration(overrides?: Partial<SavedConfiguration>): SavedConfiguration {
+  return {
+    configurationId: "cfg-reviewer",
+    kind: "agent",
+    name: "合同审查智能体",
+    sourceRef: "inline/agno",
+    revision: 1,
+    configuration: {
+      spec: {
+        agents: {
+          reviewer: {
+            role: "审核员",
+            instructions: "审核输入",
+            model: "model://general@1",
+            tools: ["tool://search@1"],
+          },
+        },
+        graph: {
+          entrypoint: "reviewer",
+          nodes: { reviewer: { type: "agent", agent: "reviewer", dependsOn: [] } },
+        },
+      },
+    },
+    ...CONFIG_META,
+    ...overrides,
+  };
+}
 
 describe("Strategy Editor model", () => {
   it("applies saved agent, tool, and model configurations to an executable spec", () => {
@@ -108,6 +149,14 @@ describe("Strategy Editor model", () => {
         second: { x: 10, y: 10 },
       },
       viewport: { x: 12, y: 34, zoom: 0.7 },
+      agentBindings: {
+        first: {
+          configurationId: "cfg-1",
+          revision: 1,
+          name: "保留绑定",
+          sourceRef: "inline/agno",
+        },
+      },
     };
 
     const state = layoutStrategyEditorState(spec, saved);
@@ -115,6 +164,7 @@ describe("Strategy Editor model", () => {
     expect(state.positions.first.x).toBeLessThan(state.positions.second.x);
     expect(state.positions).not.toEqual(saved.positions);
     expect(state.viewport).toEqual(saved.viewport);
+    expect(state.agentBindings).toEqual(saved.agentBindings);
   });
 
   it("removes dependencies and layout while preserving declarations by default", () => {
@@ -152,5 +202,105 @@ describe("Strategy Editor model", () => {
     expect(moved.positions[result.nodeKey]).toEqual({ x: 1, y: 2 });
     const diagnostic: Diagnostic = { severity: "error", code: "TEST", path: `$.spec.graph.nodes.${result.nodeKey}.agent`, message: "bad" };
     expect(diagnosticNodeKey(diagnostic, semanticSpec)).toBe(result.nodeKey);
+  });
+
+  it("defaults missing agentBindings when normalizing editor state", () => {
+    expect(normalizeEditorState({ positions: {}, viewport: { x: 0, y: 0, zoom: 1 } })).toEqual(EMPTY_EDITOR_STATE);
+    expect(normalizeEditorState(undefined).agentBindings).toEqual({});
+  });
+
+  it("binds a project agent snapshot into the selected node declaration", () => {
+    const agent = addNode(createBlankSpec(), "agent", undefined, structuredClone(EMPTY_EDITOR_STATE));
+    const saved = agentConfiguration();
+
+    const bound = bindProjectAgentToNode(agent.spec, agent.editorState, agent.nodeKey, saved);
+
+    expect(bound.spec.spec.agents?.[agent.nodeKey]).toMatchObject({
+      role: "审核员",
+      instructions: "审核输入",
+      model: "model://general@1",
+    });
+    expect(bound.spec.spec.graph.nodes[agent.nodeKey]?.agent).toBe(agent.nodeKey);
+    expect(bound.editorState.agentBindings[agent.nodeKey]).toEqual({
+      configurationId: "cfg-reviewer",
+      revision: 1,
+      name: "合同审查智能体",
+      sourceRef: "inline/agno",
+    });
+  });
+
+  it("splits shared agent declarations when binding one node", () => {
+    let spec = createBlankSpec();
+    let state = structuredClone(EMPTY_EDITOR_STATE);
+    const first = addNode(spec, "agent", undefined, state);
+    spec = first.spec;
+    state = first.editorState;
+    const second = addNode(spec, "agent", undefined, state);
+    spec = second.spec;
+    state = second.editorState;
+    spec.spec.agents = {
+      shared: { role: "共享", instructions: "共享指令", model: "model://general@1" },
+    };
+    spec.spec.graph.nodes[first.nodeKey] = { type: "agent", agent: "shared", dependsOn: [] };
+    spec.spec.graph.nodes[second.nodeKey] = { type: "agent", agent: "shared", dependsOn: [] };
+
+    const bound = bindProjectAgentToNode(spec, state, first.nodeKey, agentConfiguration({ revision: 2 }));
+
+    expect(bound.spec.spec.graph.nodes[first.nodeKey]?.agent).toBe(first.nodeKey);
+    expect(bound.spec.spec.agents?.[first.nodeKey]).toMatchObject({ role: "审核员", instructions: "审核输入" });
+    expect(bound.spec.spec.graph.nodes[second.nodeKey]?.agent).toBe("shared");
+    expect(bound.spec.spec.agents?.shared).toMatchObject({ role: "共享", instructions: "共享指令" });
+  });
+
+  it("keeps the declaration snapshot when unbinding and clears binding metadata", () => {
+    const agent = addNode(createBlankSpec(), "agent", undefined, structuredClone(EMPTY_EDITOR_STATE));
+    const bound = bindProjectAgentToNode(agent.spec, agent.editorState, agent.nodeKey, agentConfiguration());
+    const unbound = unbindAgentFromNode(bound.editorState, agent.nodeKey);
+    expect(unbound.agentBindings[agent.nodeKey]).toBeUndefined();
+    expect(bound.spec.spec.agents?.[agent.nodeKey]).toMatchObject({ role: "审核员" });
+  });
+
+  it("removes agentBindings when deleting a node and preserves bindings on layout", () => {
+    const agent = addNode(createBlankSpec(), "agent", { x: 1, y: 2 }, structuredClone(EMPTY_EDITOR_STATE));
+    const bound = bindProjectAgentToNode(agent.spec, agent.editorState, agent.nodeKey, agentConfiguration());
+    const laidOut = layoutStrategyEditorState(bound.spec, bound.editorState);
+    expect(laidOut.agentBindings[agent.nodeKey]?.revision).toBe(1);
+    const deleted = deleteNode(bound.spec, bound.editorState, agent.nodeKey);
+    expect(deleted.editorState.agentBindings[agent.nodeKey]).toBeUndefined();
+  });
+
+  it("rejects invalid agent configurations for binding", () => {
+    const invalid = agentConfiguration({
+      configuration: { spec: { agents: {}, graph: { entrypoint: "missing", nodes: {} } } },
+    });
+    expect(isBindableAgentConfiguration(invalid)).toBe(false);
+    expect(() => extractProjectAgentDeclaration(invalid)).toThrow(/配置格式无效/);
+    expect(() => extractProjectAgentDeclaration(agentConfiguration({ kind: "tool" }))).toThrow(/只能绑定智能体/);
+  });
+
+  it("renames agent declarations and updates node references", () => {
+    const agent = addNode(createBlankSpec(), "agent");
+    const renamed = assignAgentDeclaration(agent.spec, agent.nodeKey, "planner");
+    expect(renamed.spec.agents?.planner).toMatchObject({ role: "执行者", instructions: "完成分配的任务。" });
+    expect(renamed.spec.agents?.[agent.nodeKey]).toBeUndefined();
+    expect(renamed.spec.graph.nodes[agent.nodeKey]?.agent).toBe("planner");
+  });
+
+  it("rebinds a node to an existing declaration and drops unused keys", () => {
+    let spec = createBlankSpec();
+    const first = addNode(spec, "agent");
+    spec = first.spec;
+    const second = addNode(spec, "agent");
+    spec = second.spec;
+    const rebound = assignAgentDeclaration(spec, second.nodeKey, first.nodeKey);
+    expect(rebound.spec.graph.nodes[second.nodeKey]?.agent).toBe(first.nodeKey);
+    expect(rebound.spec.agents?.[second.nodeKey]).toBeUndefined();
+    expect(rebound.spec.agents?.[first.nodeKey]).toBeDefined();
+  });
+
+  it("rejects invalid custom agent declaration names", () => {
+    const agent = addNode(createBlankSpec(), "agent");
+    expect(() => assignAgentDeclaration(agent.spec, agent.nodeKey, "Planner")).toThrow(/智能体声明名称无效/);
+    expect(() => assignAgentDeclaration(agent.spec, agent.nodeKey, "1agent")).toThrow(/智能体声明名称无效/);
   });
 });

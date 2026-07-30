@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   capabilityDisplayName,
   capabilityLabel,
+  capabilityRefDisplayName,
   logicalCapabilityRef,
   normalizeCapabilitySearch,
 } from "./capability-labels";
@@ -11,6 +12,20 @@ describe("capability labels", () => {
     expect(logicalCapabilityRef("agent://procurement/clause-evidence-analyst@3")).toBe(
       "agent://procurement/clause-evidence-analyst",
     );
+  });
+
+  it("derives short display names from capability URIs", () => {
+    expect(capabilityRefDisplayName("model://general@1")).toBe("general");
+    expect(capabilityRefDisplayName("model://reasoner@1")).toBe("reasoner");
+    expect(capabilityRefDisplayName("tool://search@1")).toBe("search");
+    expect(capabilityRefDisplayName("tool://document/read@1")).toBe("document/read");
+    expect(capabilityRefDisplayName("model://project/11111111-1111-1111-1111-111111111111@1")).toBe(
+      "项目模型 · 11111111",
+    );
+    expect(capabilityRefDisplayName("tool://project/22222222-2222-2222-2222-222222222222@2")).toBe(
+      "项目工具 · 22222222",
+    );
+    expect(capabilityRefDisplayName("not-a-uri")).toBe("not-a-uri");
   });
 
   it("maps known agent refs to Chinese names", () => {

@@ -247,6 +247,72 @@ def test_only_approved_effective_change_updates_current_baseline() -> None:
     assert result["unapprovedChangeRisks"][0]["changeId"] == "chg-2"
 
 
+def test_approved_contract_value_change_flags_unreconciled_payment_schedule() -> None:
+    candidate = _candidate_plan()
+    candidate["contract"] = {
+        "contractNumber": "ESFA-25001",
+        "currency": "GBP",
+        "totalAmount": 25000,
+    }
+    plan = normalize_plan(candidate, currency="GBP")
+
+    result = apply_approved_changes(
+        plan,
+        [
+            {
+                "id": "chg-value",
+                "status": "APPROVED",
+                "effectiveAt": "2026-02-01",
+                "changedPaths": [{"path": "/contract/totalAmount", "after": 30000}],
+            }
+        ],
+        as_of="2026-02-10",
+    )
+
+    current = result["currentBaseline"]
+    assert current["status"] == "REVIEW_REQUIRED"
+    assert current["changeHistory"]["differences"] == result["differences"]
+    assert current["changeHistory"]["appliedChanges"][0]["id"] == "chg-value"
+    assert current["gaps"] == [
+        {
+            "code": "PAYMENT_TOTAL_MISMATCH",
+            "contractTotal": 30000.0,
+            "paymentTotal": 25000.0,
+            "difference": 5000.0,
+        }
+    ]
+
+
+def test_approved_change_clears_payment_total_gap_when_schedule_is_reconciled() -> None:
+    candidate = _candidate_plan()
+    candidate["contract"] = {
+        "contractNumber": "ESFA-25001",
+        "currency": "GBP",
+        "totalAmount": 25000,
+    }
+    plan = normalize_plan(candidate, currency="GBP")
+
+    result = apply_approved_changes(
+        plan,
+        [
+            {
+                "id": "chg-value",
+                "status": "APPROVED",
+                "effectiveAt": "2026-02-01",
+                "changedPaths": [
+                    {"path": "/contract/totalAmount", "after": 30000},
+                    {"path": "/paymentConditions/0/amount", "after": 30000},
+                ],
+            }
+        ],
+        as_of="2026-02-10",
+    )
+
+    current = result["currentBaseline"]
+    assert current["status"] == "CANDIDATE"
+    assert current["gaps"] == []
+
+
 def test_match_status_and_payment_gate_require_stable_keys_and_acceptance() -> None:
     plan = normalize_plan(_candidate_plan())
     plan["status"] = "PUBLISHED"

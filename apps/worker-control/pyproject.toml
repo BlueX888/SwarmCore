@@ -3,10 +3,12 @@ name = "swarmcore-worker-control"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "boto3==1.40.1",
   "pydantic-settings==2.14.2",
   "pypdf==6.1.1",
   "swarmcore-application",
   "swarmcore-domain",
+  "swarmcore-governance",
   "swarmcore-persistence",
   "swarmcore-observability",
   "swarmcore-runtime-temporal",
@@ -19,6 +21,7 @@ swarmcore-worker-control = "swarmcore_worker_control.main:run"
 
 [tool.uv.sources]
 swarmcore-domain = { workspace = true }
+swarmcore-governance = { workspace = true }
 swarmcore-application = { workspace = true }
 swarmcore-persistence = { workspace = true }
 swarmcore-observability = { workspace = true }

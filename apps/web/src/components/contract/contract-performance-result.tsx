@@ -2,6 +2,7 @@ import { AlertTriangle, CalendarRange, CheckCircle2, FileSearch, History } from 
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export const CONTRACT_PERFORMANCE_SCHEMA = "schema://contract-performance/result@1";
 
@@ -82,26 +83,29 @@ export function asContractPerformance(value: unknown): ContractPerformanceResult
 }
 
 export function ContractPerformanceResultView({ result }: { result: ContractPerformanceResult }) {
-  const milestones = result.performance.milestones ?? [];
   const findings = result.performance.findings ?? [];
   const evidence = result.evidenceLedger.evidence ?? [];
   const unmatched = result.evidenceLedger.unmatchedEvidenceIds ?? [];
   const sourceResults = result.evidenceLedger.sourceResults ?? [];
-  const changes = result.changeHistory.differences ?? [];
+  const changes = (result.changeHistory.differences ?? []).filter(
+    (item) => !sameValue(item.before, item.after),
+  );
+  const appliedChanges = result.changeHistory.appliedChanges ?? [];
   const obligations = result.plan.obligations ?? [];
+  const planMilestones = result.plan.milestones ?? [];
   const paymentConditions = result.plan.paymentConditions ?? [];
 
   return <div className="space-y-4">
     <section className="grid gap-3 md:grid-cols-4" aria-label="合同履约摘要">
       <Metric label="总体状态" value={result.status} tone={statusTone(result.status)} />
       <Metric label="采集状态" value={result.collectionStatus} tone={result.collectionStatus === "COMPLETE" ? "success" : "warning"} />
-      <Metric label="义务 / 里程碑" value={`${obligations.length} / ${milestones.length}`} />
+      <Metric label="义务 / 里程碑" value={`${obligations.length} / ${planMilestones.length}`} />
       <Metric label="证据 / 付款条件" value={`${evidence.length} / ${paymentConditions.length}`} />
     </section>
 
     {result.status === "REVIEW_REQUIRED" || unmatched.length ? <div role="alert" className="flex gap-3 rounded-2xl border border-warning-200 bg-warning-50 p-4 text-warning-800 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-200">
       <AlertTriangle className="mt-0.5 size-5 shrink-0" />
-      <div><p className="font-semibold">需要人工复核</p><p className="mt-1 text-sm">存在 {unmatched.length} 条未匹配证据或高影响异常，系统未据此确认验收或付款。</p></div>
+      <div><p className="font-semibold">需要人工复核</p><p className="mt-1 text-sm">存在 {unmatched.length + findings.length} 条未匹配证据、风险或缺口，系统未据此确认验收或付款。</p></div>
     </div> : null}
 
     <Card><CardContent className="p-5">
@@ -132,7 +136,7 @@ export function ContractPerformanceResultView({ result }: { result: ContractPerf
             <div className="flex items-center justify-between gap-3"><p className="font-medium text-gray-900 dark:text-white">{textField(item, "type", "EVIDENCE")}</p><Badge color="neutral">{textField(item, "sourceRef", "manual")}</Badge></div>
             <p className="mt-1 text-xs text-gray-500">{evidenceSummary(item)}</p>
             <p className="mt-1 truncate font-mono text-[11px] text-gray-400">{textField(item, "sourceRecordId", textField(item, "id", "—"))} · {textField(item, "contentHash", "无哈希")}</p>
-          </div>) : <Empty text="尚无执行证据" />}
+          </div>) : <EmptyState compact tone="neutral" title="尚无执行证据" />}
         </div>
       </CardContent></Card>
       <Card><CardContent className="p-5">
@@ -140,7 +144,7 @@ export function ContractPerformanceResultView({ result }: { result: ContractPerf
         <div className="mt-4 space-y-2">
           {findings.map((item, index) => <div key={`${item.code}-${index}`} className="flex items-center justify-between rounded-xl border border-gray-200 p-3 dark:border-gray-800"><div><p className="font-medium text-gray-900 dark:text-white">{item.code}</p><p className="text-xs text-gray-500">{item.targetId ?? "全局"}</p></div><Badge color={item.severity === "HIGH" ? "error" : "warning"}>{item.severity ?? "INFO"}</Badge></div>)}
           {(result.performance.paymentGates ?? []).map((gate) => <div key={gate.paymentConditionId} className="flex items-center justify-between rounded-xl border border-gray-200 p-3 dark:border-gray-800"><div><p className="font-medium text-gray-900 dark:text-white">付款条件 {gate.paymentConditionId}</p><p className="text-xs text-gray-500">验收 {gate.acceptanceSatisfied ? "已满足" : "未满足"} · 付款证据 {gate.paymentObserved ? "已发现" : "未发现"}</p></div><Badge color={gate.gateStatus === "ALLOWED" ? "success" : "error"}>{gate.gateStatus}</Badge></div>)}
-          {!findings.length && !(result.performance.paymentGates ?? []).length ? <Empty text="未发现风险或付款门禁" /> : null}
+          {!findings.length && !(result.performance.paymentGates ?? []).length ? <EmptyState compact tone="neutral" title="未发现风险或付款门禁" /> : null}
         </div>
       </CardContent></Card>
     </div>
@@ -162,7 +166,7 @@ export function ContractPerformanceResultView({ result }: { result: ContractPerf
     <Card><CardContent className="p-5">
       <SectionTitle icon={<History />} title="变更历史与结果追溯" description="原始值不覆盖，批准变更与人工决定追加保存" />
       <div className="mt-4 space-y-2">
-        {changes.length ? changes.map((item, index) => <div key={`${item.changeId}-${item.path}-${index}`} className="grid gap-2 rounded-xl border border-gray-200 p-3 text-sm md:grid-cols-[1fr_1fr_1fr] dark:border-gray-800"><p className="font-medium text-gray-900 dark:text-white">{item.path || "变更"}</p><p className="text-gray-500">原值：{display(item.before)}</p><p className="text-gray-500">新值：{display(item.after)}</p></div>) : <Empty text="当前基准没有已应用变更" />}
+        {changes.length ? changes.map((item, index) => <div key={`${item.changeId}-${item.path}-${index}`} className="grid gap-2 rounded-xl border border-gray-200 p-3 text-sm md:grid-cols-[1fr_1fr_1fr] dark:border-gray-800"><p className="font-medium text-gray-900 dark:text-white">{item.path || "变更"}</p><p className="text-gray-500">原值：{display(item.before)}</p><p className="text-gray-500">新值：{display(item.after)}</p></div>) : appliedChanges.length ? appliedChanges.map((item, index) => <div key={`${textField(item, "id", "change")}-${index}`} className="rounded-xl border border-gray-200 p-3 text-sm dark:border-gray-800"><p className="font-medium text-gray-900 dark:text-white">{textField(item, "title", textField(item, "id", "批准变更"))}</p><p className="mt-1 text-xs text-gray-500">已包含在当前基准 · 生效日 {textField(item, "effectiveAt", "未注明")}</p></div>) : <EmptyState compact tone="neutral" title="当前基准没有已应用变更" />}
       </div>
       <div className="mt-4 rounded-xl bg-gray-50 p-3 text-xs text-gray-600 dark:bg-white/[0.04] dark:text-gray-400"><p className="font-semibold text-gray-900 dark:text-white">冻结结果哈希</p><p className="mt-1 break-all font-mono">{result.resultHash}</p><p className="mt-2 break-all">计划：{display(result.provenance.planHash)} · 规则：{display(result.provenance.ruleSetRef)}</p></div>
       <div className="mt-3 grid gap-3 text-xs md:grid-cols-3">
@@ -182,10 +186,6 @@ function Metric({ label, value, tone = "neutral" }: { label: string; value: stri
   return <Card><CardContent className="p-4"><p className="text-xs text-gray-500">{label}</p><div className="mt-2 flex items-center gap-2">{tone === "success" ? <CheckCircle2 className="size-4 text-success-500" /> : null}<Badge color={tone}>{value}</Badge></div></CardContent></Card>;
 }
 
-function Empty({ text }: { text: string }) {
-  return <p className="rounded-xl border border-dashed border-gray-200 p-4 text-center text-sm text-gray-500 dark:border-gray-800">{text}</p>;
-}
-
 function Trace({ label, value }: { label: string; value: string }) {
   return <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-800"><p className="text-gray-400">{label}</p><p className="mt-1 break-all text-gray-700 dark:text-gray-200">{value}</p></div>;
 }
@@ -193,6 +193,14 @@ function Trace({ label, value }: { label: string; value: string }) {
 function display(value: unknown) {
   if (value === null || value === undefined || value === "") return "—";
   return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function sameValue(left: unknown, right: unknown) {
+  if (Object.is(left, right)) return true;
+  if (typeof left === "object" && left !== null && typeof right === "object" && right !== null) {
+    return JSON.stringify(left) === JSON.stringify(right);
+  }
+  return false;
 }
 
 function textField(value: Record<string, unknown>, key: string, fallback: string) {

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Activity, AlertTriangle, Download, FileText, Link2, LoaderCircle } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { api } from "@/api/client";
-import type { PostEvaluationResult, ReportSnapshot } from "@/api/types";
+import type { AssessmentDocumentUsageSnapshot, PostEvaluationResult, ReportSnapshot } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { BackLink } from "@/components/ui/back-link";
 import { Button } from "@/components/ui/button";
@@ -21,10 +21,15 @@ import {
   InvoiceAssuranceResultView,
 } from "@/components/invoice/invoice-assurance-result";
 import {
+  asDocumentStructuring,
+  DocumentStructuringResultView,
+} from "@/components/documents/document-structuring-result";
+import {
   asProcurementSupplierRisk,
   ProcurementSupplierRiskResultView,
 } from "@/components/procurement/procurement-supplier-risk-result";
 import { SupplierRiskOperations } from "@/components/procurement/supplier-risk-operations";
+import { DOCUMENT_CATEGORY_LABELS } from "@/lib/business-works";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 
 const TERMINAL = new Set(["SUCCEEDED", "FAILED", "COMPLETED", "CANCELLED", "REJECTED"]);
@@ -84,24 +89,18 @@ export function AssessmentPage() {
   }
 
   const detail = assessment.data;
-  const calibrationResult = asSwarmCalibration(detail.result);
-  const procurementSupplierRiskResult = calibrationResult
+  const documentStructuringResult = asDocumentStructuring(detail.result);
+  const calibrationResult = documentStructuringResult ? null : asSwarmCalibration(detail.result);
+  const procurementSupplierRiskResult = calibrationResult || documentStructuringResult
     ? null
     : asProcurementSupplierRisk(detail.result);
   const contractPerformanceResult = calibrationResult || procurementSupplierRiskResult ? null : asContractPerformance(detail.result);
   const invoiceResult = contractPerformanceResult ? null : asInvoiceAssurance(detail.result);
   const deviationResult = invoiceResult || contractPerformanceResult ? null : asDeviationAnalysis(detail.result);
-  const result = invoiceResult || deviationResult || contractPerformanceResult || procurementSupplierRiskResult || calibrationResult ? null : asPostEvaluation(detail.result);
+  const result = invoiceResult || deviationResult || contractPerformanceResult || procurementSupplierRiskResult || calibrationResult || documentStructuringResult ? null : asPostEvaluation(detail.result);
   const inProgress = !TERMINAL.has(detail.status) && !TERMINAL.has(run.data?.status ?? "");
   const syncStatus = run.data?.status ?? detail.status;
-  const snapshotItems = (snapshots.data?.items ?? []).map((item, index) => ({
-    id: stringField(item, "documentUsageSnapshotId")
-      ?? stringField(item, "businessDocumentVersionId")
-      ?? `snapshot-${index + 1}`,
-    label: stringField(item, "businessWorkKey")
-      ?? stringField(item, "sha256")
-      ?? `snapshot-${index + 1}`,
-  }));
+  const snapshotItems = toDocumentUsageSnapshotItems(snapshots.data?.items ?? []);
 
   return <div className="min-w-0 space-y-6">
     <header>
@@ -140,7 +139,7 @@ export function AssessmentPage() {
       <Metric label="完成时间" value={run.data?.completedAt ? formatTime(run.data.completedAt) : inProgress ? "进行中" : "—"} />
     </section>
 
-    {calibrationResult ? <SwarmCalibrationResultView result={calibrationResult} /> : procurementSupplierRiskResult ? <ProcurementSupplierRiskResultView result={procurementSupplierRiskResult} /> : contractPerformanceResult ? <ContractPerformanceResultView result={contractPerformanceResult} /> : invoiceResult ? <InvoiceAssuranceResultView result={invoiceResult} /> : deviationResult ? <DeviationAnalysisResult result={deviationResult} /> : result ? <div className="space-y-4">
+    {documentStructuringResult ? <DocumentStructuringResultView result={documentStructuringResult} /> : calibrationResult ? <SwarmCalibrationResultView result={calibrationResult} /> : procurementSupplierRiskResult ? <ProcurementSupplierRiskResultView result={procurementSupplierRiskResult} /> : contractPerformanceResult ? <ContractPerformanceResultView result={contractPerformanceResult} /> : invoiceResult ? <InvoiceAssuranceResultView result={invoiceResult} /> : deviationResult ? <DeviationAnalysisResult result={deviationResult} /> : result ? <div className="space-y-4">
       {result.readabilityGate || result.reportQuality ? <Card><CardContent className="space-y-4 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -216,8 +215,11 @@ export function AssessmentPage() {
     </div>
 
     <Card><CardContent className="space-y-4 p-5">
-      <h2 className="font-semibold text-gray-900 dark:text-white">使用的资料快照</h2>
-      {snapshots.isPending ? <Skeleton className="h-24" /> : snapshotItems.length ? <ul className="space-y-2">{snapshotItems.map((item) => <li key={item.id} className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-sm dark:bg-gray-800/60"><Link2 className="size-4 text-gray-400" /><span>{item.label}</span></li>)}</ul> : <p className="text-sm text-gray-500">暂无资料快照。</p>}
+      <div>
+        <h2 className="font-semibold text-gray-900 dark:text-white">使用的资料快照</h2>
+        <p className="mt-1 text-xs text-gray-500">本次评估实际冻结读取的业务资料版本，用于追溯证据口径。</p>
+      </div>
+      {snapshots.isPending ? <Skeleton className="h-24" /> : snapshotItems.length ? <ul className="space-y-2">{snapshotItems.map((item) => <li key={item.id} className="flex items-start gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-gray-800/60"><Link2 className="mt-0.5 size-4 shrink-0 text-gray-400" /><div className="min-w-0"><p className="truncate text-sm font-medium text-gray-900 dark:text-white" title={item.title}>{item.title}</p>{item.meta ? <p className="mt-0.5 truncate text-xs text-gray-500" title={item.meta}>{item.meta}</p> : null}</div></li>)}</ul> : <p className="text-sm text-gray-500">暂无资料快照。</p>}
     </CardContent></Card>
 
     {detail.casePayload ? <Card><CardContent className="space-y-3 p-5">
@@ -225,6 +227,38 @@ export function AssessmentPage() {
       <pre className="overflow-auto rounded-xl bg-gray-950 p-4 text-xs text-gray-100">{JSON.stringify(detail.casePayload, null, 2)}</pre>
     </CardContent></Card> : null}
   </div>;
+}
+
+export type DocumentUsageSnapshotListItem = {
+  id: string;
+  title: string;
+  meta: string;
+};
+
+/** Map API document-usage snapshots into distinct list rows for Assessment UI. */
+export function toDocumentUsageSnapshotItems(
+  items: AssessmentDocumentUsageSnapshot[],
+): DocumentUsageSnapshotListItem[] {
+  return items.map((item, index) => {
+    const id = item.documentSnapshotId || item.documentVersionId || `snapshot-${index + 1}`;
+    const shortHash = typeof item.sha256 === "string" && item.sha256.length >= 8
+      ? item.sha256.slice(0, 8)
+      : null;
+    const title = item.documentName?.trim()
+      || (shortHash ? `资料 ${shortHash}` : null)
+      || `资料快照 ${index + 1}`;
+    const category = item.documentCategory
+      ? (DOCUMENT_CATEGORY_LABELS[item.documentCategory] ?? item.documentCategory)
+      : null;
+    const meta = [
+      category,
+      typeof item.version === "number" ? `v${item.version}` : null,
+      item.mediaType || null,
+      item.createdAt ? formatTime(item.createdAt) : null,
+      shortHash ? `sha ${shortHash}` : null,
+    ].filter((part): part is string => Boolean(part)).join(" · ");
+    return { id, title, meta };
+  });
 }
 
 function downloadReport(report: ReportSnapshot) {
@@ -421,11 +455,6 @@ function asPostEvaluation(value: unknown): PostEvaluationResult | null {
   const result = value as Partial<PostEvaluationResult>;
   if (typeof result.executiveSummary !== "string" || !Array.isArray(result.dimensions)) return null;
   return result as PostEvaluationResult;
-}
-
-function stringField(item: Record<string, unknown>, key: string): string | null {
-  const value = item[key];
-  return typeof value === "string" || typeof value === "number" ? String(value) : null;
 }
 
 function statusColor(status: string): "success" | "warning" | "error" | "neutral" | "primary" {

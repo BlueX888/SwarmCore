@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import ClassVar
 from uuid import UUID
 
@@ -84,6 +85,7 @@ class ProjectionReconciler:
                 )
             )
             repaired += 1
+        run.reconciled_at = datetime.now(UTC)
         return ReconcileReport(
             run_id=run_id,
             projection_repaired=projection_repaired,

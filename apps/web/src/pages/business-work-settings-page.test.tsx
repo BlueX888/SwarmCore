@@ -17,6 +17,10 @@ vi.mock("@/api/client", async (importOriginal) => {
       listVersions: vi.fn(),
       listDocuments: vi.fn(),
       bindBusinessWorkStrategy: vi.fn(),
+      getPackBindings: vi.fn(),
+      createDecisionAsset: vi.fn(),
+      publishDecisionAsset: vi.fn(),
+      bindCapabilityPackDecision: vi.fn(),
     },
   };
 });
@@ -108,6 +112,25 @@ describe("business work settings configuration", () => {
       statusLabel: "可运行",
       blockers: [],
     });
+    vi.mocked(api.getPackBindings).mockResolvedValue({ decisions: [], resources: [] });
+    vi.mocked(api.createDecisionAsset).mockResolvedValue({
+      decisionAssetId: "decision-1",
+      draftId: "draft-1",
+      revision: 1,
+      definition: {},
+    });
+    vi.mocked(api.publishDecisionAsset).mockResolvedValue({
+      decisionAssetId: "decision-1",
+      decisionVersionId: "decision-version-1",
+      version: 1,
+      contentHash: "a".repeat(64),
+    });
+    vi.mocked(api.bindCapabilityPackDecision).mockResolvedValue({
+      bindingId: "binding-1",
+      slot: "document-checklist",
+      decisionVersionId: "decision-version-1",
+      contentHash: "a".repeat(64),
+    });
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -166,5 +189,50 @@ describe("business work settings configuration", () => {
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("策略加载失败：strategies unavailable");
     expect(screen.queryByText("正在加载策略…")).not.toBeInTheDocument();
+  });
+
+  it("creates, publishes, and binds a checklist for a missing decision slot", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue({
+      ...workSnapshot,
+      workKey: "document-integrity",
+      name: "文件完整性校验智能体",
+      packName: "contract-integrity",
+      documentRequirements: [{
+        key: "contract",
+        category: "CONTRACT",
+        required: true,
+        minCount: 1,
+        acceptedMediaTypes: ["application/pdf"],
+      }],
+      decisionSlots: [{
+        slot: "document-checklist",
+        required: true,
+        inputSchema: "schema://contract/validation-input@2",
+        outputSchema: "schema://contract/validation-result@1",
+        allowedTypes: ["CHECKLIST", "DECISION_TABLE"],
+      }],
+    });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "创建并绑定检查清单" }));
+
+    await waitFor(() => expect(api.createDecisionAsset).toHaveBeenCalledOnce());
+    const createBody = vi.mocked(api.createDecisionAsset).mock.calls[0]?.[2];
+    expect(createBody?.definition).toMatchObject({
+      inputSchema: "schema://contract/validation-input@2",
+      outputSchema: "schema://contract/validation-result@1",
+    });
+    expect(api.publishDecisionAsset).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      "decision-1",
+    );
+    expect(api.bindCapabilityPackDecision).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      "pack-version-1",
+      "document-checklist",
+      "decision-version-1",
+    );
   });
 });

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+from collections.abc import Awaitable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -293,11 +295,37 @@ class DocumentRequirementService:
         return profile_ref, tuple(requirements)
 
 
+class BinaryObjectStore(Protocol):
+    def get(self, object_key: str) -> Awaitable[bytes]: ...
+
+    def put(self, object_key: str, content: bytes) -> Awaitable[None]: ...
+
+
+class LocalBinaryObjectStore:
+    def __init__(self, root: Path) -> None:
+        self._root = root.resolve()
+
+    def _path(self, object_key: str) -> Path:
+        target = (self._root / object_key).resolve()
+        if not target.is_relative_to(self._root):
+            raise ValueError("artifact object key escapes the store root")
+        return target
+
+    async def get(self, object_key: str) -> bytes:
+        return await asyncio.to_thread(self._path(object_key).read_bytes)
+
+    async def put(self, object_key: str, content: bytes) -> None:
+        target = self._path(object_key)
+        await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(target.write_bytes, content)
+
+
 class DocumentProcessingService:
     def __init__(
         self,
         *,
         storage_root: Path | None = None,
+        object_store: BinaryObjectStore | None = None,
         parsers: ParserRegistry | None = None,
     ) -> None:
         self._audit = AuditRepository()
@@ -310,6 +338,7 @@ class DocumentProcessingService:
         self._storage_root = storage_root or Path(
             __import__("os").environ.get("SWARMCORE_ARTIFACT_ROOT", ".tmp/artifacts")
         )
+        self._object_store = object_store or LocalBinaryObjectStore(self._storage_root)
 
     async def start_for_version(
         self,
@@ -878,7 +907,7 @@ class DocumentProcessingService:
             raise DocumentProcessingError("SECURITY_SCAN_FAILED", blob.scan_status)
         content = blob_content
         if content is None:
-            content = self._read_blob_bytes(blob)
+            content = await self._read_blob_bytes(blob)
         if hashlib.sha256(content).hexdigest() != version.sha256:
             raise DocumentProcessingError("DOCUMENT_HASH_MISMATCH")
         await self._record_event(
@@ -1603,12 +1632,13 @@ class DocumentProcessingService:
         await session.flush()
         return event
 
-    def _read_blob_bytes(self, blob: BlobObject) -> bytes:
-        root = self._storage_root
-        path = root / blob.object_key
-        if not path.is_file():
-            raise DocumentProcessingError("BLOB_CONTENT_UNAVAILABLE", str(path))
-        return path.read_bytes()
+    async def _read_blob_bytes(self, blob: BlobObject) -> bytes:
+        try:
+            return await self._object_store.get(blob.object_key)
+        except FileNotFoundError as exc:
+            raise DocumentProcessingError(
+                "BLOB_CONTENT_UNAVAILABLE", blob.object_key
+            ) from exc
 
     async def _prepare_persisted_content(
         self,
@@ -1676,9 +1706,7 @@ class DocumentProcessingService:
         object_key = (
             f"{tenant_id}/{project_id}/document-processing/{version.id}/{blob_id}.json"
         )
-        target = self._storage_root / object_key
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(payload)
+        await self._object_store.put(object_key, payload)
         session.add(
             BlobObject(
                 id=blob_id,

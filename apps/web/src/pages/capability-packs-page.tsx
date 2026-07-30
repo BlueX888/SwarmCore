@@ -7,6 +7,9 @@ import type { CreateCapabilityPackRequest } from "@/api/types";
 import { CapabilityPackCreateForm, type CapabilityPackStrategyOption } from "@/components/capabilities/capability-pack-create-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useWorkspaceScope } from "@/lib/demo-scope";
@@ -135,22 +138,23 @@ export function CapabilityPacksPage() {
   }
 
   return <div className="min-w-0 space-y-6">
-    <div className="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <p className="text-sm font-medium text-brand-500">业务工作</p>
-        <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">业务能力包</h1>
-        <p className="mt-1 text-sm text-gray-500">按项目启用不可变版本，历史评估继续绑定原版本。</p>
-      </div>
-      <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void packs.refetch()} loading={packs.isFetching}><RefreshCw />刷新</Button><Button onClick={() => { create.reset(); setCreateOpen(true); }}><Plus />新建能力包</Button></div>
-    </div>
+    <PageHeader
+      eyebrow="业务工作"
+      title="业务能力包"
+      description="按项目启用不可变版本，历史评估继续绑定原版本。"
+      actions={<>
+        <Button variant="outline" onClick={() => void packs.refetch()} loading={packs.isFetching}><RefreshCw />刷新</Button>
+        <Button onClick={() => { create.reset(); setCreateOpen(true); }}><Plus />新建能力包</Button>
+      </>}
+    />
 
     <nav aria-label="能力包详情" className="flex gap-1 overflow-x-auto rounded-xl border border-gray-200 bg-white p-1 dark:border-gray-800 dark:bg-gray-900">{PACK_TABS.map((tab) => <button key={tab} type="button" aria-current={selectedTab === tab ? "page" : undefined} onClick={() => setSelectedTab(tab)} className={cn("shrink-0 rounded-lg px-3 py-2 text-sm font-medium", selectedTab === tab ? "bg-brand-50 text-brand-600 dark:bg-brand-500/10" : "text-gray-500 hover:text-gray-900 dark:hover:text-white")}>{tab}</button>)}</nav>
 
     {createOpen ? <CapabilityPackCreateForm packs={packs.data?.items ?? []} strategies={strategyOptions.data ?? []} loadingStrategies={strategyOptions.isPending} pending={create.isPending} error={create.error?.message ?? strategyOptions.error?.message} onCancel={() => setCreateOpen(false)} onSubmit={(body) => create.mutate(body)} /> : null}
 
     {packs.isPending ? <div className="grid gap-4 lg:grid-cols-2"><Skeleton className="h-40" /><Skeleton className="h-40" /></div> : null}
-    {packs.isError ? <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-error-600">能力包加载失败</p><p className="text-sm text-gray-500">{packs.error.message}</p><Button onClick={() => void packs.refetch()}>重试</Button></CardContent></Card> : null}
-    {packs.data?.items.length === 0 ? <Card><CardContent className="flex min-h-72 flex-col items-center justify-center gap-3 pt-5 text-center"><span className="grid size-14 place-items-center rounded-2xl bg-brand-50 text-brand-500 dark:bg-brand-500/15"><Boxes /></span><p className="font-medium text-gray-900 dark:text-white">暂无可信能力包</p><p className="text-sm text-gray-500">能力包由系统注册和发布。</p></CardContent></Card> : null}
+    {packs.isError ? <Card><CardContent className="pt-5"><ErrorState title="能力包加载失败" message={packs.error.message} onRetry={() => void packs.refetch()} /></CardContent></Card> : null}
+    {packs.data?.items.length === 0 ? <Card><CardContent className="pt-5"><EmptyState icon={Boxes} title="暂无可信能力包" description="能力包由系统注册和发布。" /></CardContent></Card> : null}
     {packs.data?.items.length ? <div className="grid gap-4 lg:grid-cols-2">
       {packs.data.items.map((pack) => {
         const agents = packReferences(pack.manifest, "agents");

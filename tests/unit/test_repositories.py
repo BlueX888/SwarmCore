@@ -30,6 +30,9 @@ def test_temporal_claim_excludes_unfinished_earlier_commands() -> None:
     assert "COMMAND_SEQ" in sql
     assert "DOCUMENT.PROCESSING.CANCEL.REQUESTED" in sql
     assert "DOCUMENT-TEMPORAL" in sql
+    assert "PARTITION_KEY" in sql
+    assert "AVAILABLE_AT" in sql
+    assert "STATUS NOT IN ('DELIVERED', 'DEAD')" in sql
     assert "FOR UPDATE OF OUTBOX_EVENTS SKIP LOCKED" in sql
     assert "DELIVERING" in sql
     assert "LOCKED_UNTIL" in sql

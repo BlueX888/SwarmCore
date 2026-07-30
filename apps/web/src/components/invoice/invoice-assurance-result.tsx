@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export const INVOICE_ASSURANCE_SCHEMA = "schema://invoice-assurance/result@1";
 
@@ -171,7 +172,13 @@ export function InvoiceAssuranceResultView({ result }: { result: InvoiceAssuranc
             </ul>
           </CardContent>
         </Card>
-      ) : null}
+      ) : (
+        <Card>
+          <CardContent className="p-5">
+            <EmptyState compact tone="neutral" title="暂无结果 Findings" />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="space-y-3 p-5">

@@ -6,10 +6,12 @@ import { api, ApiError } from "@/api/client";
 import type { Diagnostic, DraftSnapshot, StrategyDeleteImpact } from "@/api/types";
 import { StrategyDeleteDialog } from "@/components/strategy/strategy-delete-dialog";
 import { StrategyEditor } from "@/components/strategy/strategy-editor";
-import { EMPTY_EDITOR_STATE, isSwarmSpecDocument, layoutStrategyEditorState, type EditorState, type SwarmSpecDocument } from "@/components/strategy/strategy-editor-model";
+import { EMPTY_EDITOR_STATE, isSwarmSpecDocument, layoutStrategyEditorState, normalizeEditorState, type EditorState, type SwarmSpecDocument } from "@/components/strategy/strategy-editor-model";
 import { Button } from "@/components/ui/button";
 import { BackLink } from "@/components/ui/back-link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 
@@ -38,6 +40,10 @@ export function StrategyDetailPage() {
   const draft = useQuery({ queryKey: ["draft", tenantId, projectId, strategyId, strategy?.draftId], queryFn: () => api.getDraft(tenantId, projectId, strategyId, strategy?.draftId ?? ""), enabled: Boolean(strategy?.draftId) });
   const versions = useQuery({ queryKey: ["versions", tenantId, projectId, strategyId], queryFn: () => api.listVersions(tenantId, projectId, strategyId) });
   const capabilities = useQuery({ queryKey: ["capabilities", tenantId, projectId], queryFn: () => api.getCapabilities(tenantId, projectId) });
+  const agentConfigurations = useQuery({
+    queryKey: ["strategy-agent-configurations", tenantId, projectId],
+    queryFn: async () => (await api.listConfigurations(tenantId, projectId, "agent")).items,
+  });
   const [spec, setSpec] = React.useState<SwarmSpecDocument | null>(null);
   const [editorState, setEditorState] = React.useState<EditorState>(() => structuredClone(EMPTY_EDITOR_STATE));
   const [revision, setRevision] = React.useState(0);
@@ -59,7 +65,7 @@ export function StrategyDetailPage() {
     setSpec(snapshot.spec);
     setEditorState(layoutStrategyEditorState(
       snapshot.spec,
-      snapshot.editorState ?? structuredClone(EMPTY_EDITOR_STATE),
+      normalizeEditorState(snapshot.editorState ?? EMPTY_EDITOR_STATE),
     ));
     setRevision(snapshot.revision);
     setDiagnostics(snapshot.diagnostics);
@@ -181,12 +187,12 @@ export function StrategyDetailPage() {
 
   // TanStack Query v5: disabled queries stay isPending=true; use isLoading (pending+fetching).
   if (strategies.isPending || draft.isLoading) return <div className="space-y-5"><Skeleton className="h-20" /><Skeleton className="h-96" /></div>;
-  if (strategies.isError || !strategy) return <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5"><p className="font-medium text-error-600">无法加载策略</p><Button onClick={() => void strategies.refetch()}>重试</Button></CardContent></Card>;
+  if (strategies.isError || !strategy) return <Card><CardContent className="pt-5"><ErrorState title="无法加载策略" onRetry={() => void strategies.refetch()} /></CardContent></Card>;
   if (!strategy.draftId) {
     return <div className="min-w-0 space-y-6">
       <div><BackLink to="..">策略管理</BackLink><div className="mt-4 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-2xl font-semibold text-gray-900 dark:text-white">{strategy.name}</h1><p className="mt-1 text-sm text-gray-500">生命周期 {strategy.lifecycle} · 无可编辑草稿</p></div><div className="flex flex-wrap gap-2"><Button variant="destructive" onClick={() => void openDelete()} disabled={remove.isPending}><Trash2 />删除策略</Button></div></div></div>
-      <Card><CardContent className="flex min-h-48 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-gray-900 dark:text-white">该策略没有可编辑草稿</p><p className="max-w-md text-sm text-gray-500">可信策略、临时内联策略或已清理草稿的策略只能查看已发布版本，不能在此编辑。</p></CardContent></Card>
-      <Card><CardHeader><CardTitle>已发布版本</CardTitle><span className="text-sm text-gray-500">{versions.data?.total ?? 0}</span></CardHeader><CardContent>{versions.isError ? <div className="flex items-center justify-between gap-3"><p className="text-sm text-error-600">无法加载版本。</p><Button size="sm" onClick={() => void versions.refetch()}>重试</Button></div> : versions.data?.items.length ? <ul className="space-y-3">{versions.data.items.map((version) => <li key={version.strategyVersionId} className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"><p className="font-medium">版本 {version.version}</p><p className="mt-1 break-all font-mono text-xs text-gray-500">{version.planHash}</p></li>)}</ul> : <p className="py-8 text-center text-sm text-gray-500">暂无已发布版本。</p>}</CardContent></Card>
+      <Card><CardContent className="pt-5"><EmptyState title="该策略没有可编辑草稿" description="可信策略、临时内联策略或已清理草稿的策略只能查看已发布版本，不能在此编辑。" /></CardContent></Card>
+      <Card><CardHeader><CardTitle>已发布版本</CardTitle><span className="text-sm text-gray-500">{versions.data?.total ?? 0}</span></CardHeader><CardContent>{versions.isError ? <ErrorState compact title="无法加载版本" onRetry={() => void versions.refetch()} /> : versions.data?.items.length ? <ul className="space-y-3">{versions.data.items.map((version) => <li key={version.strategyVersionId} className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"><p className="font-medium">版本 {version.version}</p><p className="mt-1 break-all font-mono text-xs text-gray-500">{version.planHash}</p></li>)}</ul> : <EmptyState compact title="暂无已发布版本" />}</CardContent></Card>
       <StrategyDeleteDialog
         open={deleteOpen}
         strategyName={strategy.name}
@@ -208,17 +214,30 @@ export function StrategyDetailPage() {
       />
     </div>;
   }
-  if (draft.isError || !draft.data) return <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5"><p className="font-medium text-error-600">无法加载策略草稿</p><Button onClick={() => void draft.refetch()}>重试</Button></CardContent></Card>;
-  if (!spec) return <Card><CardContent className="flex min-h-60 items-center justify-center pt-5"><p className="font-medium text-error-600">草稿不是有效的 SwarmSpec 文档。</p></CardContent></Card>;
+  if (draft.isError || !draft.data) return <Card><CardContent className="pt-5"><ErrorState title="无法加载策略草稿" onRetry={() => void draft.refetch()} /></CardContent></Card>;
+  if (!spec) return <Card><CardContent className="pt-5"><ErrorState title="草稿不是有效的 SwarmSpec 文档" /></CardContent></Card>;
   return <div className="min-w-0 space-y-6">
     <div><BackLink to="..">策略管理</BackLink><div className="mt-4 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-2xl font-semibold text-gray-900 dark:text-white">{strategy.name}</h1><p className="mt-1 text-sm text-gray-500">草稿修订 {revision}{dirty ? " · 未保存" : ""}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void reload()}><RefreshCw />重新加载</Button><Button variant="destructive" onClick={() => void openDelete()} disabled={remove.isPending}><Trash2 />删除策略</Button></div></div></div>
     <Card><CardContent className="space-y-4 pt-5">
-      <StrategyEditor spec={spec} editorState={editorState} nodeTypes={capabilities.data?.nodeTypes.map((item) => item.type) ?? []} models={capabilities.data?.models.map((item) => item.ref) ?? []} diagnostics={diagnostics} onSpecChange={(value) => { setSpec(value); setDirty(true); setMessage(""); }} onEditorStateChange={(value) => { setEditorState(value); setDirty(true); }} onError={setMessage} />
+      <StrategyEditor
+        spec={spec}
+        editorState={editorState}
+        nodeTypes={capabilities.data?.nodeTypes.map((item) => item.type) ?? []}
+        models={capabilities.data?.models.map((item) => item.ref) ?? []}
+        tools={capabilities.data?.tools.map((item) => item.ref) ?? []}
+        agentConfigurations={agentConfigurations.data ?? []}
+        agentConfigurationsLoading={agentConfigurations.isPending}
+        agentConfigurationsError={agentConfigurations.error?.message}
+        diagnostics={diagnostics}
+        onSpecChange={(value) => { setSpec(value); setDirty(true); setMessage(""); }}
+        onEditorStateChange={(value) => { setEditorState(value); setDirty(true); }}
+        onError={setMessage}
+      />
       <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => compile.mutate()} loading={compile.isPending}><CheckCircle2 />校验</Button><Button variant="outline" onClick={() => save.mutate()} loading={save.isPending} disabled={conflict}><Save />保存草稿</Button><Button onClick={() => publish.mutate()} loading={publish.isPending} disabled={conflict}><Rocket />保存并发布</Button></div>
       {message ? <p role="status" className="break-all rounded-xl bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800">{message}</p> : null}
     </CardContent></Card>
     {diagnostics.length ? <Card><CardHeader><CardTitle>诊断信息</CardTitle></CardHeader><CardContent><ul className="space-y-3">{diagnostics.map((item, index) => <li key={`${item.code}-${index}`} className="rounded-xl border border-error-200 p-3 dark:border-error-500/30"><div className="flex flex-wrap gap-2 text-sm"><strong className="text-error-600">{item.code}</strong><code className="break-all text-gray-500">{item.path}</code></div><p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{item.message}</p></li>)}</ul></CardContent></Card> : null}
-    <Card><CardHeader><CardTitle>已发布版本</CardTitle><span className="text-sm text-gray-500">{versions.data?.total ?? 0}</span></CardHeader><CardContent>{versions.isError ? <div className="flex items-center justify-between gap-3"><p className="text-sm text-error-600">无法加载版本。</p><Button size="sm" onClick={() => void versions.refetch()}>重试</Button></div> : versions.data?.items.length ? <ul className="space-y-3">{versions.data.items.map((version) => <li key={version.strategyVersionId} className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"><p className="font-medium">版本 {version.version}</p><p className="mt-1 break-all font-mono text-xs text-gray-500">{version.planHash}</p></li>)}</ul> : <p className="py-8 text-center text-sm text-gray-500">暂无已发布版本。</p>}</CardContent></Card>
+    <Card><CardHeader><CardTitle>已发布版本</CardTitle><span className="text-sm text-gray-500">{versions.data?.total ?? 0}</span></CardHeader><CardContent>{versions.isError ? <ErrorState compact title="无法加载版本" onRetry={() => void versions.refetch()} /> : versions.data?.items.length ? <ul className="space-y-3">{versions.data.items.map((version) => <li key={version.strategyVersionId} className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"><p className="font-medium">版本 {version.version}</p><p className="mt-1 break-all font-mono text-xs text-gray-500">{version.planHash}</p></li>)}</ul> : <EmptyState compact title="暂无已发布版本" />}</CardContent></Card>
     <StrategyDeleteDialog
       open={deleteOpen}
       strategyName={strategy.name}

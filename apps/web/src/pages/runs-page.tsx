@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, ChevronDown, Plus, RefreshCw, Search } from "lucide-react";
+import { Activity, ArrowRight, ChevronDown, Plus, RefreshCw, Search } from "lucide-react";
 import { Link } from "react-router";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useWorkspaceScope } from "@/lib/demo-scope";
@@ -49,7 +52,8 @@ export function RunsPage() {
   const query = useQuery({
     queryKey: ["runs", tenantId, projectId],
     queryFn: () => api.listRuns(tenantId, projectId),
-    refetchInterval: 5000,
+    refetchInterval: 8000,
+    staleTime: 4000,
   });
   const items = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -63,24 +67,20 @@ export function RunsPage() {
 
   return (
     <div className="min-w-0 space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium text-brand-500">运行管理</p>
-          <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">运行记录</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            查看耐久运行、任务、事件和结构化结果。
-          </p>
-        </div>
-        <div className="flex gap-2"><Button variant="outline" onClick={() => void query.refetch()} loading={query.isFetching}><RefreshCw />刷新</Button><Button asChild><Link to="new"><Plus />新建运行</Link></Button></div>
-      </div>
+      <PageHeader
+        eyebrow="运行管理"
+        title="运行记录"
+        description="查看耐久运行、任务、事件和结构化结果。"
+        actions={<><Button variant="outline" onClick={() => void query.refetch()} loading={query.isFetching}><RefreshCw />刷新</Button><Button asChild><Link to="new"><Plus />新建运行</Link></Button></>}
+      />
       {query.isPending ? (
         <Card><CardContent className="space-y-4 pt-5">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-14 w-full" />)}</CardContent></Card>
       ) : null}
       {query.isError ? (
-        <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-3 pt-5 text-center"><p className="font-medium text-error-600">无法加载运行记录</p><p className="text-sm text-gray-500">请检查 API 连接后重试。</p><Button onClick={() => void query.refetch()}>重试</Button></CardContent></Card>
+        <Card><CardContent className="pt-5"><ErrorState title="无法加载运行记录" message="请检查 API 连接后重试。" onRetry={() => void query.refetch()} /></CardContent></Card>
       ) : null}
       {query.data?.items.length === 0 ? (
-        <Card><CardContent className="flex min-h-60 flex-col items-center justify-center gap-2 pt-5 text-center"><ActivityIcon /><p className="font-medium">暂无运行记录</p><p className="text-sm text-gray-500">请选择已发布的策略版本开始运行。</p><Button asChild className="mt-2"><Link to="new">创建运行</Link></Button></CardContent></Card>
+        <Card><CardContent className="pt-5"><EmptyState icon={Activity} title="暂无运行记录" description="请选择已发布的策略版本开始运行。" action={<Button asChild><Link to="new">创建运行</Link></Button>} /></CardContent></Card>
       ) : null}
       {query.data?.items.length ? (
         <Card className="min-w-0 overflow-visible">
@@ -106,10 +106,7 @@ export function RunsPage() {
               <StatusFilterSelect value={status} onChange={setStatus} />
             </div>
             {!items.length ? (
-              <div className="flex min-h-48 flex-col items-center justify-center px-5 py-10 text-center">
-                <p className="font-medium text-gray-900 dark:text-white">没有匹配的运行</p>
-                <p className="mt-1 text-sm text-gray-500">调整搜索或状态筛选后再试。</p>
-              </div>
+              <EmptyState compact icon={Search} title="没有匹配的运行" description="调整搜索或状态筛选后再试。" className="px-5" />
             ) : (
               <div className="overflow-x-auto">
                 <div className="divide-y divide-gray-100 px-5 md:hidden dark:divide-gray-800">
@@ -213,8 +210,4 @@ function StatusFilterSelect({
       ) : null}
     </div>
   );
-}
-
-function ActivityIcon() {
-  return <span className="grid size-12 place-items-center rounded-full bg-brand-50 text-brand-500 dark:bg-brand-500/15">●</span>;
 }

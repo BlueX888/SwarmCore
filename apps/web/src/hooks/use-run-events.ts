@@ -18,6 +18,36 @@ export function parseSseFrame(frame: string): ParsedSse {
 }
 
 const delays = [1000, 2000, 5000, 10000, 30000];
+const INVALIDATE_THROTTLE_MS = 2000;
+
+export function createInvalidationScheduler(
+  invalidate: () => void,
+  throttleMs = INVALIDATE_THROTTLE_MS,
+) {
+  let timer: number | undefined;
+  let lastInvalidate = 0;
+
+  const schedule = () => {
+    const elapsed = Date.now() - lastInvalidate;
+    if (elapsed >= throttleMs) {
+      lastInvalidate = Date.now();
+      invalidate();
+      return;
+    }
+    if (timer !== undefined) return;
+    timer = window.setTimeout(() => {
+      timer = undefined;
+      lastInvalidate = Date.now();
+      invalidate();
+    }, throttleMs - elapsed);
+  };
+
+  const dispose = () => {
+    if (timer !== undefined) window.clearTimeout(timer);
+  };
+
+  return { schedule, dispose };
+}
 
 export function useRunEvents(tenantId: string, projectId: string, run: RunSnapshot | undefined) {
   const queryClient = useQueryClient();
@@ -33,6 +63,9 @@ export function useRunEvents(tenantId: string, projectId: string, run: RunSnapsh
     initialize(runId, initialSeq);
     const abort = new AbortController();
     let retry = 0;
+    const invalidation = createInvalidationScheduler(() => {
+      void queryClient.invalidateQueries({ queryKey: ["run", tenantId, projectId, runId] });
+    });
 
     const apply = async (event: RunEvent) => {
       let current = useRunEventStore.getState().runs[runId]?.lastAppliedSeq ?? initialSeq;
@@ -43,9 +76,7 @@ export function useRunEvents(tenantId: string, projectId: string, run: RunSnapsh
         if (next === current) break;
         current = next;
       }
-      if (append(runId, event)) {
-        await queryClient.invalidateQueries({ queryKey: ["run", tenantId, projectId, runId] });
-      }
+      if (append(runId, event)) invalidation.schedule();
     };
 
     const connect = async (): Promise<void> => {
@@ -91,6 +122,9 @@ export function useRunEvents(tenantId: string, projectId: string, run: RunSnapsh
       setConnection(runId, "CLOSED");
     };
     void connect();
-    return () => abort.abort();
+    return () => {
+      abort.abort();
+      invalidation.dispose();
+    };
   }, [append, initialSeq, initialize, projectId, queryClient, reset, runId, setConnection, tenantId]);
 }

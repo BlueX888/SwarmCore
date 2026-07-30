@@ -8,6 +8,7 @@ from datetime import timedelta
 import nats
 from nats.js.api import RetentionPolicy, StorageType, StreamConfig
 from nats.js.errors import BadRequestError
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from swarmcore_observability import (
     SwarmMetrics,
@@ -28,6 +29,7 @@ class Settings(BaseSettings):
     event_publisher_poll_seconds: float = 0.2
     otlp_endpoint: str = "http://localhost:4317"
     telemetry_enabled: bool = True
+    nats_stream_replicas: int = Field(default=1, ge=1, le=5)
 
 
 async def serve() -> None:
@@ -46,7 +48,7 @@ async def serve() -> None:
                 retention=RetentionPolicy.LIMITS,
                 storage=StorageType.FILE,
                 max_age=timedelta(hours=24).total_seconds(),
-                num_replicas=1,
+                num_replicas=settings.nats_stream_replicas,
             )
         )
     publisher = EventPublisher(

@@ -16,22 +16,29 @@ import {
 } from "@xyflow/react";
 import { AlertTriangle, Braces, GitBranch, Play, Plus, Trash2 } from "lucide-react";
 import * as React from "react";
-import type { Diagnostic } from "@/api/types";
+import type { Diagnostic, SavedConfiguration } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { capabilityRefDisplayName } from "@/lib/capability-labels";
 import { nodeTypeLabel } from "@/lib/display-text";
 import {
   SUPPORTED_NODE_TYPES,
   addNode,
+  assignAgentDeclaration,
+  bindProjectAgentToNode,
   connectNodes,
   deleteNode,
   diagnosticNodeKey,
   disconnectNodes,
+  isBindableAgentConfiguration,
   isSupportedNode,
   layoutStrategyGraph,
   listEdges,
+  normalizeEditorState,
   setEntrypoint,
+  unbindAgentFromNode,
   updateAgentDeclaration,
   updateNode,
+  type AgentBindingState,
   type EditorState,
   type StrategyNode,
   type SupportedNodeType,
@@ -53,6 +60,10 @@ export function StrategyCanvas(props: {
   editorState: EditorState;
   nodeTypes: string[];
   models?: string[];
+  tools?: string[];
+  agentConfigurations?: SavedConfiguration[];
+  agentConfigurationsLoading?: boolean;
+  agentConfigurationsError?: string;
   diagnostics: Diagnostic[];
   onSpecChange: (spec: SwarmSpecDocument) => void;
   onEditorStateChange: (state: EditorState) => void;
@@ -66,6 +77,10 @@ function StrategyCanvasInner({
   editorState,
   nodeTypes: capabilityNodeTypes,
   models = [],
+  tools = [],
+  agentConfigurations = [],
+  agentConfigurationsLoading = false,
+  agentConfigurationsError,
   diagnostics,
   onSpecChange,
   onEditorStateChange,
@@ -92,7 +107,7 @@ function StrategyCanvasInner({
     missing.forEach((key) => {
       positions[key] = automaticPositions[key] ?? { x: 80, y: 80 };
     });
-    onEditorStateChange({ ...editorState, positions });
+    onEditorStateChange(normalizeEditorState({ ...editorState, positions }));
   }, [editorState, graphNodes, onEditorStateChange, spec]);
 
   React.useEffect(() => {
@@ -208,10 +223,10 @@ function StrategyCanvasInner({
         onConnect={onConnect}
         onNodeClick={(_, node) => setSelected(node.id)}
         onPaneClick={() => setSelected(null)}
-        onNodeDragStop={(_, node) => onEditorStateChange({
+        onNodeDragStop={(_, node) => onEditorStateChange(normalizeEditorState({
           ...editorState,
           positions: { ...editorState.positions, [node.id]: node.position },
-        })}
+        }))}
         onNodesDelete={(removed) => removeMany(removed.map((node) => node.id))}
         onEdgesDelete={(removed) => {
           const next = removed.reduce(
@@ -220,7 +235,7 @@ function StrategyCanvasInner({
           );
           onSpecChange(next);
         }}
-        onMoveEnd={(_, viewport: Viewport) => onEditorStateChange({ ...editorState, viewport })}
+        onMoveEnd={(_, viewport: Viewport) => onEditorStateChange(normalizeEditorState({ ...editorState, viewport }))}
       >
         <Background />
         <MiniMap pannable zoomable />
@@ -231,9 +246,15 @@ function StrategyCanvasInner({
       nodeKey={selected}
       node={selectedNode}
       spec={spec}
+      editorState={editorState}
       models={models}
+      tools={tools}
+      agentConfigurations={agentConfigurations}
+      agentConfigurationsLoading={agentConfigurationsLoading}
+      agentConfigurationsError={agentConfigurationsError}
       readonly={selectedNode ? !isSupportedNode(selectedNode) : false}
       onSpecChange={onSpecChange}
+      onEditorStateChange={onEditorStateChange}
       onDelete={remove}
       onError={onError}
     />
@@ -257,13 +278,34 @@ function StrategyFlowNode({ data, selected }: NodeProps<CanvasNode>) {
   </div>;
 }
 
-function PropertyPanel({ nodeKey, node, spec, models, readonly, onSpecChange, onDelete, onError }: {
+function PropertyPanel({
+  nodeKey,
+  node,
+  spec,
+  editorState,
+  models,
+  tools,
+  agentConfigurations,
+  agentConfigurationsLoading,
+  agentConfigurationsError,
+  readonly,
+  onSpecChange,
+  onEditorStateChange,
+  onDelete,
+  onError,
+}: {
   nodeKey: string | null;
   node?: StrategyNode;
   spec: SwarmSpecDocument;
+  editorState: EditorState;
   models: string[];
+  tools: string[];
+  agentConfigurations: SavedConfiguration[];
+  agentConfigurationsLoading: boolean;
+  agentConfigurationsError?: string;
   readonly: boolean;
   onSpecChange: (spec: SwarmSpecDocument) => void;
+  onEditorStateChange: (state: EditorState) => void;
   onDelete: (nodeKey: string) => void;
   onError: (message: string) => void;
 }) {
@@ -274,24 +316,174 @@ function PropertyPanel({ nodeKey, node, spec, models, readonly, onSpecChange, on
   </aside>;
   const setNode = (patch: Record<string, unknown>) => onSpecChange(updateNode(spec, nodeKey, patch));
   const fieldClass = "mt-1 h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm dark:border-gray-700";
+  const readonlyFieldClass = `${fieldClass} bg-gray-50 text-gray-600 dark:bg-gray-900 dark:text-gray-300`;
   const agentKey = node.type === "agent" && typeof node["agent"] === "string" ? node["agent"] : "";
   const agent = agentKey ? spec.spec.agents?.[agentKey] : undefined;
   const currentModel = stringValue(agent?.["model"]);
+  const currentTool = stringValue(node["tool"]);
+  const binding = editorState.agentBindings?.[nodeKey];
+  const bound = Boolean(binding);
   return <aside className="min-w-0 space-y-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800" aria-label="节点属性">
     <div className="flex items-center justify-between gap-2"><div><p className="font-semibold">{nodeKey}</p><p className="text-xs capitalize text-gray-500">{nodeTypeLabel(node.type)}</p></div><Button size="sm" variant="ghost" aria-label="删除节点" onClick={() => onDelete(nodeKey)}><Trash2 /></Button></div>
     <Button className="w-full" size="sm" variant={spec.spec.graph.entrypoint === nodeKey ? "primary" : "outline"} onClick={() => onSpecChange(setEntrypoint(spec, nodeKey))}><Play />{spec.spec.graph.entrypoint === nodeKey ? "当前入口" : "设为入口"}</Button>
     {node.type === "agent" ? <>
-      <Field label="智能体声明"><select className={fieldClass} value={agentKey} onChange={(event) => setNode({ agent: event.target.value })}>{Object.keys(spec.spec.agents ?? {}).map((key) => <option key={key}>{key}</option>)}</select></Field>
-      <Field label="角色"><input className={fieldClass} value={stringValue(agent?.["role"])} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, { role: event.target.value }))} /></Field>
-      <Field label="指令"><textarea className="mt-1 min-h-28 w-full rounded-lg border border-gray-300 bg-transparent p-3 text-sm dark:border-gray-700" value={stringValue(agent?.["instructions"])} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, { instructions: event.target.value }))} /></Field>
-      <Field label="模型"><select aria-label="模型" className={fieldClass} value={currentModel} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, event.target.value ? { model: event.target.value } : { model: undefined }))}><option value="">使用策略默认模型</option>{models.map((ref) => <option key={ref} value={ref}>{ref}</option>)}{currentModel && !models.includes(currentModel) ? <option value={currentModel}>{currentModel}</option> : null}</select></Field>
+      <AgentBindingControls
+        nodeKey={nodeKey}
+        binding={binding}
+        agentConfigurations={agentConfigurations}
+        loading={agentConfigurationsLoading}
+        error={agentConfigurationsError}
+        fieldClass={fieldClass}
+        onBind={(saved) => {
+          try {
+            const result = bindProjectAgentToNode(spec, editorState, nodeKey, saved);
+            onSpecChange(result.spec);
+            onEditorStateChange(result.editorState);
+          } catch (error) {
+            onError(error instanceof Error ? error.message : "绑定智能体配置失败。");
+          }
+        }}
+        onUnbind={() => onEditorStateChange(unbindAgentFromNode(editorState, nodeKey))}
+        onError={onError}
+      />
+      <AgentDeclarationField
+        agentKey={agentKey}
+        readonly={bound}
+        fieldClass={bound ? readonlyFieldClass : fieldClass}
+        onCommit={(nextKey) => {
+          try {
+            onSpecChange(assignAgentDeclaration(spec, nodeKey, nextKey));
+            if (binding) onEditorStateChange(unbindAgentFromNode(editorState, nodeKey));
+            return true;
+          } catch (error) {
+            onError(error instanceof Error ? error.message : "设置智能体声明失败。");
+            return false;
+          }
+        }}
+      />
+      <Field label="角色"><input className={bound ? readonlyFieldClass : fieldClass} value={stringValue(agent?.["role"])} readOnly={bound} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, { role: event.target.value }))} /></Field>
+      <Field label="指令"><textarea className={`mt-1 min-h-28 w-full rounded-lg border border-gray-300 p-3 text-sm dark:border-gray-700 ${bound ? "bg-gray-50 text-gray-600 dark:bg-gray-900 dark:text-gray-300" : "bg-transparent"}`} value={stringValue(agent?.["instructions"])} readOnly={bound} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, { instructions: event.target.value }))} /></Field>
+      <Field label="模型"><select aria-label="模型" className={bound ? readonlyFieldClass : fieldClass} value={currentModel} disabled={bound} onChange={(event) => onSpecChange(updateAgentDeclaration(spec, agentKey, event.target.value ? { model: event.target.value } : { model: undefined }))}><option value="">使用策略默认模型</option>{models.map((ref) => <option key={ref} value={ref}>{capabilityRefDisplayName(ref)}</option>)}{currentModel && !models.includes(currentModel) ? <option value={currentModel}>{capabilityRefDisplayName(currentModel)}</option> : null}</select></Field>
     </> : null}
-    {node.type === "tool" ? <><Field label="工具 Ref"><input className={fieldClass} value={stringValue(node["tool"])} onChange={(event) => setNode({ tool: event.target.value })} /></Field><JsonField label="工具输入" value={recordValue(node["input"])} onCommit={(value) => setNode({ input: value })} onError={onError} /></> : null}
+    {node.type === "tool" ? <><Field label="工具 Ref"><select aria-label="工具 Ref" className={fieldClass} value={currentTool} onChange={(event) => setNode({ tool: event.target.value })}>{tools.map((ref) => <option key={ref} value={ref}>{capabilityRefDisplayName(ref)}</option>)}{currentTool && !tools.includes(currentTool) ? <option value={currentTool}>{capabilityRefDisplayName(currentTool)}</option> : null}</select></Field><JsonField label="工具输入" value={recordValue(node["input"])} onCommit={(value) => setNode({ input: value })} onError={onError} /></> : null}
     {node.type === "join" ? <><Field label="汇合策略"><select className={fieldClass} value={stringValue(node["strategy"])} onChange={(event) => setNode({ strategy: event.target.value, quorum: event.target.value === "quorum" ? 1 : undefined })}>{["all", "any", "quorum", "first_success"].map((value) => <option key={value} value={value}>{joinStrategyLabel(value)}</option>)}</select></Field>{node["strategy"] === "quorum" ? <Field label="法定数量"><input type="number" min={1} className={fieldClass} value={numberValue(node["quorum"], 1)} onChange={(event) => setNode({ quorum: Number(event.target.value) })} /></Field> : null}</> : null}
     {node.type === "reducer" ? <Field label="归并方式"><select className={fieldClass} value={stringValue(node["reducer"])} onChange={(event) => setNode({ reducer: event.target.value })}>{["merge_object", "concat", "first_success", "vote"].map((value) => <option key={value} value={value}>{reducerLabel(value)}</option>)}</select></Field> : null}
     {node.type === "approval" || node.type === "input" ? <><Field label="提示语"><textarea className="mt-1 min-h-24 w-full rounded-lg border border-gray-300 bg-transparent p-3 text-sm dark:border-gray-700" value={stringValue(node["prompt"])} onChange={(event) => setNode({ prompt: event.target.value })} /></Field><JsonField label="输入结构" value={recordValue(node["inputSchema"])} onCommit={(value) => setNode({ inputSchema: value })} onError={onError} /></> : null}
     {node.type === "parallel" ? <p className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500 dark:bg-gray-800">分支由出向连接维护：{stringArray(node.branches).join(", ") || "无"}</p> : null}
   </aside>;
+}
+
+function AgentBindingControls({
+  nodeKey,
+  binding,
+  agentConfigurations,
+  loading,
+  error,
+  fieldClass,
+  onBind,
+  onUnbind,
+  onError,
+}: {
+  nodeKey: string;
+  binding?: AgentBindingState;
+  agentConfigurations: SavedConfiguration[];
+  loading: boolean;
+  error?: string;
+  fieldClass: string;
+  onBind: (saved: SavedConfiguration) => void;
+  onUnbind: () => void;
+  onError: (message: string) => void;
+}) {
+  const bindable = agentConfigurations.filter(isBindableAgentConfiguration);
+  const selectedId = binding?.configurationId ?? "";
+  const current = agentConfigurations.find((item) => item.configurationId === selectedId);
+  const sourceMissing = Boolean(binding && !loading && !error && !current);
+  const hasUpdate = Boolean(binding && current && current.revision > binding.revision);
+
+  const choose = (configurationId: string) => {
+    if (!configurationId) return;
+    const saved = agentConfigurations.find((item) => item.configurationId === configurationId);
+    if (!saved) return;
+    if (!isBindableAgentConfiguration(saved)) {
+      onError("配置格式无效：缺少有效入口智能体声明。");
+      return;
+    }
+    const replacing = Boolean(binding) || configurationId !== selectedId;
+    if (replacing && !window.confirm("将用所选智能体配置替换当前节点声明；其他节点不受影响。")) {
+      return;
+    }
+    onBind(saved);
+  };
+
+  return <section className="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+    <div className="flex items-center justify-between gap-2">
+      <p className="text-xs font-medium text-gray-600 dark:text-gray-300">绑定已配置智能体</p>
+      {binding ? <Button type="button" size="sm" variant="ghost" onClick={onUnbind}>转为自定义</Button> : null}
+    </div>
+    {error ? <p role="alert" className="text-xs text-error-600">无法加载已配置智能体，可重试</p> : null}
+    <select
+      aria-label="绑定已配置智能体"
+      className={fieldClass}
+      value={selectedId}
+      disabled={Boolean(error) || loading || !bindable.length}
+      onChange={(event) => choose(event.target.value)}
+    >
+      <option value="">{loading ? "正在加载…" : bindable.length ? "选择项目智能体配置" : "暂无可用智能体配置"}</option>
+      {bindable.map((item) => <option key={item.configurationId} value={item.configurationId}>{item.name} · r{item.revision}</option>)}
+      {binding && !bindable.some((item) => item.configurationId === binding.configurationId) ? (
+        <option value={binding.configurationId}>{binding.name} · r{binding.revision}</option>
+      ) : null}
+    </select>
+    {binding ? <p className="text-xs text-gray-500">已绑定 {binding.name} · r{binding.revision}</p> : null}
+    {hasUpdate && current ? <div className="flex flex-wrap items-center gap-2">
+      <p role="status" className="text-xs text-warning-700 dark:text-warning-300">已有新版本 r{current.revision}，可重新绑定</p>
+      <Button type="button" size="sm" variant="outline" onClick={() => {
+        if (!window.confirm("将用所选智能体配置替换当前节点声明；其他节点不受影响。")) return;
+        onBind(current);
+      }}>重新绑定</Button>
+    </div> : null}
+    {sourceMissing ? <p role="status" className="text-xs text-warning-700 dark:text-warning-300">源配置已删除，当前节点仍可运行</p> : null}
+    <p className="sr-only">{nodeKey}</p>
+  </section>;
+}
+
+function AgentDeclarationField({
+  agentKey,
+  readonly,
+  fieldClass,
+  onCommit,
+}: {
+  agentKey: string;
+  readonly: boolean;
+  fieldClass: string;
+  onCommit: (nextKey: string) => boolean;
+}) {
+  const [draft, setDraft] = React.useState(agentKey);
+  React.useEffect(() => setDraft(agentKey), [agentKey]);
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === agentKey) {
+      setDraft(agentKey);
+      return;
+    }
+    if (!onCommit(trimmed)) setDraft(agentKey);
+  };
+  return <Field label="智能体声明"><input
+    aria-label="智能体声明"
+    className={fieldClass}
+    value={draft}
+    readOnly={readonly}
+    placeholder="例如 planner"
+    spellCheck={false}
+    onChange={(event) => setDraft(event.target.value)}
+    onBlur={commit}
+    onKeyDown={(event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        (event.target as HTMLInputElement).blur();
+      }
+    }}
+  /></Field>;
 }
 
 function JsonField({ label, value, onCommit, onError }: { label: string; value: Record<string, unknown>; onCommit: (value: Record<string, unknown>) => void; onError: (message: string) => void }) {

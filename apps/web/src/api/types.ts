@@ -12,9 +12,16 @@ export interface TaskSnapshot {
 
 export interface Diagnostic { severity: "error" | "warning"; code: string; path: string; message: string; }
 export interface CompileResponse { valid: boolean; plan: Record<string, unknown> | null; diagnostics: Diagnostic[]; }
+export interface AgentBindingState {
+  configurationId: string;
+  revision: number;
+  name: string;
+  sourceRef: string;
+}
 export interface EditorState {
   positions: Record<string, { x: number; y: number }>;
   viewport: { x: number; y: number; zoom: number };
+  agentBindings?: Record<string, AgentBindingState>;
 }
 export interface AgentCapability {
   id: string;
@@ -473,6 +480,26 @@ export interface ReportSnapshot {
 }
 export interface ReportListResponse { items: ReportSnapshot[]; }
 
+/** Immutable document version frozen for a specific assessment run. */
+export interface AssessmentDocumentUsageSnapshot {
+  documentSnapshotId: string;
+  documentId: string;
+  documentVersionId: string;
+  blobId: string;
+  businessWorkKey: string;
+  documentName?: string | null;
+  documentCategory?: string | null;
+  version: number;
+  sha256: string;
+  sizeBytes: number;
+  mediaType: string;
+  evidence?: unknown[];
+  createdAt: string;
+}
+export interface AssessmentDocumentUsageListResponse {
+  items: AssessmentDocumentUsageSnapshot[];
+}
+
 export type BusinessWorkStatus = "planned" | "not_configured" | "incomplete" | "runnable" | "unavailable";
 
 export interface BusinessWorkBlocker {
@@ -516,7 +543,13 @@ export interface BusinessWorkSnapshot {
     processingProfile?: string | null;
     extractionSchema?: string | null;
   }>;
-  decisionSlots: Array<{ slot: string; required: boolean }>;
+  decisionSlots: Array<{
+    slot: string;
+    required: boolean;
+    inputSchema?: string;
+    outputSchema?: string;
+    allowedTypes?: Array<"CHECKLIST" | "DECISION_TABLE" | "EXPRESSION" | "THRESHOLD">;
+  }>;
   functions: BusinessWorkFunctionSnapshot[];
   configuration: Record<string, unknown>;
   workItemType: string | null;

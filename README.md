@@ -142,6 +142,11 @@ uv run swarmcore-worker-webhook
 uv run swarmcore-sandbox-manager
 ```
 
+多副本部署时可通过 `SWARMCORE_WORKER_MAX_CONCURRENT_*` 和
+`SWARMCORE_NATS_STREAM_REPLICAS` 设置每副本容量与 JetStream 副本数。生产 Control
+Worker 必须配置 `SWARMCORE_ARTIFACT_STORE=s3` 及
+`SWARMCORE_ARTIFACT_S3_BUCKET`；本地 Artifact Root 不支持跨 Pod 共享。
+
 最后启动 Web 控制台：
 
 ```powershell

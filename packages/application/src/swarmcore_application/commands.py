@@ -102,7 +102,7 @@ class RunCommandService:
                 Run.id == run_id,
                 Run.tenant_id == tenant_id,
                 Run.project_id == project_id,
-            )
+            ).with_for_update()
         )
         if run is None:
             raise LookupError("run not found")

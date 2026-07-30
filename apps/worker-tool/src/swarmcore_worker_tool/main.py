@@ -72,6 +72,8 @@ class Settings(BaseSettings):
         ]
     )
     supplier_risk_timeout_seconds: int = 30
+    worker_max_concurrent_activities: int = Field(default=32, ge=1)
+    worker_max_activity_polls: int = Field(default=5, ge=1)
 
     def filesystem_config(self) -> FilesystemToolConfig:
         return FilesystemToolConfig(
@@ -164,6 +166,8 @@ async def serve() -> None:
         temporal,
         task_queue=settings.tool_task_queue,
         activities=[activities.execute_tool, activities.compensate_tool],
+        max_concurrent_activities=settings.worker_max_concurrent_activities,
+        max_concurrent_activity_task_polls=settings.worker_max_activity_polls,
     )
     try:
         await worker.run()

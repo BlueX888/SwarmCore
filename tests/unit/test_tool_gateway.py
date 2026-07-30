@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -97,6 +98,47 @@ async def test_effect_id_cannot_be_reused_with_different_input() -> None:
         await gateway.invoke(
             ToolInvocation(token=capability, effectId="effect-1", input={"query": "two"})
         )
+
+
+@pytest.mark.asyncio
+async def test_stale_effect_owner_cannot_complete_after_lease_takeover() -> None:
+    class ShortLeaseJournal(InMemoryEffectJournal):
+        _lease_seconds = 0.001
+
+    journal = ShortLeaseJournal()
+    scope = {
+        "tenant_id": "tenant",
+        "project_id": "project",
+        "run_id": "run",
+        "node_key": "node",
+        "tool_ref": "tool://search@1",
+        "effect_id": "effect",
+        "request_hash": "hash",
+    }
+    first = await journal.reserve(**scope)
+    await asyncio.sleep(0.01)
+    second = await journal.reserve(**scope)
+
+    assert first.lease_generation == 1
+    assert second.lease_generation == 2
+    assert not await journal.complete(
+        tenant_id="tenant",
+        project_id="project",
+        tool_ref="tool://search@1",
+        effect_id="effect",
+        lease_owner=str(first.lease_owner),
+        lease_generation=1,
+        output={"owner": "stale"},
+    )
+    assert await journal.complete(
+        tenant_id="tenant",
+        project_id="project",
+        tool_ref="tool://search@1",
+        effect_id="effect",
+        lease_owner=str(second.lease_owner),
+        lease_generation=2,
+        output={"owner": "current"},
+    )
 
 
 @pytest.mark.asyncio

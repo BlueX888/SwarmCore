@@ -19,7 +19,14 @@ from swarmcore_governance import (
     validate_webhook_target,
 )
 from swarmcore_observability import SwarmMetrics, get_tracer
-from swarmcore_persistence import AuditRepository, tenant_transaction
+from swarmcore_persistence import (
+    AuditRepository,
+    OutboxClaim,
+    OutboxLeaseKeeper,
+    claim_outbox,
+    owns_outbox_claim,
+    tenant_transaction,
+)
 from swarmcore_persistence.models import OutboxEvent, WebhookDelivery, WebhookEndpoint
 from swarmcore_persistence.repositories import pending_outbox_query
 
@@ -46,13 +53,16 @@ class WebhookWorker:
 
     async def run_once(self) -> int:
         claimed = await self._claim()
-        for outbox_id in claimed:
-            await self._process(outbox_id)
+        for claim in claimed:
+            async with OutboxLeaseKeeper(
+                self._sessions, claim, worker_id=self._worker_id
+            ):
+                await self._process(claim)
         return len(claimed)
 
-    async def _claim(self) -> list[UUID]:
+    async def _claim(self) -> list[OutboxClaim]:
         now = datetime.now(UTC)
-        claimed: list[UUID] = []
+        claimed: list[OutboxClaim] = []
         async with self._sessions() as session, session.begin():
             rows = list(
                 await session.scalars(
@@ -60,16 +70,15 @@ class WebhookWorker:
                 )
             )
             for row in rows:
-                row.status = "DELIVERING"
-                row.locked_by = self._worker_id
-                row.locked_until = now + timedelta(seconds=30)
-                claimed.append(row.id)
+                claimed.append(claim_outbox(row, worker_id=self._worker_id, now=now))
         return claimed
 
-    async def _process(self, outbox_id: UUID) -> None:
+    async def _process(self, claim: OutboxClaim) -> None:
         async with self._sessions() as session:
-            outbox = await session.get(OutboxEvent, outbox_id)
-            if outbox is None or outbox.status != "DELIVERING":
+            outbox = await session.get(OutboxEvent, claim.id)
+            if outbox is None or not owns_outbox_claim(
+                outbox, claim, worker_id=self._worker_id
+            ):
                 return
             tenant_id = outbox.tenant_id
             project_id = UUID(str(outbox.payload["projectId"]))
@@ -100,13 +109,15 @@ class WebhookWorker:
         except Exception as exc:
             if self._metrics is not None:
                 self._metrics.webhook_deliveries.add(1, {"status": "failed"})
-            await self._retry(outbox_id, tenant_id, project_id, delivery_id, exc)
+            await self._retry(claim, tenant_id, project_id, delivery_id, exc)
         else:
             if self._metrics is not None:
                 self._metrics.webhook_deliveries.add(1, {"status": "succeeded"})
             async with self._sessions() as session, session.begin():
-                outbox = await session.get(OutboxEvent, outbox_id, with_for_update=True)
-                if outbox is not None:
+                outbox = await session.get(OutboxEvent, claim.id, with_for_update=True)
+                if outbox is not None and owns_outbox_claim(
+                    outbox, claim, worker_id=self._worker_id
+                ):
                     outbox.status = "DELIVERED"
                     outbox.delivered_at = datetime.now(UTC)
                     outbox.locked_by = None
@@ -189,7 +200,7 @@ class WebhookWorker:
 
     async def _retry(
         self,
-        outbox_id: UUID,
+        claim: OutboxClaim,
         tenant_id: UUID,
         project_id: UUID,
         delivery_id: UUID,
@@ -199,6 +210,11 @@ class WebhookWorker:
         async with tenant_transaction(
             self._sessions, tenant_id=tenant_id, project_id=project_id
         ) as session:
+            outbox = await session.get(OutboxEvent, claim.id, with_for_update=True)
+            if outbox is None or not owns_outbox_claim(
+                outbox, claim, worker_id=self._worker_id
+            ):
+                return
             delivery = await session.get(WebhookDelivery, delivery_id, with_for_update=True)
             if delivery is not None:
                 delivery.attempts += 1
@@ -213,17 +229,14 @@ class WebhookWorker:
                     if endpoint.failure_count >= 10:
                         endpoint.status = "DISABLED"
                         delivery.status = "DEAD"
-        async with self._sessions() as session, session.begin():
-            outbox = await session.get(OutboxEvent, outbox_id, with_for_update=True)
-            if outbox is not None:
-                outbox.attempts = attempts
-                outbox.last_error = f"{type(exc).__name__}: {exc}"[:4000]
-                outbox.status = "PENDING" if attempts < 10 else "DEAD"
-                outbox.available_at = datetime.now(UTC) + timedelta(
-                    seconds=min(3600, 2 ** min(attempts, 11))
-                )
-                outbox.locked_by = None
-                outbox.locked_until = None
+            outbox.attempts = attempts
+            outbox.last_error = f"{type(exc).__name__}: {exc}"[:4000]
+            outbox.status = "PENDING" if attempts < 10 else "DEAD"
+            outbox.available_at = datetime.now(UTC) + timedelta(
+                seconds=min(3600, 2 ** min(attempts, 11))
+            )
+            outbox.locked_by = None
+            outbox.locked_until = None
 
 
 def _redact(value: Any, fields: set[str]) -> Any:

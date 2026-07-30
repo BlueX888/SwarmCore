@@ -15,7 +15,12 @@ from swarmcore_application import (
     ToolRuntimeStatus,
 )
 from swarmcore_compiler import Compiler
-from swarmcore_registry import builtin_registry
+from swarmcore_registry import (
+    AgentRegistration,
+    ModelRegistration,
+    RegistrySnapshot,
+    builtin_registry,
+)
 from swarmcore_spec import SwarmStrategy
 
 
@@ -90,6 +95,18 @@ class ProjectAgents:
         return self.row
 
 
+class ProjectConfigurations:
+    def __init__(self, model_rows: list[SimpleNamespace]) -> None:
+        self.model_rows = model_rows
+
+    async def list(
+        self, session: object, **arguments: Any
+    ) -> tuple[list[SimpleNamespace], int]:
+        del session
+        rows = self.model_rows if arguments["kind"].value == "model" else []
+        return rows, len(rows)
+
+
 @pytest.mark.asyncio
 async def test_capability_center_projects_all_registry_resources() -> None:
     center = _center(ReadyRuntime())
@@ -98,6 +115,68 @@ async def test_capability_center_projects_all_registry_resources() -> None:
     )
     assert {item.kind.value for item in items} == {"agent", "model", "tool"}
     assert center.registry_snapshot_id == builtin_registry().snapshot_id
+
+
+@pytest.mark.asyncio
+async def test_verified_project_provider_recovers_hidden_builtin_model_and_agent() -> None:
+    class UnroutedModelRuntime(ReadyRuntime):
+        async def inspect_model(self, **_: object) -> ModelRuntimeStatus:
+            return ModelRuntimeStatus(False, False, False)
+
+    registry = RegistrySnapshot.create(
+        agents=(
+            AgentRegistration(
+                ref="agent://calibration/test@1",
+                version="1",
+                role="calibration-test",
+                description="测试项目模型覆盖。",
+                instructions="Use the configured model.",
+                model="model://calibration-primary@1",
+            ),
+        ),
+        models=(
+            ModelRegistration(
+                ref="model://calibration-primary@1",
+                version="1",
+                runtime="openai-compatible",
+                providerModel="provider/default",
+                description="测试项目模型覆盖。",
+                environments=("development",),
+            ),
+        ),
+    )
+    runtime = UnroutedModelRuntime()
+    model_row = SimpleNamespace(
+        name="__runtime_provider__:model://calibration-primary",
+        source_ref="model://calibration-primary",
+        revision=1,
+        configuration={
+            "providerUrl": "https://provider.example/v1",
+            "modelName": "configured-model",
+            "secretRef": "secret://project/model",
+            "connectionVerifiedAt": "2026-07-30T00:00:00Z",
+        },
+    )
+    center = CapabilityCenterService(
+        registry,
+        CapabilityReadinessService(tools=runtime, models=runtime, agents=runtime),
+        configurations=cast(
+            ProjectConfigurationService,
+            ProjectConfigurations([model_row]),
+        ),
+    )
+
+    items = await center.list(
+        tenant_id=uuid4(),
+        project_id=uuid4(),
+        environment="development",
+        session=cast(Any, object()),
+    )
+
+    model = next(item for item in items if item.ref == "model://calibration-primary@1")
+    agent = next(item for item in items if item.ref == "agent://calibration/test@1")
+    assert model.readiness.status.value == "READY"
+    assert agent.readiness.status.value == "READY"
 
 
 @pytest.mark.parametrize(

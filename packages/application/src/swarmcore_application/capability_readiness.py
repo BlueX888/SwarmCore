@@ -117,6 +117,7 @@ class CapabilityReadinessService:
         project_id: UUID,
         environment: str,
         registry: RegistrySnapshot,
+        include_unrouted_models: bool = False,
     ) -> tuple[CapabilitySummary, ...]:
         clean_environment = environment.strip()
         if not clean_environment:
@@ -125,7 +126,16 @@ class CapabilityReadinessService:
         now = self._clock()
         cached = self._cache.get(key)
         if cached is not None and cached[0] > now:
-            return cached[1]
+            return (
+                cached[1]
+                if include_unrouted_models
+                else tuple(
+                    item
+                    for item in cached[1]
+                    if item.kind is not CapabilityKind.MODEL
+                    or not self._is_unrouted_model(item)
+                )
+            )
 
         tools = {
             item.ref: await self._tool_summary(tenant_id, project_id, clean_environment, item)
@@ -150,17 +160,17 @@ class CapabilityReadinessService:
                 )
             )
         agents = tuple(agent_items)
-        # Registry may declare many built-in models; only expose models that have a
-        # configured provider route in this deployment. Keep unrouted summaries in
-        # `models` so agents can still report DEPENDENCY_NOT_READY.
-        visible_models = tuple(
-            summary
-            for summary in models.values()
-            if not self._is_unrouted_model(summary)
-        )
-        result = (*agents, *visible_models, *tools.values())
+        # Keep the complete projection cached so project-scoped provider
+        # configurations can override an otherwise unrouted built-in model.
+        result = (*agents, *models.values(), *tools.values())
         self._cache[key] = (self._clock() + self._ttl_seconds, result)
-        return result
+        if include_unrouted_models:
+            return result
+        return tuple(
+            item
+            for item in result
+            if item.kind is not CapabilityKind.MODEL or not self._is_unrouted_model(item)
+        )
 
     async def project_agent(
         self,

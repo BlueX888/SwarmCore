@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from uuid import UUID
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from swarmcore_observability import configure_json_logging, configure_telemetry
 from swarmcore_persistence import Database, ProjectionReconciler
 from swarmcore_persistence.models import Run
@@ -26,13 +27,20 @@ async def reconcile_once(database: Database, *, batch_size: int) -> int:
     reconciler = ProjectionReconciler()
     async with database.sessions() as session, session.begin():
         run_ids = list(
-            await session.scalars(
-                select(Run.id).order_by(Run.projection_updated_at.asc().nullsfirst()).limit(batch_size)
-            )
+            await session.scalars(reconcile_candidates_query(batch_size))
         )
         for run_id in run_ids:
             await reconciler.reconcile_run(session, run_id)
     return len(run_ids)
+
+
+def reconcile_candidates_query(batch_size: int) -> Select[tuple[UUID]]:
+    return (
+        select(Run.id)
+        .order_by(Run.reconciled_at.asc().nullsfirst(), Run.id)
+        .limit(batch_size)
+        .with_for_update(skip_locked=True)
+    )
 
 
 async def serve() -> None:

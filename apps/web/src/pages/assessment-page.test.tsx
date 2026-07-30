@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/api/client";
 import type { AssessmentDetailSnapshot } from "@/api/types";
-import { AssessmentPage } from "./assessment-page";
+import { AssessmentPage, toDocumentUsageSnapshotItems } from "./assessment-page";
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
@@ -75,7 +75,20 @@ describe("assessment page", () => {
       items: [{ reportId: "report-1", evaluationId: "assessment-1", format: "PDF", templateVersion: "1", resultSchemaVersion: "1", content: null, contentHash: "c".repeat(64), createdAt: "2026-07-22T01:00:00Z" }],
     });
     vi.mocked(api.listAssessmentDocumentSnapshots).mockResolvedValue({
-      items: [{ documentUsageSnapshotId: "snap-1", businessWorkKey: "report-generation", sha256: "d".repeat(64) }],
+      items: [{
+        documentSnapshotId: "snap-1",
+        documentId: "doc-1",
+        documentVersionId: "ver-1",
+        blobId: "blob-1",
+        businessWorkKey: "report-generation",
+        documentName: "履约报告附件.pdf",
+        documentCategory: "REPORT",
+        version: 2,
+        sha256: "d".repeat(64),
+        sizeBytes: 1024,
+        mediaType: "application/pdf",
+        createdAt: "2026-07-22T00:30:00Z",
+      }],
     });
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -87,8 +100,134 @@ describe("assessment page", () => {
     expect(screen.getByText("需关注项")).toBeVisible();
     expect(screen.getByText("PDF")).toBeVisible();
     expect(screen.getByRole("button", { name: "下载 PDF" })).toBeDisabled();
-    expect(screen.getByText("report-generation")).toBeVisible();
+    expect(screen.getByText("履约报告附件.pdf")).toBeVisible();
+    expect(screen.queryByText("report-generation")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "查看技术运行详情" })).toHaveAttribute("href", "/runs/run-1");
+  });
+
+  it("renders document structuring packages as a business result", async () => {
+    vi.mocked(api.getAssessment).mockResolvedValue(detail({
+      scenarioType: "document-structuring-case",
+      result: {
+        schemaVersion: "schema://document-structuring/package@1",
+        status: "READY",
+        summary: "已提取合同结构，模板字段保持为空。",
+        reviewRequired: false,
+        documents: [{
+          documentVersionId: "version-1",
+          filename: "contract.odt",
+          sections: [{ title: "Part A" }],
+          chunks: [{ text: "Order Form" }],
+          tables: [],
+          fields: [],
+          classification: { businessType: "CONTRACT", frameworkReference: "RM1043.6" },
+        }],
+        artifacts: [{ artifactId: "artifact-1", filename: "structured-document.json" }],
+        humanReview: { decision: "CONFIRM", reason: "已核对原文。", correctionCount: 0 },
+      },
+    }));
+
+    renderPage();
+    expect(await screen.findByRole("heading", { name: "文档结构化结论" })).toBeVisible();
+    expect(screen.getByText("已提取合同结构，模板字段保持为空。")).toBeVisible();
+    expect(screen.getByText("structured-document.json")).toBeVisible();
+    expect(Array.from(document.querySelectorAll("pre")).map((item) => item.textContent).join("\n"))
+      .not.toContain("schema://document-structuring/package@1");
+  });
+
+  it("renders distinct document snapshot titles instead of repeating businessWorkKey", async () => {
+    vi.mocked(api.listAssessmentDocumentSnapshots).mockResolvedValue({
+      items: [
+        {
+          documentSnapshotId: "snap-a",
+          documentId: "doc-a",
+          documentVersionId: "ver-a",
+          blobId: "blob-a",
+          businessWorkKey: "procurement-supplier-risk",
+          documentName: "招标文件.pdf",
+          documentCategory: "PROCUREMENT",
+          version: 1,
+          sha256: "a".repeat(64),
+          sizeBytes: 100,
+          mediaType: "application/pdf",
+          createdAt: "2026-07-22T00:10:00Z",
+        },
+        {
+          documentSnapshotId: "snap-b",
+          documentId: "doc-b",
+          documentVersionId: "ver-b",
+          blobId: "blob-b",
+          businessWorkKey: "procurement-supplier-risk",
+          documentName: "中标通知书.pdf",
+          documentCategory: "PROCUREMENT",
+          version: 3,
+          sha256: "b".repeat(64),
+          sizeBytes: 200,
+          mediaType: "application/pdf",
+          createdAt: "2026-07-22T00:20:00Z",
+        },
+        {
+          documentSnapshotId: "snap-c",
+          documentId: "doc-c",
+          documentVersionId: "ver-c",
+          blobId: "blob-c",
+          businessWorkKey: "procurement-supplier-risk",
+          documentName: null,
+          documentCategory: "SUPPLIER",
+          version: 1,
+          sha256: "c".repeat(64),
+          sizeBytes: 300,
+          mediaType: "application/pdf",
+          createdAt: "2026-07-22T00:30:00Z",
+        },
+      ],
+    });
+    renderPage();
+    expect(await screen.findByText("招标文件.pdf")).toBeVisible();
+    expect(screen.getByText("中标通知书.pdf")).toBeVisible();
+    expect(screen.getByText("资料 cccccccc")).toBeVisible();
+    expect(screen.queryAllByText("procurement-supplier-risk")).toHaveLength(0);
+    expect(screen.getByText(/v3/)).toBeVisible();
+  });
+
+  it("maps snapshot list items with document name, version and hash", () => {
+    const items = toDocumentUsageSnapshotItems([
+      {
+        documentSnapshotId: "snap-1",
+        documentId: "doc-1",
+        documentVersionId: "ver-1",
+        blobId: "blob-1",
+        businessWorkKey: "procurement-supplier-risk",
+        documentName: "合同正文.pdf",
+        documentCategory: "CONTRACT",
+        version: 4,
+        sha256: "abcdef12" + "0".repeat(56),
+        sizeBytes: 10,
+        mediaType: "application/pdf",
+        createdAt: "2026-07-22T01:00:00Z",
+      },
+      {
+        documentSnapshotId: "snap-2",
+        documentId: "doc-2",
+        documentVersionId: "ver-2",
+        blobId: "blob-2",
+        businessWorkKey: "procurement-supplier-risk",
+        documentName: "  ",
+        documentCategory: null,
+        version: 1,
+        sha256: "fedcba98" + "1".repeat(56),
+        sizeBytes: 10,
+        mediaType: "text/plain",
+        createdAt: "2026-07-22T02:00:00Z",
+      },
+    ]);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.title).toBe("合同正文.pdf");
+    expect(items[0]?.meta).toContain("合同文件");
+    expect(items[0]?.meta).toContain("v4");
+    expect(items[0]?.meta).toContain("sha abcdef12");
+    expect(items[1]?.title).toBe("资料 fedcba98");
+    expect(items.every((item) => item.title !== "procurement-supplier-risk")).toBe(true);
   });
 
   it("shows progress while assessment is still running", async () => {

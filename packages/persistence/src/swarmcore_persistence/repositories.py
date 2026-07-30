@@ -34,6 +34,11 @@ class RunCommandRepository:
         payload: dict[str, Any],
         actor: str = "system",
     ) -> RunCommand:
+        run = await session.scalar(
+            select(Run).where(Run.id == run_id, Run.tenant_id == tenant_id).with_for_update()
+        )
+        if run is None:
+            raise LookupError("run not found")
         existing = await session.scalar(
             select(RunCommand).where(
                 RunCommand.run_id == run_id,
@@ -47,11 +52,6 @@ class RunCommandRepository:
                 raise IdempotencyConflictError("request_id was reused with a different command")
             return existing
 
-        run = await session.scalar(
-            select(Run).where(Run.id == run_id, Run.tenant_id == tenant_id).with_for_update()
-        )
-        if run is None:
-            raise LookupError("run not found")
         last_seq = await session.scalar(
             select(func.max(RunCommand.command_seq)).where(RunCommand.run_id == run_id)
         )
@@ -252,6 +252,7 @@ def pending_temporal_outbox_query(*, limit: int) -> Select[tuple[OutboxEvent]]:
     """Claim ordered Run commands and standalone document-processing requests."""
     current = aliased(RunCommand)
     earlier = aliased(RunCommand)
+    earlier_document = aliased(OutboxEvent)
     unfinished_earlier = (
         select(earlier.id)
         .where(
@@ -259,6 +260,23 @@ def pending_temporal_outbox_query(*, limit: int) -> Select[tuple[OutboxEvent]]:
             earlier.command_seq < current.command_seq,
             earlier.status.not_in(("APPLIED", "REJECTED", "FAILED", "DEAD")),
         )
+        .exists()
+    )
+    unfinished_earlier_document = (
+        select(earlier_document.id)
+        .where(
+            earlier_document.destination == "document-temporal",
+            earlier_document.partition_key == OutboxEvent.partition_key,
+            earlier_document.status.not_in(("DELIVERED", "DEAD")),
+            or_(
+                earlier_document.available_at < OutboxEvent.available_at,
+                and_(
+                    earlier_document.available_at == OutboxEvent.available_at,
+                    earlier_document.id < OutboxEvent.id,
+                ),
+            ),
+        )
+        .correlate(OutboxEvent)
         .exists()
     )
     return (
@@ -277,6 +295,7 @@ def pending_temporal_outbox_query(*, limit: int) -> Select[tuple[OutboxEvent]]:
                             "document.processing.cancel.requested",
                         )
                     ),
+                    ~unfinished_earlier_document,
                 ),
                 and_(current.id.is_not(None), ~unfinished_earlier),
             ),

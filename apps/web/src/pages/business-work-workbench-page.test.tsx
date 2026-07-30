@@ -22,6 +22,12 @@ vi.mock("@/api/client", async (importOriginal) => {
       createSupplierRiskMonitor: vi.fn(),
       refreshSupplierRiskMonitor: vi.fn(),
       getInvoiceAssuranceRuleTrends: vi.fn(),
+      listWorkDocumentRequirements: vi.fn(),
+      createUploadBatch: vi.fn(),
+      initiateDocument: vi.fn(),
+      uploadDocumentContent: vi.fn(),
+      completeDocument: vi.fn(),
+      getUploadBatch: vi.fn(),
     },
   };
 });
@@ -108,6 +114,11 @@ describe("business work workbench", () => {
       buckets: [],
       topRules: [{ ruleId: "PARTY_ENTERPRISE_PUBLIC_STATUS", status: "WARN", count: 2 }],
     });
+    vi.mocked(api.listWorkDocumentRequirements).mockResolvedValue({
+      processingProfileRef: null,
+      items: [],
+    });
+    vi.mocked(api.createUploadBatch).mockRejectedValue(new Error("batch tracking unavailable"));
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -221,6 +232,7 @@ describe("business work workbench", () => {
       operation: "COLLECT",
       currency: "CNY",
       timezone: "Asia/Shanghai",
+      contractObjectId: "object-1",
     });
     const sources = Array.isArray(payload?.sources) ? payload.sources : [];
     expect(sources[0]).toMatchObject({
@@ -395,6 +407,117 @@ describe("business work workbench", () => {
     expect(screen.getByRole("button", { name: "开始办理" })).toBeDisabled();
   });
 
+  it("uses the selected document profile and refreshes readiness after upload", async () => {
+    const apiRequirement = {
+      key: "source-document",
+      displayName: "待结构化原始文档",
+      description: "待结构化原始文档",
+      required: true,
+      minCount: 1,
+      maxCount: null,
+      acceptedMediaTypes: ["application/vnd.oasis.opendocument.text"],
+      classificationLabels: ["CONTRACT"],
+      processingProfileRef: "document-profile://business-structuring@1",
+      extractionSchemaRef: "schema://document/contract-structure@1",
+      category: "SOURCE_DOCUMENT",
+      satisfiedCount: 0,
+      satisfied: false,
+    };
+    const incomplete = runnableWork({
+      workKey: "document-structuring",
+      name: "文档结构化",
+      status: "incomplete",
+      statusLabel: "资料待补充",
+      blockers: [{ code: "DOCUMENT_BINDING_MISSING", message: "SOURCE_DOCUMENT 0 / 1", ref: "SOURCE_DOCUMENT" }],
+      documentRequirements: [{
+        key: "source-document",
+        displayName: "待结构化原始文档",
+        required: true,
+        minCount: 1,
+        maxCount: null,
+        acceptedMediaTypes: ["application/vnd.oasis.opendocument.text"],
+        classificationLabels: ["CONTRACT"],
+        processingProfile: "document-profile://business-structuring@1",
+        extractionSchema: "schema://document/contract-structure@1",
+        category: "SOURCE_DOCUMENT",
+      }],
+    });
+    vi.mocked(api.getBusinessWork)
+      .mockResolvedValueOnce(incomplete)
+      .mockResolvedValue(runnableWork({
+        workKey: "document-structuring",
+        name: "文档结构化",
+        statusLabel: "可运行",
+      }));
+    vi.mocked(api.listWorkDocumentRequirements).mockResolvedValue({
+      processingProfileRef: "document-profile://business-default@1",
+      items: [apiRequirement],
+    });
+    vi.mocked(api.initiateDocument).mockResolvedValue({
+      documentId: "document-1",
+      uploadId: "upload-1",
+      version: 1,
+      blobId: "blob-1",
+      uploadRef: "/internal/v1/blobs/blob-1",
+      capabilityToken: "token",
+      status: "UPLOADING",
+    });
+    vi.mocked(api.uploadDocumentContent).mockResolvedValue(undefined);
+    vi.mocked(api.completeDocument).mockResolvedValue({
+      documentId: "document-1",
+      name: "contract.odt",
+      category: "SOURCE_DOCUMENT",
+      tags: [],
+      status: "AVAILABLE",
+      currentVersion: 1,
+      updatedAt: "2026-07-30T00:00:00Z",
+      current: null,
+      businessObjectIds: [],
+      businessWorkKeys: ["document-structuring"],
+      versions: [],
+    });
+
+    renderPage("document-structuring");
+    expect(await screen.findByText("SOURCE_DOCUMENT 0 / 1")).toBeVisible();
+    expect(screen.getByRole("button", { name: "开始办理" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "上下文上传" }));
+
+    const input = screen.getByLabelText<HTMLInputElement>("选择业务资料文件");
+    const file = new File([Uint8Array.from([111, 100, 116])], "contract.odt", {
+      type: "application/vnd.oasis.opendocument.text",
+    });
+    Object.defineProperty(file, "arrayBuffer", {
+      configurable: true,
+      value: () => Promise.resolve(Uint8Array.from([111, 100, 116]).buffer),
+    });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: {
+        0: file,
+        length: 1,
+        item: (index: number) => (index === 0 ? file : null),
+        [Symbol.iterator]: function* () {
+          yield file;
+        },
+      },
+    });
+    fireEvent.change(input);
+    fireEvent.click(screen.getByRole("button", { name: /开始上传/ }));
+
+    await waitFor(() => expect(api.completeDocument).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      "upload-1",
+      expect.any(String),
+      expect.objectContaining({
+        profileRef: "document-profile://business-structuring@1",
+        extractionSchemaRef: "schema://document/contract-structure@1",
+      }),
+    ));
+    await waitFor(() => expect(api.getBusinessWork).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: "开始办理" })).toBeEnabled();
+  });
+
   it("shows a clear message when document selection is required", async () => {
     const { ApiError } = await import("@/api/client");
     vi.mocked(api.assessCase).mockRejectedValue(
@@ -420,5 +543,148 @@ describe("business work workbench", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "提交失败：请先在「业务资料」中提供并绑定所需文件，再开始办理。",
     );
+  });
+
+  it("surfaces schema validation details instead of a generic incomplete message", async () => {
+    const { ApiError } = await import("@/api/client");
+    vi.mocked(api.createWorkItem).mockRejectedValue(
+      new ApiError(422, "supplier.creditCode: '' does not match '^[0-9A-Z]{18}$'", "INPUT_SCHEMA_INVALID"),
+    );
+    renderPage();
+    expect(await screen.findByRole("heading", { name: "文件完整性校验智能体" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "开始办理" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "提交失败：统一社会信用代码须为 18 位数字或大写字母。",
+    );
+  });
+
+  it("keeps form supplier values when advanced JSON is open with stale empty supplier", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(runnableWork({
+      workKey: "procurement-supplier-risk",
+      name: "招采一致性与供应商风控",
+      packName: "procurement-supplier-risk",
+      workItemType: "procurement-supplier-risk-case",
+      caseBased: true,
+    }));
+    vi.mocked(api.listCapabilityPacks).mockResolvedValue({
+      items: [{
+        ...v1Pack(),
+        name: "procurement-supplier-risk",
+        manifest: {
+          spec: {
+            case: {
+              type: "procurement-supplier-risk-case",
+              subjectRoles: [
+                { key: "procurement", objectType: "procurement", role: "PRIMARY", min: 1, max: 1 },
+                { key: "supplier", objectType: "supplier", role: "RELATED", min: 1, max: 20 },
+              ],
+            },
+          },
+        },
+      }],
+    });
+    renderPage("procurement-supplier-risk");
+
+    fireEvent.change(await screen.findByLabelText("供应商名称"), {
+      target: { value: "上海龙田数码科技有限公司" },
+    });
+    fireEvent.change(screen.getByLabelText("统一社会信用代码"), {
+      target: { value: "91310116740594799B" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "展开高级 JSON 输入" }));
+    const advanced = await screen.findByLabelText("业务输入 JSON");
+    fireEvent.change(advanced, {
+      target: {
+        value: JSON.stringify({
+          title: "招采一致性与供应商风控评估",
+          projectNo: "ZC-2026-001",
+          lotNo: "LOT-01",
+          procurementType: "ENTERPRISE",
+          asOf: "2026-07-28",
+          supplier: { name: "", creditCode: "", aliases: [] },
+          riskSources: [{ kind: "CCGP_SERIOUS_ILLEGAL", sourceRef: "official://ccgp/serious-illegal" }],
+        }, null, 2),
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "开始办理" }));
+
+    await waitFor(() => expect(api.createCase).toHaveBeenCalled());
+    const request = vi.mocked(api.createCase).mock.calls[0]?.[2];
+    expect(request?.payload.supplier).toMatchObject({
+      name: "上海龙田数码科技有限公司",
+      creditCode: "91310116740594799B",
+    });
+    expect(request?.payload.riskSources).toEqual([
+      { kind: "CCGP_SERIOUS_ILLEGAL", sourceRef: "official://ccgp/serious-illegal" },
+    ]);
+  });
+
+  it("rejects empty supplier fields before calling the API", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(runnableWork({
+      workKey: "procurement-supplier-risk",
+      name: "招采一致性与供应商风控",
+      packName: "procurement-supplier-risk",
+      workItemType: "procurement-supplier-risk-case",
+      caseBased: true,
+    }));
+    vi.mocked(api.listCapabilityPacks).mockResolvedValue({
+      items: [{
+        ...v1Pack(),
+        name: "procurement-supplier-risk",
+        manifest: {
+          spec: {
+            case: {
+              type: "procurement-supplier-risk-case",
+              subjectRoles: [
+                { key: "supplier", objectType: "supplier", role: "RELATED", min: 1, max: 20 },
+              ],
+            },
+          },
+        },
+      }],
+    });
+    renderPage("procurement-supplier-risk");
+    expect(await screen.findByLabelText("供应商名称")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "开始办理" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("提交失败：请填写供应商名称。");
+    expect(api.createCase).not.toHaveBeenCalled();
+  });
+
+  it("injects contractObjectId for contract-performance cases", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(runnableWork({
+      workKey: "performance-plan-collection",
+      name: "履约计划与执行采集智能体",
+      packName: "contract-performance",
+      workItemType: "contract-performance-case",
+      caseBased: true,
+    }));
+    vi.mocked(api.listCapabilityPacks).mockResolvedValue({
+      items: [{
+        ...v1Pack(),
+        name: "contract-performance",
+        version: "1.0.9",
+        manifest: {
+          spec: {
+            case: {
+              type: "contract-performance-case",
+              subjectRoles: [
+                { key: "contract", objectType: "contract", role: "PRIMARY", min: 1, max: 1 },
+              ],
+            },
+          },
+        },
+      }],
+    });
+    renderPage("performance-plan-collection");
+    expect(await screen.findByLabelText("办理类型")).toHaveValue("INITIALIZE");
+    fireEvent.click(screen.getByRole("button", { name: "开始办理" }));
+    await waitFor(() => expect(api.createCase).toHaveBeenCalled());
+    const request = vi.mocked(api.createCase).mock.calls[0]?.[2];
+    expect(request?.payload).toMatchObject({
+      contractObjectId: "object-1",
+      currency: "CNY",
+      timezone: "Asia/Shanghai",
+      operation: "INITIALIZE",
+    });
   });
 });

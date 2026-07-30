@@ -450,6 +450,7 @@ def normalize_plan(
         "conflicts": conflicts,
         "gaps": gaps,
     }
+    _refresh_payment_total_gap(plan)
     plan["planHash"] = canonical_hash(plan)
     return plan
 
@@ -543,6 +544,13 @@ def apply_approved_changes(
             )
         applied.append(change)
 
+    change_history = {
+        "appliedChanges": deepcopy(applied),
+        "differences": deepcopy(differences),
+        "unapprovedChangeRisks": deepcopy(risks),
+    }
+    current["changeHistory"] = deepcopy(change_history)
+    _refresh_payment_total_gap(current)
     current["planHash"] = canonical_hash({k: v for k, v in current.items() if k != "planHash"})
     return {
         "originalBaseline": original,
@@ -551,6 +559,45 @@ def apply_approved_changes(
         "unapprovedChangeRisks": risks,
         "differences": differences,
     }
+
+
+def _refresh_payment_total_gap(plan: dict[str, Any]) -> None:
+    """Flag a complete payment schedule that no longer reconciles to contract value."""
+    gaps = [
+        deepcopy(dict(item))
+        for item in plan.get("gaps") or []
+        if isinstance(item, Mapping) and item.get("code") != "PAYMENT_TOTAL_MISMATCH"
+    ]
+    contract = plan.get("contract")
+    total = (
+        _as_decimal(contract.get("totalAmount"), field="contract.totalAmount")
+        if isinstance(contract, Mapping)
+        else None
+    )
+    conditions = _items(plan, "paymentConditions")
+    amounts = [
+        _as_decimal(item.get("amount"), field=f"paymentConditions[{index}].amount")
+        for index, item in enumerate(conditions)
+    ]
+    if (
+        total is not None
+        and conditions
+        and all(amount is not None for amount in amounts)
+    ):
+        payment_total = sum((amount for amount in amounts if amount is not None), Decimal("0"))
+        difference = total - payment_total
+        if difference != Decimal("0"):
+            gaps.append(
+                {
+                    "code": "PAYMENT_TOTAL_MISMATCH",
+                    "contractTotal": _money(total),
+                    "paymentTotal": _money(payment_total),
+                    "difference": _money(difference),
+                }
+            )
+    plan["gaps"] = gaps
+    if plan.get("status") in {"CANDIDATE", "REVIEW_REQUIRED"}:
+        plan["status"] = "REVIEW_REQUIRED" if plan.get("conflicts") or gaps else "CANDIDATE"
 
 
 def _path_parts(path: str) -> list[str]:

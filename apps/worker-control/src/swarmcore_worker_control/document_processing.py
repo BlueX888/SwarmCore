@@ -4,7 +4,6 @@ import hashlib
 import io
 import json
 import zipfile
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 from xml.etree import ElementTree
@@ -14,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from swarmcore_application import DocumentProcessingService
 from swarmcore_domain import uuid7
+from swarmcore_governance import ArtifactStore
 from swarmcore_persistence import tenant_transaction
 from swarmcore_persistence.models import (
     BlobObject,
@@ -34,11 +34,11 @@ class DocumentProcessingActivities:
         self,
         sessions: async_sessionmaker[AsyncSession],
         *,
-        artifact_root: Path,
+        artifact_store: ArtifactStore,
     ) -> None:
         self._sessions = sessions
-        self._artifact_root = artifact_root.resolve()
-        self._processing = DocumentProcessingService(storage_root=self._artifact_root)
+        self._artifact_store = artifact_store
+        self._processing = DocumentProcessingService(object_store=artifact_store)
 
     @activity.defn(name="plan_document_processing")
     async def plan(self, input_value: dict[str, Any]) -> dict[str, Any]:
@@ -49,7 +49,7 @@ class DocumentProcessingActivities:
             run, version, blob = await self._source_rows(
                 session, tenant_id, project_id, run_id
             )
-            source = self._read_blob(blob)
+            source = await self._read_blob(blob)
             groups, page_count, row_count = _processing_groups(
                 source, version.media_type, version.filename
             )
@@ -139,7 +139,7 @@ class DocumentProcessingActivities:
             )
             if existing is not None:
                 return _group_receipt(group, existing)
-            source = self._read_blob(blob)
+            source = await self._read_blob(blob)
             payload = _extract_group(source, version.media_type, group)
             content = json.dumps(
                 payload, ensure_ascii=False, separators=(",", ":")
@@ -149,11 +149,7 @@ class DocumentProcessingActivities:
                 f"{tenant_id}/{project_id}/document-processing/{run_id}/"
                 f"groups/{group_key}-{artifact_id}.json"
             )
-            target = (self._artifact_root / object_key).resolve()
-            if self._artifact_root not in target.parents:
-                raise ValueError("document group artifact escapes artifact root")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
+            await self._artifact_store.put(object_key, content)
             artifact = BlobObject(
                 id=artifact_id,
                 tenant_id=tenant_id,
@@ -288,11 +284,8 @@ class DocumentProcessingActivities:
             raise ValueError(f"SECURITY_SCAN_FAILED:{blob.scan_status}")
         return run, version, blob
 
-    def _read_blob(self, blob: BlobObject) -> bytes:
-        target = (self._artifact_root / blob.object_key).resolve()
-        if self._artifact_root not in target.parents or not target.is_file():
-            raise FileNotFoundError("document blob is unavailable")
-        content = target.read_bytes()
+    async def _read_blob(self, blob: BlobObject) -> bytes:
+        content = await self._artifact_store.get(blob.object_key)
         if hashlib.sha256(content).hexdigest() != blob.sha256:
             raise ValueError("DOCUMENT_HASH_MISMATCH")
         return content

@@ -2,7 +2,11 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const strategyId = "00000000-0000-0000-0000-000000000020";
 const draftId = "00000000-0000-0000-0000-000000000021";
-type TestEditorState = { positions: Record<string, { x: number; y: number }>; viewport: { x: number; y: number; zoom: number } };
+type TestEditorState = {
+  positions: Record<string, { x: number; y: number }>;
+  viewport: { x: number; y: number; zoom: number };
+  agentBindings?: Record<string, { configurationId: string; revision: number; name: string; sourceRef: string }>;
+};
 type TestSpec = Record<string, unknown> & { spec: Record<string, unknown> & { graph: Record<string, unknown> & { entrypoint: string; nodes: Record<string, Record<string, unknown>> } } };
 
 test("creates a draft from an empty canvas", async ({ page }) => {

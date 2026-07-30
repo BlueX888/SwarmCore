@@ -38,9 +38,20 @@ class EditorViewport(ApiModel):
     zoom: float = Field(default=1, gt=0)
 
 
+class AgentBindingState(ApiModel):
+    configuration_id: str = Field(alias="configurationId")
+    revision: int = Field(ge=1)
+    name: str = Field(min_length=1)
+    source_ref: str = Field(alias="sourceRef")
+
+
 class EditorState(ApiModel):
     positions: dict[str, EditorPosition] = Field(default_factory=dict)
     viewport: EditorViewport = Field(default_factory=EditorViewport)
+    agent_bindings: dict[str, AgentBindingState] = Field(
+        default_factory=dict,
+        alias="agentBindings",
+    )
 
 
 class CreateStrategyRequest(ApiModel):

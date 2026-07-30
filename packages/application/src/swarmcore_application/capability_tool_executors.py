@@ -3137,14 +3137,42 @@ async def contract_performance_finalize(
             plan["planHash"] = canonical_hash(
                 {key: value for key, value in plan.items() if key != "planHash"}
             )
+        plan_findings: list[dict[str, Any]] = []
+        for item in plan.get("conflicts") or []:
+            if isinstance(item, dict):
+                plan_findings.append(
+                    {
+                        **item,
+                        "code": str(item.get("code") or "PLAN_CONFLICT"),
+                        "severity": str(item.get("severity") or "HIGH"),
+                        "reviewType": str(item.get("reviewType") or "CONTRACT"),
+                    }
+                )
+        for item in plan.get("gaps") or []:
+            if isinstance(item, dict):
+                code = str(item.get("code") or "PLAN_GAP")
+                plan_findings.append(
+                    {
+                        **item,
+                        "code": code,
+                        "severity": str(
+                            item.get("severity")
+                            or ("HIGH" if code == "PAYMENT_TOTAL_MISMATCH" else "MEDIUM")
+                        ),
+                        "reviewType": str(
+                            item.get("reviewType")
+                            or ("FINANCE" if code == "PAYMENT_TOTAL_MISMATCH" else "CONTRACT")
+                        ),
+                    }
+                )
         performance = {
             "asOf": input_value.get("asOf") or (input_value.get("payload") or {}).get("asOf"),
-            "status": "ON_TRACK" if approved else "REVIEW_REQUIRED",
+            "status": "ON_TRACK" if approved and not plan_findings else "REVIEW_REQUIRED",
             "collectionStatus": "COMPLETE",
             "milestones": [],
             "paymentGates": [],
-            "findings": [],
-            "reviewRequired": not approved,
+            "findings": plan_findings,
+            "reviewRequired": not approved or bool(plan_findings),
             "ruleVersion": "rule://contract-performance@2",
         }
     gantt = dict(input_value.get("gantt") or {})
@@ -3158,6 +3186,19 @@ async def contract_performance_finalize(
         )
     approval = input_value.get("approval")
     approvals = [dict(approval)] if isinstance(approval, dict) and approval else []
+    change_history = input_value.get("changeHistory")
+    if not isinstance(change_history, dict):
+        change_history = plan.get("changeHistory")
+    if not isinstance(change_history, dict):
+        change_history = {
+            "appliedChanges": [
+                dict(item)
+                for item in plan.get("changes") or []
+                if isinstance(item, dict) and str(item.get("status") or "").upper() == "APPROVED"
+            ],
+            "differences": [],
+            "unapprovedChangeRisks": [],
+        }
     return finalize_contract_performance(
         case_id=str(input_value.get("caseId") or ""),
         plan_version=int(input_value.get("planVersion") or 1),
@@ -3165,7 +3206,7 @@ async def contract_performance_finalize(
         performance=performance,
         gantt=gantt,
         evidence_ledger=dict(input_value.get("evidenceLedger") or {}),
-        change_history=dict(input_value.get("changeHistory") or {}),
+        change_history=change_history,
         provenance=dict(input_value.get("provenance") or {}),
         approvals=approvals,
     )

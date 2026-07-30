@@ -7,6 +7,7 @@ from uuid import UUID
 
 from jsonschema import Draft202012Validator, ValidationError
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from swarmcore_compiler import Compiler, ExecutionPlan
 from swarmcore_domain import uuid7
@@ -580,14 +581,32 @@ class RunService:
         )
         if version is None:
             raise LookupError("strategy version not found")
+        run_id = uuid7()
+        if not await self._claim_idempotency(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            run_id=run_id,
+        ):
+            replay = await self._existing(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+            )
+            if replay is None:
+                raise RuntimeError("idempotency claim disappeared")
+            return replay
         return await self._create_for_version(
             session,
             tenant_id=tenant_id,
             project_id=project_id,
             version=version,
+            run_id=run_id,
             input_data=input_data,
-            idempotency_key=idempotency_key,
-            request_hash=request_hash,
             initiated_by=initiated_by,
             submitted_scopes=submitted_scopes,
             auth_context_hash=auth_context_hash,
@@ -625,6 +644,25 @@ class RunService:
             registry_snapshot=registry_snapshot,
             policy_revision=policy_revision,
         )
+        run_id = uuid7()
+        if not await self._claim_idempotency(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            run_id=run_id,
+        ):
+            replay = await self._existing(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+            )
+            if replay is None:
+                raise RuntimeError("idempotency claim disappeared")
+            return replay
         strategy = Strategy(
             tenant_id=tenant_id,
             project_id=project_id,
@@ -652,9 +690,8 @@ class RunService:
             tenant_id=tenant_id,
             project_id=project_id,
             version=version,
+            run_id=run_id,
             input_data=input_data,
-            idempotency_key=idempotency_key,
-            request_hash=request_hash,
             initiated_by=initiated_by,
             submitted_scopes=submitted_scopes,
             auth_context_hash=auth_context_hash,
@@ -695,6 +732,32 @@ class RunService:
             return run, command
         return None
 
+    @staticmethod
+    async def _claim_idempotency(
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        idempotency_key: str,
+        request_hash: str,
+        run_id: UUID,
+    ) -> bool:
+        claimed = await session.scalar(
+            insert(IdempotencyKey)
+            .values(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                operation="run.create",
+                key=idempotency_key,
+                request_hash=request_hash,
+                response_ref=run_id,
+                expires_at=datetime.now(UTC) + timedelta(hours=24),
+            )
+            .on_conflict_do_nothing()
+            .returning(IdempotencyKey.response_ref)
+        )
+        return claimed is not None
+
     async def _create_for_version(
         self,
         session: AsyncSession,
@@ -702,9 +765,8 @@ class RunService:
         tenant_id: UUID,
         project_id: UUID,
         version: StrategyVersion,
+        run_id: UUID,
         input_data: dict[str, Any],
-        idempotency_key: str,
-        request_hash: str,
         initiated_by: str,
         submitted_scopes: tuple[str, ...],
         auth_context_hash: str,
@@ -715,7 +777,6 @@ class RunService:
         except ValidationError as exc:
             raise ValueError(f"RUN_INPUT_INVALID: {exc.message}") from exc
 
-        run_id = uuid7()
         run = Run(
             id=run_id,
             tenant_id=tenant_id,
@@ -733,17 +794,6 @@ class RunService:
         )
         session.add(run)
         await session.flush()
-        session.add(
-            IdempotencyKey(
-                tenant_id=tenant_id,
-                project_id=project_id,
-                operation="run.create",
-                key=idempotency_key,
-                request_hash=request_hash,
-                response_ref=run.id,
-                expires_at=datetime.now(UTC) + timedelta(hours=24),
-            )
-        )
         command = await self._commands.append(
             session,
             tenant_id=tenant_id,

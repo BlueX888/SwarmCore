@@ -735,31 +735,39 @@ class WorkbenchService:
             )
             if rule_version is None or rule_version.status != "PUBLISHED":
                 raise ValueError("DECISION_VERSION_NOT_PUBLISHED")
+        attachment_payloads = [self._attachment_payload(value) for value in attachments]
+        attachment_payloads.extend(
+            self._document_attachment_payload(value) for value in document_versions
+        )
+        document_payloads = [
+            {
+                "documentId": str(document.id),
+                "documentVersionId": str(version.id),
+                "blobId": str(blob.id),
+                "name": document.name,
+                "category": document.category,
+                "filename": version.filename,
+                "mediaType": version.media_type,
+                "sizeBytes": version.size_bytes,
+                "sha256": version.sha256,
+                "version": version.version,
+            }
+            for document, version, blob in document_versions
+        ]
         evaluation_id = uuid7()
         input_data: dict[str, Any] = {
             "workItemId": str(item.id),
             "workItemRevisionId": str(revision.id),
             "evaluationId": str(evaluation_id),
             "payload": revision.payload,
-            "attachments": [self._attachment_payload(value) for value in attachments],
-            "documents": [
-                {
-                    "documentId": str(document.id),
-                    "documentVersionId": str(version.id),
-                    "blobId": str(blob.id),
-                    "name": document.name,
-                    "category": document.category,
-                    "filename": version.filename,
-                    "mediaType": version.media_type,
-                    "sizeBytes": version.size_bytes,
-                    "sha256": version.sha256,
-                    "version": version.version,
-                }
-                for document, version, blob in document_versions
-            ],
+            "attachments": attachment_payloads,
             "attachmentManifestHash": attachment_hash,
             "configuration": dict(binding.configuration),
         }
+        if self._schema_has_property(manifest.spec.input_schema, "documents"):
+            input_data["documents"] = document_payloads
+        if self._schema_has_property(manifest.spec.input_schema, "resources"):
+            input_data["resources"] = {}
         if self._requires_selection_provenance(manifest.metadata.name):
             input_data.update(
                 {
@@ -865,8 +873,7 @@ class WorkbenchService:
                 rule_set_version_id=str(rule_version.id),
                 document=IntegrityRuleDocument.model_validate(rule_version.rules),
                 attachments=[
-                    AttachmentInput.model_validate(self._attachment_payload(value))
-                    for value in attachments
+                    AttachmentInput.model_validate(value) for value in attachment_payloads
                 ],
                 attachment_manifest_hash=attachment_hash,
             )
@@ -894,8 +901,7 @@ class WorkbenchService:
                     rule_set_version_id=str(decision_version.id),
                     document=IntegrityRuleDocument.model_validate(envelope.definition),
                     attachments=[
-                        AttachmentInput.model_validate(self._attachment_payload(value))
-                        for value in attachments
+                        AttachmentInput.model_validate(value) for value in attachment_payloads
                     ],
                     attachment_manifest_hash=attachment_hash,
                 )
@@ -1469,6 +1475,26 @@ class WorkbenchService:
             payload["expiresAt"] = expires_at
         return payload
 
+    @staticmethod
+    def _document_attachment_payload(
+        value: tuple[BusinessDocument, BusinessDocumentVersion, BlobObject],
+    ) -> dict[str, Any]:
+        document, version, blob = value
+        payload = {
+            "attachmentId": str(document.id),
+            "blobId": str(blob.id),
+            "documentType": document.category.lower(),
+            "filename": version.filename,
+            "mediaType": version.media_type,
+            "sha256": version.sha256,
+            "version": version.version,
+            "readable": True,
+        }
+        expires_at = blob.metadata_json.get("documentExpiresAt")
+        if expires_at is not None:
+            payload["expiresAt"] = expires_at
+        return payload
+
     def _validate_schema(self, schema_ref: str, value: dict[str, Any]) -> None:
         schema = self._schemas.get(schema_ref)
         if schema is not None:
@@ -1486,6 +1512,13 @@ class WorkbenchService:
             return False
         min_items = field_schema.get("minItems")
         return isinstance(min_items, int) and min_items >= 1
+
+    def _schema_has_property(self, schema_ref: str, field: str) -> bool:
+        schema = self._schemas.get(schema_ref)
+        if not isinstance(schema, dict):
+            return False
+        properties = schema.get("properties")
+        return isinstance(properties, dict) and field in properties
 
     async def _idempotent_response(
         self,

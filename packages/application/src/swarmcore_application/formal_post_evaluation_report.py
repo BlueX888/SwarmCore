@@ -339,7 +339,10 @@ def compose_formal_post_evaluation_report(
             "reportComposer": "tool://report/compose-post-evaluation@1",
         },
     }
-    return report_document
+    return _normalize_insufficient_dimension_weight_claims(
+        report_document,
+        dimensions_out,
+    )
 
 
 def verify_report_citations(
@@ -386,6 +389,40 @@ def verify_report_citations(
         "dimensionsWithoutCitations": missing_citations,
         "scoreMismatches": score_mismatches,
     }
+
+
+def _normalize_insufficient_dimension_weight_claims(
+    report_document: dict[str, Any],
+    dimensions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    insufficient = [
+        item
+        for item in dimensions
+        if item.get("status") == "DATA_INSUFFICIENT" or item.get("score") is None
+    ]
+    if not insufficient:
+        return report_document
+    names = [str(item.get("name") or "") for item in insufficient if item.get("name")]
+    expected_weight = sum(int(item.get("weight") or 0) for item in insufficient)
+    patterns = (
+        re.compile(r"合计权重(?:为|约为)?\s*\d+(?:\.\d+)?\s*%"),
+        re.compile(r"合计(?:约)?占(?:总)?权重\s*\d+(?:\.\d+)?\s*%"),
+    )
+
+    def normalize(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: normalize(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        if not isinstance(value, str) or not names or not all(name in value for name in names):
+            return value
+        normalized = value
+        for pattern in patterns:
+            normalized = pattern.sub(f"合计权重{expected_weight}%", normalized)
+        return normalized
+
+    normalized = normalize(report_document)
+    return normalized if isinstance(normalized, dict) else report_document
 
 
 def finalize_formal_report_quality(

@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     model_gateway_url: str = "http://localhost:8093"
     model_gateway_timeout_seconds: float = 300
     agent_model_max_output_tokens: int = Field(default=16384, ge=1024, le=65536)
+    worker_max_concurrent_activities: int = Field(default=32, ge=1)
+    worker_max_activity_polls: int = Field(default=5, ge=1)
     model_capability_secret: str = "development-model-capability-secret-32-bytes"
     agent_readiness_host: str = "127.0.0.1"
     agent_readiness_port: int = 8094
@@ -110,6 +112,8 @@ async def serve() -> None:
         temporal,
         task_queue=settings.agent_task_queue,
         activities=[activities.execute_agent, activities.execute_team],
+        max_concurrent_activities=settings.worker_max_concurrent_activities,
+        max_concurrent_activity_task_polls=settings.worker_max_activity_polls,
     )
     readiness_server = uvicorn.Server(
         uvicorn.Config(

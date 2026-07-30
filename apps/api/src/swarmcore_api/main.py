@@ -171,7 +171,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def json_schema_validation_error(
         request: Request, exc: JsonSchemaValidationError
     ) -> JSONResponse:
-        return _problem(request, 422, "INPUT_SCHEMA_INVALID", exc.message)
+        path = ".".join(str(part) for part in exc.absolute_path)
+        detail = f"{path}: {exc.message}" if path else exc.message
+        return _problem(request, 422, "INPUT_SCHEMA_INVALID", detail)
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_error(

@@ -103,6 +103,8 @@ describe("ContractPerformanceResultView", () => {
   it("shows baseline, evidence, payment gate, change, and traceability", () => {
     render(<ContractPerformanceResultView result={result} />);
     expect(screen.getByText("原始基准 / 当前基准 / 实际")).toBeInTheDocument();
+    expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    expect(screen.getByText("存在 2 条未匹配证据、风险或缺口，系统未据此确认验收或付款。")).toBeInTheDocument();
     expect(screen.getByText("首批验收")).toBeInTheDocument();
     expect(screen.getByText("证据收件箱")).toBeInTheDocument();
     expect(screen.getByText("2026-06-12 · CNY 250,000 · 示例供应商")).toBeInTheDocument();

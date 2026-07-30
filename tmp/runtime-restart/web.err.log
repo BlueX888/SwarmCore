@@ -10757,3 +10757,39 @@ Error: connect ECONNREFUSED 127.0.0.1:8000
 [2m12:16:11[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/runs[39m
 Error: connect ECONNREFUSED 127.0.0.1:8000
     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:17[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/approvals[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:17[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/inputs[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:18[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/inputs[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:18[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/approvals[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:18[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/approvals[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:18[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/inputs[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:19[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/inputs[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:19[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/approvals[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:21[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/inputs[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:22[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/inputs[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:22[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/approvals[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)
+[2m15:50:23[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /v1/projects/00000000-0000-0000-0000-000000000002/approvals[39m
+Error: connect ECONNREFUSED 127.0.0.1:8000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1706:16)

@@ -57,7 +57,7 @@ describe("workspace navigation", () => {
     expect(screen.getByRole("link", { name: "工作台" })).toHaveAttribute("href", "/overview");
 
     const business = screen.getByRole("region", { name: "业务工作" });
-    expect(within(business).getByRole("link", { name: "工作总览" })).toHaveAttribute("href", "/business-works");
+    expect(within(business).queryByRole("link", { name: "工作总览" })).not.toBeInTheDocument();
     for (const work of BUSINESS_WORKS) {
       expect(within(business).getByRole("link", { name: work.shortName })).toHaveAttribute("href", `/business-works/${work.key}`);
     }

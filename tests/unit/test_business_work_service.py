@@ -44,6 +44,7 @@ def _service() -> BusinessWorkService:
 
 
 def test_central_mapping_covers_implemented_packs() -> None:
+    assert pack_name_for_work_key("ai-foundation-quality") == "swarm-calibration"
     assert pack_name_for_work_key("document-integrity") == "contract-integrity"
     assert pack_name_for_work_key("contract-post-evaluation") == "contract-post-evaluation"
     assert pack_name_for_work_key("deviation-analysis") == "deviation-analysis"

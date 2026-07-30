@@ -1,12 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity, ArrowRight, BrainCircuit, BriefcaseBusiness, ChartNoAxesCombined, CheckCircle2, Files,
-  FileCheck2, FileOutput, FileScan, Gauge, Network, Play, ReceiptText, Search, Settings2, ShieldCheck, Sparkles,
+  FileCheck2, FileOutput, FileScan, Gauge, Network, Play, ReceiptText, Settings2, ShieldCheck, Sparkles,
   Workflow,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, Navigate, useParams } from "react-router";
 import { api } from "@/api/client";
 import type { BusinessWorkSnapshot, BusinessWorkStatus, DocumentSnapshot } from "@/api/types";
 import { BusinessWorkPageHeader } from "@/components/business-works/business-work-page-header";
@@ -16,12 +16,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
-  BUSINESS_WORK_CATEGORIES, BUSINESS_WORKS, DOCUMENT_CATEGORY_LABELS, documentBindingKeys, getBusinessWork,
+  DOCUMENT_CATEGORY_LABELS, documentBindingKeys, getBusinessWork,
   type BusinessWorkCategory, type BusinessWorkDefinition,
 } from "@/lib/business-works";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 import { capabilityLabel } from "@/lib/capability-labels";
 import { cn } from "@/lib/utils";
+import { AiFoundationQualityPage } from "@/pages/ai-foundation-quality-page";
 
 const WORK_RUN_HISTORY_LIMIT = 5;
 
@@ -54,88 +55,14 @@ const STATUS_BADGE: Record<BusinessWorkStatus, "neutral" | "primary" | "success"
 
 export function BusinessWorksPage() {
   const { workKey } = useParams();
-  return workKey ? <BusinessWorkDetail workKey={workKey} /> : <BusinessWorkCatalog />;
+  if (workKey === "ai-foundation-quality") return <AiFoundationQualityPage />;
+  if (workKey) return <BusinessWorkDetail workKey={workKey} />;
+  return <BusinessWorksIndexRedirect />;
 }
 
-function BusinessWorkCatalog() {
-  const { tenantId, projectId, workspacePath } = useWorkspaceScope();
-  const [searchParams] = useSearchParams();
-  const notice = searchParams.get("notice");
-  const [category, setCategory] = useState<"all" | BusinessWorkCategory>("all");
-  const [search, setSearch] = useState("");
-  const works = useQuery({
-    queryKey: ["business-works", tenantId, projectId],
-    queryFn: () => api.listBusinessWorks(tenantId, projectId),
-  });
-  const items = works.data?.items ?? fallbackSnapshots();
-  const visibleWorks = useMemo(() => {
-    const keyword = search.trim().toLocaleLowerCase();
-    return items.filter((work) => {
-      if (category !== "all" && work.category !== category) return false;
-      if (!keyword) return true;
-      return [work.name, work.shortName, work.summary, ...work.functions.flatMap((item) => [item.name, item.description])]
-        .some((value) => value.toLocaleLowerCase().includes(keyword));
-    });
-  }, [category, items, search]);
-
-  return <div className="min-w-0 space-y-6">
-    <header className="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <p className="text-sm font-medium text-brand-500">AI 智能体蜂群</p>
-        <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">业务工作</h1>
-        <p className="mt-1 max-w-3xl text-sm text-gray-500">按业务目标组织工作，每项工作独立组合 Agent、工具、模型、规则、业务资料和人工复核。</p>
-      </div>
-    </header>
-
-    {notice ? <Card><CardContent className="border border-warning-200 bg-warning-50 p-4 text-sm text-warning-800 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-300">{notice}</CardContent></Card> : null}
-    {works.isError ? <Card><CardContent className="p-4 text-sm text-error-600">业务工作状态加载失败：{works.error.message}。当前显示本地目录。</CardContent></Card> : null}
-
-    <section aria-label="业务工作概况" className="grid gap-3 sm:grid-cols-3">
-      <SummaryCard label="业务工作" value={items.length} detail="独立工作入口" />
-      <SummaryCard label="可运行" value={items.filter((item) => item.status === "runnable").length} detail="已满足运行资格" />
-      <SummaryCard label="规划中" value={items.filter((item) => item.status === "planned").length} detail="尚未实现执行定义" />
-    </section>
-
-    <section className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-2xl border border-gray-200/80 bg-white/80 p-3 shadow-theme-xs backdrop-blur sm:flex-row sm:items-center sm:justify-between dark:border-gray-800 dark:bg-gray-900/70">
-        <div className="flex gap-1 overflow-x-auto" role="group" aria-label="业务工作分类">
-          {BUSINESS_WORK_CATEGORIES.map((item) => <button
-            key={item.value}
-            type="button"
-            aria-pressed={category === item.value}
-            onClick={() => setCategory(item.value)}
-            className={cn("shrink-0 rounded-xl px-3 py-2 text-sm font-semibold transition", category === item.value ? "bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400" : "text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white")}
-          >{item.label}</button>)}
-        </div>
-        <label className="relative block sm:w-72">
-          <span className="sr-only">搜索业务工作或功能</span>
-          <Search aria-hidden className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索工作或功能" className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-10 pr-3 text-sm text-gray-800 outline-none transition focus:border-brand-500 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200" />
-        </label>
-      </div>
-
-      {works.isPending ? <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3"><Skeleton className="h-64" /><Skeleton className="h-64" /><Skeleton className="h-64" /></div>
-        : visibleWorks.length ? <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          {visibleWorks.map((work) => <BusinessWorkCard key={work.workKey} work={work} href={`${workspacePath}/business-works/${work.workKey}`} />)}
-        </div> : <Card><CardContent className="flex min-h-56 flex-col items-center justify-center gap-2 p-6 text-center"><Search className="size-8 text-gray-300" /><p className="font-semibold text-gray-900 dark:text-white">没有匹配的业务工作</p><p className="text-sm text-gray-500">尝试更换分类或搜索词。</p></CardContent></Card>}
-    </section>
-  </div>;
-}
-
-function BusinessWorkCard({ work, href }: { work: BusinessWorkSnapshot; href: string }) {
-  const Icon = WORK_ICONS[work.workKey] ?? BriefcaseBusiness;
-  return <Card className="group transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-theme-float dark:hover:border-brand-500/50">
-    <CardContent className="flex h-full flex-col p-5">
-      <div className="flex items-start justify-between gap-3">
-        <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400"><Icon className="size-5" /></span>
-        <div className="flex flex-wrap justify-end gap-1.5"><Badge color={STATUS_BADGE[work.status]}>{work.statusLabel}</Badge><Badge color={work.category === "business" ? "primary" : "neutral"}>{CATEGORY_LABELS[work.category as BusinessWorkCategory] ?? work.category}</Badge></div>
-      </div>
-      <h2 className="mt-4 text-base font-semibold text-gray-900 dark:text-white">{work.name}</h2>
-      <p className="mt-2 flex-1 text-sm leading-6 text-gray-500">{work.summary}</p>
-      <div className="mt-4 flex flex-wrap gap-1.5">{work.functions.slice(0, 3).map((item) => <span key={item.name} className="rounded-lg bg-gray-50 px-2 py-1 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">{item.name}</span>)}{work.functions.length > 3 ? <span className="rounded-lg bg-gray-50 px-2 py-1 text-xs text-gray-500 dark:bg-gray-800">+{work.functions.length - 3}</span> : null}</div>
-      <Link to={href} aria-label={`查看${work.name}`} className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 outline-none transition group-hover:gap-2.5 focus-visible:rounded-lg focus-visible:ring-3 focus-visible:ring-brand-500/20 dark:text-brand-400">进入业务工作<ArrowRight className="size-4" /></Link>
-    </CardContent>
-  </Card>;
+function BusinessWorksIndexRedirect() {
+  const { workspacePath } = useWorkspaceScope();
+  return <Navigate to={`${workspacePath}/overview`} replace />;
 }
 
 function BusinessWorkDetail({ workKey }: { workKey: string }) {
@@ -151,7 +78,7 @@ function BusinessWorkDetail({ workKey }: { workKey: string }) {
     return <div className="space-y-4"><Skeleton className="h-40" /><Skeleton className="h-72" /></div>;
   }
   const work = workQuery.data ?? (local ? snapshotFromDefinition(local) : null);
-  if (!work) return <Card><CardContent className="flex min-h-72 flex-col items-center justify-center gap-3 p-6 text-center"><BriefcaseBusiness className="size-9 text-gray-300" /><h1 className="text-lg font-semibold text-gray-900 dark:text-white">业务工作不存在</h1><p className="text-sm text-gray-500">该工作可能尚未登记或地址有误。</p><Button asChild variant="outline"><Link to={`${workspacePath}/business-works`}>返回业务工作</Link></Button></CardContent></Card>;
+  if (!work) return <Card><CardContent className="flex min-h-72 flex-col items-center justify-center gap-3 p-6 text-center"><BriefcaseBusiness className="size-9 text-gray-300" /><h1 className="text-lg font-semibold text-gray-900 dark:text-white">业务工作不存在</h1><p className="text-sm text-gray-500">该工作可能尚未登记或地址有误。</p><Button asChild variant="outline"><Link to={`${workspacePath}/overview`}>返回工作台</Link></Button></CardContent></Card>;
   const Icon = WORK_ICONS[work.workKey] ?? BriefcaseBusiness;
   const canStart = work.status === "runnable";
   const hasImplementation = work.status !== "planned";
@@ -163,7 +90,7 @@ function BusinessWorkDetail({ workKey }: { workKey: string }) {
 
   return <div className="min-w-0 space-y-5">
     <BusinessWorkPageHeader
-      backTo={`${workspacePath}/business-works`}
+      backTo={`${workspacePath}/overview`}
       icon={Icon}
       meta={<>
         <Badge color={STATUS_BADGE[work.status]}>{work.statusLabel}</Badge>
@@ -673,10 +600,6 @@ function ExternalFilesBody({
   return <p className="text-sm text-gray-500">当前无强制资料分类要求，也尚未绑定外部文件。</p>;
 }
 
-function SummaryCard({ label, value, detail, textValue }: { label: string; value: number; detail: string; textValue?: string }) {
-  return <Card><CardContent className="p-4"><p className="text-xs font-semibold text-gray-500">{label}</p><div className="mt-2 flex items-end justify-between gap-2"><strong className="text-2xl font-semibold text-gray-900 dark:text-white">{textValue ?? value}</strong><span className="text-xs text-gray-400">{detail}</span></div></CardContent></Card>;
-}
-
 function snapshotFromDefinition(work: BusinessWorkDefinition): BusinessWorkSnapshot {
   return {
     workKey: work.key,
@@ -705,8 +628,4 @@ function snapshotFromDefinition(work: BusinessWorkDefinition): BusinessWorkSnaps
     boundStrategyName: null,
     boundStrategyVersion: null,
   };
-}
-
-function fallbackSnapshots(): BusinessWorkSnapshot[] {
-  return BUSINESS_WORKS.map(snapshotFromDefinition);
 }

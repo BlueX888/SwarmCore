@@ -104,7 +104,7 @@ export function AssessmentPage() {
 
   return <div className="min-w-0 space-y-6">
     <header>
-      <BackLink to={`${workspacePath}/business-works`}>返回业务工作</BackLink>
+      <BackLink to={`${workspacePath}/overview`}>返回工作台</BackLink>
       <div className="mt-5 flex flex-col gap-4 rounded-[24px] border border-gray-200/80 bg-white/90 p-6 shadow-theme-card md:flex-row md:items-start md:justify-between dark:border-gray-800 dark:bg-white/[0.035]">
         <div>
           <div className="flex flex-wrap items-center gap-2">

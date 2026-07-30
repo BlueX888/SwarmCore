@@ -224,7 +224,7 @@ uv run python scripts/prepare_document_structuring_demo.py `
 
 Web 控制台的主要入口：
 
-- `/business-works`：业务能力目录
+- `/business-works/:workKey`：各业务工作的详情、配置与办理入口；`/business-works` 重定向到工作台
 - `/strategies`：策略管理
 - `/runs`：运行记录与状态
 - `/agents`、`/tools`、`/models`：统一能力中心

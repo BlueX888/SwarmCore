@@ -252,7 +252,7 @@ AI 结果统一包含 `data`、`evidence`、`confidence`、`qualityFlags`、`sch
 
 | 能力 | 落位 |
 |---|---|
-| 基础 AI 与质量评测 | Provider、原子 Tool 和质量平面，不建设成业务 Agent |
+| 基础 AI 与质量评测 | Provider、原子 Tool 和质量平面，不建设成业务 Agent；产品入口复用 `swarm-calibration` 的证据冻结、确定性评分、主备路由、人工复核与审计链 |
 | 文件结构化 | 共享 Document Intelligence，由解析/OCR、文档 Tool 和分类/抽取 Agent 组成 |
 | 文件完整性 | `contract-integrity` Pack，确定性 RuleSet 为主 |
 | 履约计划与采集 | `contract-performance` Pack，沉淀义务、里程碑和执行证据 |

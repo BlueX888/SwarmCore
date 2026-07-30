@@ -79,7 +79,14 @@ class ControlActivities:
         if strategy == "concat":
             return {"items": ordered}
         if strategy == "first_success":
-            return ordered[0] if ordered and isinstance(ordered[0], dict) else {"value": ordered[0]}
+            for value in ordered:
+                if isinstance(value, dict):
+                    if value:
+                        return value
+                    continue
+                if value is not None:
+                    return {"value": value}
+            return {}
         if strategy == "vote":
             counts: dict[str, int] = {}
             for value in ordered:

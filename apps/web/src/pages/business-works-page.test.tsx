@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/api/client";
@@ -62,6 +62,9 @@ function renderPage(path = "/business-works") {
     <Route path="/business-works/:workKey/workbench" element={<h1>业务工作台</h1>} />
     <Route path="/business-works/:workKey/settings" element={<h1>项目配置</h1>} />
     <Route path="/agents" element={<h1>智能体能力中心</h1>} />
+    <Route path="/overview" element={<h1>工作台</h1>} />
+    <Route path="/t/:tenantId/p/:projectId/business-works" element={<BusinessWorksPage />} />
+    <Route path="/t/:tenantId/p/:projectId/overview" element={<h1>项目工作台</h1>} />
   </Routes></MemoryRouter></QueryClientProvider>);
 }
 
@@ -98,11 +101,56 @@ describe("business works page", () => {
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-  it("lists works with real statuses instead of all planned", async () => {
+  it("redirects the removed business works catalog to the overview", async () => {
     renderPage();
-    expect(await screen.findByRole("heading", { name: "业务工作" })).toBeVisible();
-    expect(screen.getAllByText("可运行").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("规划中").length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "工作台" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "业务工作" })).not.toBeInTheDocument();
+  });
+
+  it("preserves the workspace scope when redirecting the removed catalog", async () => {
+    renderPage("/t/tenant-a/p/project-a/business-works");
+    expect(await screen.findByRole("heading", { name: "项目工作台" })).toBeVisible();
+  });
+
+  it("shows the AI foundation quality plane and opens the real evaluation workbench", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(snapshot({
+      workKey: "ai-foundation-quality",
+      status: "runnable",
+      statusLabel: "可运行",
+      packName: "swarm-calibration",
+      agents: [
+        "agent://calibration/primary-diagnostician@1",
+        "agent://calibration/standby-diagnostician@1",
+        "agent://calibration/quality-supervisor@1",
+        "agent://calibration/scheduler@1",
+      ],
+      tools: Array.from({ length: 11 }, (_, index) => `tool://quality/${index}@1`),
+      models: ["model://project/quality-primary@1"],
+    }));
+    vi.mocked(api.listBusinessWorks).mockResolvedValue({
+      items: BUSINESS_WORKS.map((work) => snapshot({
+        workKey: work.key,
+        status: ["ai-foundation-quality", "document-structuring", "report-generation", "swarm-calibration"].includes(work.key)
+          ? "runnable"
+          : "planned",
+      })),
+    });
+
+    renderPage("/business-works/ai-foundation-quality");
+
+    expect(await screen.findByRole("heading", { name: "基础 AI 能力集成与质量评测" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "可验收的最小完整闭环" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "基础能力接入矩阵" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "规则、置信度与人工复核" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "真实资料与评测样本" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "运行真实样本评测" })).toHaveAttribute(
+      "href",
+      "/business-works/ai-foundation-quality/workbench",
+    );
+    expect(screen.getByRole("link", { name: /SQuAD 2.0/ })).toHaveAttribute(
+      "href",
+      "https://rajpurkar.github.io/SQuAD-explorer/",
+    );
   });
 
   it("lets runnable works enter the workbench and blocks planned works", async () => {
@@ -145,19 +193,6 @@ describe("business works page", () => {
       "href",
       "/business-works/report-generation/demo",
     );
-  });
-
-  it("filters by category and searches function descriptions", async () => {
-    renderPage();
-    await screen.findByRole("heading", { name: "业务工作" });
-    fireEvent.click(screen.getByRole("button", { name: "调度治理" }));
-    expect(screen.getByRole("heading", { name: "智能体调度校准智能体" })).toBeVisible();
-    expect(screen.queryByRole("heading", { name: "发票一致性校验智能体" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "全部" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "搜索业务工作或功能" }), { target: { value: "甘特图" } });
-    await waitFor(() => expect(screen.getByRole("heading", { name: "履约计划与执行采集智能体" })).toBeVisible());
-    expect(screen.queryByRole("heading", { name: "文件完整性校验智能体" })).not.toBeInTheDocument();
   });
 
   it("shows shared configuration entries on detail", async () => {

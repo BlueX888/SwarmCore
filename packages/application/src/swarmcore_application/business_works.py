@@ -105,6 +105,7 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         short_name="AI 基础与评测",
         category="foundation",
         summary="统一接入基础 AI 能力，并用样本、规则、置信度和人工复核建立质量闭环。",
+        pack_name="swarm-calibration",
         functions=(
             BusinessWorkFunction(
                 "基础能力接入", "封装 LLM、Embedding、Vision、OCR、NLP、文档解析和结构化抽取。"

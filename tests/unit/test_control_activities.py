@@ -27,3 +27,19 @@ def test_merge_object_reducer_is_stable() -> None:
         )
     )
     assert result == {"a": 1, "b": 2}
+
+
+def test_first_success_reducer_skips_empty_branch_outputs() -> None:
+    activities = ControlActivities(Plans(), Projector())
+    result = asyncio.run(
+        activities.execute_control_node(
+            {
+                "node": {"type": "reducer", "config": {"reducer": "first_success"}},
+                "dependencyOutputs": {
+                    "auto-continue": {},
+                    "revision-loop": {"last": {"items": [{"content": {"summary": "fixed"}}]}},
+                },
+            }
+        )
+    )
+    assert result == {"last": {"items": [{"content": {"summary": "fixed"}}]}}

@@ -47,7 +47,6 @@ export function Navigation({ collapsed = false, onNavigate }: NavigationProps) {
       { label: "工作台", to: `${workspacePath}/overview`, icon: LayoutDashboard, active: (path) => path.startsWith("/overview") },
     ] },
     { id: "business", label: "业务工作", items: [
-      { label: "工作总览", to: `${workspacePath}/business-works`, icon: BriefcaseBusiness, active: (path) => path === "/business-works" || path === "/business-works/" },
       ...BUSINESS_WORKS.map((work) => ({
         label: work.shortName,
         to: `${workspacePath}/business-works/${work.key}`,

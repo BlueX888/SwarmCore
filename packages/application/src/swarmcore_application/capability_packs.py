@@ -101,28 +101,61 @@ class CapabilityPackService:
         )
         if project_exists is None:
             raise LookupError("project not found")
+
+        trusted_keys = {
+            (
+                str(manifest.get("metadata", {}).get("name", "")),
+                str(manifest.get("metadata", {}).get("version", "")),
+            )
+            for manifest in self._trusted_manifests
+        }
+        existing_rows = await session.execute(
+            select(CapabilityPack.name, CapabilityPackVersion.version, CapabilityPackVersion)
+            .join(
+                CapabilityPackVersion,
+                CapabilityPackVersion.pack_id == CapabilityPack.id,
+            )
+            .where(
+                CapabilityPack.tenant_id == tenant_id,
+                CapabilityPack.name.in_([name for name, _ in trusted_keys]),
+                CapabilityPackVersion.version.in_([version for _, version in trusted_keys]),
+            )
+        )
+        existing = {
+            (str(name), str(version)): row
+            for name, version, row in existing_rows.tuples()
+        }
+        deleted_rows = await session.execute(
+            select(AuditLog.metadata_json).where(
+                AuditLog.tenant_id == tenant_id,
+                AuditLog.project_id == project_id,
+                AuditLog.action == "capability-pack.delete",
+                AuditLog.resource_type == "capability_pack_version",
+            )
+        )
+        deleted = {
+            (str(metadata.get("name", "")), str(metadata.get("version", "")))
+            for (metadata,) in deleted_rows
+            if isinstance(metadata, dict)
+        }
         published: list[CapabilityPackVersion] = []
         for manifest in self._trusted_manifests:
             metadata = manifest.get("metadata", {})
             pack_name = str(metadata.get("name", ""))
             pack_version = str(metadata.get("version", ""))
-            if await self._trusted_version_deleted(
-                session,
-                tenant_id=tenant_id,
-                project_id=project_id,
-                pack_name=pack_name,
-                version=pack_version,
-            ):
+            key = (pack_name, pack_version)
+            if key in deleted:
                 continue
-            published.append(
-                await self.publish(
+            version = existing.get(key)
+            if version is None:
+                version = await self.publish(
                     session,
                     tenant_id=tenant_id,
                     project_id=project_id,
                     manifest=manifest,
                     actor="trusted-manifest-loader",
                 )
-            )
+            published.append(version)
         return published
 
     async def _trusted_version_deleted(
@@ -679,9 +712,15 @@ class CapabilityPackService:
         return None
 
     async def list_project(
-        self, session: AsyncSession, *, tenant_id: UUID, project_id: UUID
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        pack_name: str | None = None,
+        reconcile_readiness: bool = True,
     ) -> list[tuple[CapabilityPack, CapabilityPackVersion, ProjectCapabilityBinding | None]]:
-        rows = await session.execute(
+        query = (
             select(CapabilityPack, CapabilityPackVersion, ProjectCapabilityBinding)
             .join(
                 CapabilityPackVersion,
@@ -696,9 +735,14 @@ class CapabilityPackService:
             .where(CapabilityPack.tenant_id == tenant_id)
             .order_by(CapabilityPack.name, CapabilityPackVersion.version)
         )
+        if pack_name is not None:
+            query = query.where(CapabilityPack.name == pack_name)
+        rows = await session.execute(query)
         result: list[
             tuple[CapabilityPack, CapabilityPackVersion, ProjectCapabilityBinding | None]
         ] = list(rows.tuples())
+        if not reconcile_readiness:
+            return result
         for _, version, binding in result:
             if binding is None or binding.status not in {"ENABLED", "DEGRADED"}:
                 continue

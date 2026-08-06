@@ -388,6 +388,7 @@ class DocumentLibraryService:
         search: str | None = None,
         category: str | None = None,
         status: str | None = None,
+        business_work_keys: tuple[str, ...] = (),
     ) -> list[tuple[BusinessDocument, BusinessDocumentVersion | None]]:
         query = (
             select(BusinessDocument, BusinessDocumentVersion)
@@ -413,10 +414,61 @@ class DocumentLibraryService:
             query = query.where(BusinessDocument.category == category)
         if status:
             query = query.where(BusinessDocument.status == status)
+        if business_work_keys:
+            query = (
+                query.join(
+                    DocumentWorkBinding,
+                    DocumentWorkBinding.business_document_id == BusinessDocument.id,
+                )
+                .where(
+                    DocumentWorkBinding.tenant_id == tenant_id,
+                    DocumentWorkBinding.project_id == project_id,
+                    DocumentWorkBinding.business_work_key.in_(business_work_keys),
+                )
+                .distinct()
+            )
         rows = await session.execute(
             query.order_by(BusinessDocument.updated_at.desc(), BusinessDocument.id)
         )
         return list(rows.tuples())
+
+    async def list_bindings(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        document_ids: tuple[UUID, ...],
+    ) -> tuple[dict[UUID, list[UUID]], dict[UUID, list[str]]]:
+        if not document_ids:
+            return {}, {}
+        object_rows = await session.execute(
+            select(
+                DocumentBusinessObjectLink.business_document_id,
+                DocumentBusinessObjectLink.business_object_id,
+            ).where(
+                DocumentBusinessObjectLink.tenant_id == tenant_id,
+                DocumentBusinessObjectLink.project_id == project_id,
+                DocumentBusinessObjectLink.business_document_id.in_(document_ids),
+            )
+        )
+        work_rows = await session.execute(
+            select(
+                DocumentWorkBinding.business_document_id,
+                DocumentWorkBinding.business_work_key,
+            ).where(
+                DocumentWorkBinding.tenant_id == tenant_id,
+                DocumentWorkBinding.project_id == project_id,
+                DocumentWorkBinding.business_document_id.in_(document_ids),
+            )
+        )
+        object_links: dict[UUID, list[UUID]] = {}
+        for document_id, object_id in object_rows.tuples():
+            object_links.setdefault(document_id, []).append(object_id)
+        work_bindings: dict[UUID, list[str]] = {}
+        for document_id, work_key in work_rows.tuples():
+            work_bindings.setdefault(document_id, []).append(work_key)
+        return object_links, work_bindings
 
     async def get(
         self,

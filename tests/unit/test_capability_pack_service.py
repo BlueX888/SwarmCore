@@ -432,7 +432,14 @@ async def test_ensure_trusted_skips_deleted_manifest_versions() -> None:
     metadata = MANIFEST["metadata"]
     assert isinstance(metadata, dict)
     session = MagicMock()
-    session.scalar = AsyncMock(side_effect=[uuid4(), uuid4()])
+    session.scalar = AsyncMock(return_value=uuid4())
+    existing_rows = MagicMock()
+    existing_rows.tuples.return_value = []
+    deleted_rows = MagicMock()
+    deleted_rows.__iter__.return_value = iter([
+        ({"name": metadata["name"], "version": metadata["version"]},)
+    ])
+    session.execute = AsyncMock(side_effect=[existing_rows, deleted_rows])
     service.publish = AsyncMock()  # type: ignore[method-assign]
 
     published = await service.ensure_trusted(
@@ -441,6 +448,40 @@ async def test_ensure_trusted_skips_deleted_manifest_versions() -> None:
 
     assert published == []
     service.publish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ensure_trusted_batches_existing_versions_and_publishes_only_missing() -> None:
+    missing_manifest = deepcopy(MANIFEST)
+    missing_metadata = missing_manifest["metadata"]
+    assert isinstance(missing_metadata, dict)
+    missing_metadata["version"] = "9.9.9"
+    service = CapabilityPackService(
+        CapabilityReferenceCatalog.from_iterable(()),
+        trusted_manifests=(MANIFEST, missing_manifest),
+    )
+    metadata = MANIFEST["metadata"]
+    assert isinstance(metadata, dict)
+    existing_version = _version()
+    session = MagicMock()
+    session.scalar = AsyncMock(return_value=uuid4())
+    existing_rows = MagicMock()
+    existing_rows.tuples.return_value = [
+        (metadata["name"], metadata["version"], existing_version)
+    ]
+    deleted_rows = MagicMock()
+    deleted_rows.__iter__.return_value = iter([])
+    session.execute = AsyncMock(side_effect=[existing_rows, deleted_rows])
+    missing_version = _version()
+    missing_version.version = "9.9.9"
+    service.publish = AsyncMock(return_value=missing_version)  # type: ignore[method-assign]
+
+    published = await service.ensure_trusted(
+        session, tenant_id=uuid4(), project_id=uuid4()
+    )
+
+    assert published == [existing_version, missing_version]
+    service.publish.assert_awaited_once()
 
 
 @pytest.mark.asyncio

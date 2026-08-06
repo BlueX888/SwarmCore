@@ -14,6 +14,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 import { statusLabel } from "@/lib/display-text";
 
+const HUMAN_ACTION_ERRORS: Record<string, string> = {
+  "approval request expired": "该审批的建议处理时限已过，但仍可在运行仍等待时批准或拒绝。请刷新后重试。",
+  "approval request was already handled": "该审批已处理，请刷新待办列表。",
+  "critical approval requires maker-checker": "关键审批要求审批人与发起人分离。",
+  "approval request not found": "未找到该审批，请刷新待办列表。",
+  "external input request not found": "未找到该输入请求，请刷新待办列表。",
+};
+
+export function humanActionErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message.trim() : "";
+  if (!raw) return "操作失败，请稍后重试。";
+  return HUMAN_ACTION_ERRORS[raw] ?? raw;
+}
+
 export function ActionCenterPage() {
   const { tenantId, projectId, workspacePath } = useWorkspaceScope();
   const queryClient = useQueryClient();
@@ -37,7 +51,7 @@ export function ActionCenterPage() {
         queryClient.invalidateQueries({ queryKey: ["inputs", tenantId, projectId] }),
       ]);
     },
-    onError: (error) => setNotice(error.message),
+    onError: (error) => setNotice(humanActionErrorMessage(error)),
   });
   const refresh = () => {
     void approvals.refetch();

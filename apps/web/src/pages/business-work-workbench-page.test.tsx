@@ -61,10 +61,29 @@ function runnableWork(overrides: Partial<BusinessWorkSnapshot> = {}): BusinessWo
     configuration: {},
     workItemType: "contract-case",
     caseBased: false,
+    caseDefinition: defaultCaseDefinition(overrides.workItemType, overrides.caseBased),
     ...overrides,
     boundStrategyVersionId: overrides.boundStrategyVersionId ?? null,
     boundStrategyName: overrides.boundStrategyName ?? null,
     boundStrategyVersion: overrides.boundStrategyVersion ?? null,
+  };
+}
+
+function defaultCaseDefinition(workItemType: string | null | undefined, caseBased: boolean | undefined) {
+  if (!caseBased) return null;
+  const subjectRoles = workItemType === "procurement-supplier-risk-case"
+    ? [
+      { key: "procurement", objectType: "procurement", role: "PRIMARY" as const, min: 1, max: 1 },
+      { key: "supplier", objectType: "supplier", role: "RELATED" as const, min: 1, max: 20 },
+    ]
+    : workItemType === "swarm-calibration-case" || workItemType === "invoice-assurance-case"
+      ? []
+      : [{ key: "contract", objectType: "contract", role: "PRIMARY" as const, min: 1, max: 1 }];
+  return {
+    type: workItemType ?? "contract-case",
+    schema: "schema://business-work/case@1",
+    subjectsRequired: subjectRoles.length > 0,
+    subjectRoles,
   };
 }
 
@@ -132,6 +151,7 @@ describe("business work workbench", () => {
     expect(screen.getByRole("link", { name: "项目配置" })).toHaveAttribute("href", "/business-works/document-integrity/settings");
     expect(screen.getByText("运行资格")).toBeVisible();
     expect(screen.getByText("执行策略")).toBeVisible();
+    expect(api.listCapabilityPacks).not.toHaveBeenCalled();
   });
 
   it("runs the v1 work item flow and opens the assessment page", async () => {

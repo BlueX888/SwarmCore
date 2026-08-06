@@ -51,6 +51,11 @@ export interface StrategyEdge {
   branch: boolean;
 }
 
+export interface DirectedGraphEdge {
+  source: string;
+  target: string;
+}
+
 export interface ConnectResult {
   spec: SwarmSpecDocument;
   error?: string;
@@ -287,10 +292,17 @@ export function listEdges(spec: SwarmSpecDocument): StrategyEdge[] {
 
 export function layoutStrategyGraph(spec: SwarmSpecDocument): Record<string, Position> {
   const nodeKeys = Object.keys(spec.spec.graph.nodes);
+  return layoutDirectedGraph(nodeKeys, listEdges(spec));
+}
+
+export function layoutDirectedGraph(
+  nodeKeys: string[],
+  edges: DirectedGraphEdge[],
+): Record<string, Position> {
   const nodeOrder = new Map(nodeKeys.map((key, index) => [key, index]));
   const predecessors = new Map(nodeKeys.map((key) => [key, [] as string[]]));
   const successors = new Map(nodeKeys.map((key) => [key, [] as string[]]));
-  for (const edge of listEdges(spec)) {
+  for (const edge of edges) {
     predecessors.get(edge.target)?.push(edge.source);
     successors.get(edge.source)?.push(edge.target);
   }

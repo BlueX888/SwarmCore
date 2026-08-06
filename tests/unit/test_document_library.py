@@ -261,6 +261,31 @@ async def test_assessment_snapshot_freezes_blob_version_and_sha256() -> None:
     session.flush.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_list_bindings_bulk_loads_object_and_work_links() -> None:
+    tenant_id = uuid4()
+    project_id = uuid4()
+    document_id = uuid4()
+    object_id = uuid4()
+    object_rows = Mock()
+    object_rows.tuples.return_value = [(document_id, object_id)]
+    work_rows = Mock()
+    work_rows.tuples.return_value = [(document_id, "document-integrity")]
+    session = AsyncMock()
+    session.execute.side_effect = [object_rows, work_rows]
+
+    object_links, work_bindings = await DocumentLibraryService().list_bindings(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        document_ids=(document_id,),
+    )
+
+    assert object_links == {document_id: [object_id]}
+    assert work_bindings == {document_id: ["document-integrity"]}
+    assert session.execute.await_count == 2
+
+
 @pytest.mark.parametrize(
     ("filename", "size_bytes", "sha256"),
     [

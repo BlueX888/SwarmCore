@@ -157,6 +157,83 @@ def test_error_status_is_not_treated_as_structured_output(
         asyncio.run(AgnoAdapter(Resolver()).execute(request))
 
 
+def test_provider_soft_failure_banner_is_not_schema_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeAgent:
+        def __init__(self, **_: Any) -> None:
+            pass
+
+        async def arun(self, *_: Any, **__: Any) -> RunOutput:
+            return RunOutput(
+                run_id="agno-run",
+                status=RunStatus.completed,
+                content="⚠️ 上游通道不可用",
+            )
+
+    monkeypatch.setattr(adapter_module, "Agent", FakeAgent)
+    request = {
+        "agent": {
+            "role": "worker",
+            "instructions": "work",
+            "model": "model://general",
+            "outputSchema": {
+                "type": "object",
+                "required": ["recommendedRoute"],
+                "properties": {"recommendedRoute": {"type": "string"}},
+            },
+        },
+        "run": {"runId": "run", "input": {}},
+        "node": {"key": "schedule-calibration", "config": {}},
+        "taskExecutionId": "task",
+        "agentInstanceId": "agent",
+    }
+
+    with pytest.raises(ValueError, match="model invocation failed: ⚠️ 上游通道不可用"):
+        asyncio.run(AgnoAdapter(Resolver()).execute(request))
+
+
+def test_json_string_content_is_parsed_before_schema_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeAgent:
+        def __init__(self, **_: Any) -> None:
+            pass
+
+        async def arun(self, *_: Any, **__: Any) -> RunOutput:
+            return RunOutput(
+                run_id="agno-run",
+                content='{"recommendedRoute":"PRIMARY","reasonCodes":[],'
+                '"budgetAllocation":{},"risks":[]}',
+            )
+
+    monkeypatch.setattr(adapter_module, "Agent", FakeAgent)
+    request = {
+        "agent": {
+            "role": "worker",
+            "instructions": "work",
+            "model": "model://general",
+            "outputSchema": {
+                "type": "object",
+                "required": ["recommendedRoute", "reasonCodes", "budgetAllocation", "risks"],
+                "properties": {
+                    "recommendedRoute": {"type": "string"},
+                    "reasonCodes": {"type": "array"},
+                    "budgetAllocation": {"type": "object"},
+                    "risks": {"type": "array"},
+                },
+            },
+        },
+        "run": {"runId": "run", "input": {}},
+        "node": {"key": "node", "config": {}},
+        "taskExecutionId": "task",
+        "agentInstanceId": "agent",
+    }
+
+    result = asyncio.run(AgnoAdapter(Resolver()).execute(request))
+
+    assert result["content"]["recommendedRoute"] == "PRIMARY"
+
 def test_token_metrics_are_converted_and_cost_is_optional() -> None:
     without_cost = RunOutput(
         run_id="run",

@@ -2,7 +2,7 @@ import type {
   ApprovalListResponse, AuditListResponse, CapabilityCatalog, CapabilityCenterResponse, CapabilityPreset, CapabilityPresetListResponse, CapabilityPresetRequest, CommandHandle, CompileResponse, ConfigurationKind, CreateSavedConfiguration,
   DraftSnapshot, EditorState, EventHistory, ExternalInputListResponse, RunHandle, RunListResponse, RunSnapshot, SavedConfiguration,
   CapabilityPackListResponse, CapabilityPackSnapshot, CreateCapabilityPackRequest,
-  AssessmentDetailSnapshot, AssessmentDocumentUsageListResponse, AssessmentListResponse, BusinessObjectSnapshot, BusinessWorkListResponse, BusinessWorkSnapshot, CaseSnapshot, CaseSubjectInput, ContractPerformanceCaseSnapshot, ContractPerformanceEvidenceList, ContractPerformancePlanSnapshot, ContractPerformanceSnapshot, DocumentDownloadHandle, DocumentListResponse, DocumentProcessingEventListResponse, DocumentProcessingResultSnapshot, DocumentProcessingRunSnapshot, DocumentRequirementListResponse, DocumentSnapshot, DocumentUploadHandle, EvaluationSnapshot, FindingListResponse, InitiateDocumentRequest, InvoiceAssuranceBatchRequest, InvoiceAssuranceBatchSnapshot, InvoiceRuleTrendSnapshot, PackBindings, ReportListResponse, SupplierRiskAlertListResponse, SupplierRiskHistoryResponse, SupplierRiskMonitorSnapshot, SupplierRiskWorkOrderListResponse, SupplierRiskWorkOrderSnapshot,
+  AssessmentDetailSnapshot, AssessmentDocumentUsageListResponse, AssessmentListResponse, BusinessObjectSnapshot, BusinessWorkListResponse, BusinessWorkSnapshot, CaseSnapshot, CaseSubjectInput, ContractPerformanceCaseSnapshot, ContractPerformanceEvidenceList, ContractPerformancePlanSnapshot, ContractPerformanceSnapshot, DocumentDownloadHandle, DocumentListResponse, DocumentProcessingEventListResponse, DocumentProcessingResultSnapshot, DocumentProcessingRunSnapshot, DocumentRequirementListResponse, DocumentSnapshot, DocumentUploadHandle, EvaluationSnapshot, FindingListResponse, InitiateDocumentRequest, InvoiceAssuranceBatchRequest, InvoiceAssuranceBatchSnapshot, InvoiceRuleTrendSnapshot, PackBindings, ReportListResponse, RunSummaryListResponse, PublishedStrategyVersionListResponse, SupplierRiskAlertListResponse, SupplierRiskHistoryResponse, SupplierRiskMonitorSnapshot, SupplierRiskWorkOrderListResponse, SupplierRiskWorkOrderSnapshot,
   SavedConfigurationListResponse, StrategyDeleteImpact, StrategyHandle,
   ModelProviderApiKeySnapshot, ModelProviderConfiguration, ModelProviderConfigurationRequest, ModelProviderTestResult,
   StrategyListResponse, StrategyVersionDetail,
@@ -38,6 +38,45 @@ function withTimeoutSignal(init?: RequestInit): AbortSignal | undefined {
   return AbortSignal.any([init.signal, timeout]);
 }
 
+/** Turn non-JSON / HTML proxy bodies into a short operator-facing message. */
+export function apiErrorMessage(status: number, body: string, fallback: string): string {
+  const trimmed = body.trim();
+  if (!trimmed) return fallback || `请求失败（HTTP ${status}）`;
+  if (/^<!DOCTYPE html|<html[\s>]/i.test(trimmed) || trimmed.includes("<head>") && trimmed.includes("<style>")) {
+    if (status === 404) {
+      return "API 不可用或代理未生效。请确认 SwarmCore Web（Vite）在 5173 运行，且后端 API 在 8000 可用。";
+    }
+    return `API 返回了非 JSON 错误页（HTTP ${status}）。请确认 Web 开发代理与 API 服务正常。`;
+  }
+  if (trimmed.length > 280) return `${trimmed.slice(0, 280)}…`;
+  return trimmed;
+}
+
+function throwFromErrorBody(status: number, body: string, fallback: string): never {
+  try {
+    const problem = JSON.parse(body) as {
+      detail?: string;
+      code?: string;
+      blockers?: Array<{
+        ref?: string;
+        reasons?: string[];
+        code?: string;
+        count?: number;
+        message?: string;
+      }>;
+    };
+    throw new ApiError(
+      status,
+      problem.detail ?? apiErrorMessage(status, body, fallback),
+      problem.code,
+      problem.blockers,
+    );
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(status, apiErrorMessage(status, body, fallback));
+  }
+}
+
 async function request<T>(path: string, tenantId: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
@@ -57,24 +96,7 @@ async function request<T>(path: string, tenantId: string, init?: RequestInit): P
     throw new ApiError(0, error instanceof Error ? error.message : "网络请求失败", "NETWORK_ERROR");
   }
   if (!response.ok) {
-    const body = await response.text();
-    try {
-      const problem = JSON.parse(body) as {
-        detail?: string;
-        code?: string;
-        blockers?: Array<{
-          ref?: string;
-          reasons?: string[];
-          code?: string;
-          count?: number;
-          message?: string;
-        }>;
-      };
-      throw new ApiError(response.status, problem.detail ?? body, problem.code, problem.blockers);
-    } catch (error) {
-      if (error instanceof ApiError) throw error;
-      throw new ApiError(response.status, body || response.statusText);
-    }
+    throwFromErrorBody(response.status, await response.text(), response.statusText);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -92,7 +114,9 @@ async function requestFile(path: string, tenantId: string, init?: RequestInit): 
     }
     throw new ApiError(0, error instanceof Error ? error.message : "网络请求失败", "NETWORK_ERROR");
   }
-  if (!response.ok) throw new ApiError(response.status, await response.text());
+  if (!response.ok) {
+    throwFromErrorBody(response.status, await response.text(), response.statusText);
+  }
   return response.blob();
 }
 
@@ -113,7 +137,7 @@ async function uploadBlob(uploadRef: string, capabilityToken: string, file: File
     if (response.status === 404) {
       throw new ApiError(404, "文件存储服务不可用。请确认 Artifact Gateway 已启动（默认 8091）。");
     }
-    throw new ApiError(response.status, body || response.statusText);
+    throw new ApiError(response.status, apiErrorMessage(response.status, body, response.statusText));
   }
 }
 
@@ -147,11 +171,13 @@ export const api = {
   updateDraft: (tenantId: string, projectId: string, strategyId: string, draftId: string, revision: number, spec: Record<string, unknown>, editorState: EditorState) => request<DraftSnapshot>(`/v1/projects/${projectId}/strategies/${strategyId}/drafts/${draftId}`, tenantId, { method: "PUT", headers: { "If-Match": `"${revision}"` }, body: JSON.stringify({ spec, editorState }) }),
   compileStrategy: (tenantId: string, projectId: string, spec: Record<string, unknown>) => request<CompileResponse>(`/v1/projects/${projectId}/strategies/compile`, tenantId, { method: "POST", body: JSON.stringify({ spec }) }),
   listVersions: (tenantId: string, projectId: string, strategyId: string) => request<StrategyVersionListResponse>(`/v1/projects/${projectId}/strategies/${strategyId}/versions`, tenantId),
+  listPublishedStrategyVersions: (tenantId: string, projectId: string) => request<PublishedStrategyVersionListResponse>(`/v1/projects/${projectId}/strategies/versions?lifecycle=PUBLISHED&lifecycle=TRUSTED&limit=500`, tenantId),
   getVersion: (tenantId: string, projectId: string, strategyId: string, versionId: string) => request<StrategyVersionDetail>(`/v1/projects/${projectId}/strategies/${strategyId}/versions/${versionId}`, tenantId),
   publishStrategy: (tenantId: string, projectId: string, strategyId: string, draftId: string) => request<StrategyVersionDetail | { strategyVersionId: string; version: number; planHash: string }>(`/v1/projects/${projectId}/strategies/${strategyId}/publish`, tenantId, { method: "POST", body: JSON.stringify({ draftId }) }),
   getStrategyDeleteImpact: (tenantId: string, projectId: string, strategyId: string) => request<StrategyDeleteImpact>(`/v1/projects/${projectId}/strategies/${strategyId}/delete-impact`, tenantId),
   deleteStrategy: (tenantId: string, projectId: string, strategyId: string) => request<undefined>(`/v1/projects/${projectId}/strategies/${strategyId}`, tenantId, { method: "DELETE" }),
   listRuns: (tenantId: string, projectId: string) => request<RunListResponse>(`/v1/projects/${projectId}/runs`, tenantId),
+  listRunSummaries: (tenantId: string, projectId: string, strategyVersionId: string, limit = 5) => request<RunSummaryListResponse>(`/v1/projects/${projectId}/run-summaries?strategyVersionId=${encodeURIComponent(strategyVersionId)}&limit=${limit}&includeActive=true`, tenantId),
   createRun: (tenantId: string, projectId: string, strategyVersionId: string, input: Record<string, unknown>, idempotencyKey: string) => request<RunHandle>(`/v1/projects/${projectId}/runs`, tenantId, { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ strategyVersionId, input }) }),
   getRun: (tenantId: string, projectId: string, runId: string) => request<RunSnapshot>(`/v1/projects/${projectId}/runs/${runId}`, tenantId),
   history: (tenantId: string, projectId: string, runId: string, after: number) => request<EventHistory>(`/v1/projects/${projectId}/runs/${runId}/event-history?after=${after}&limit=1000`, tenantId),
@@ -186,11 +212,12 @@ export const api = {
   createWorkItem: (tenantId: string, projectId: string, body: { workItemType: string; payload: Record<string, unknown>; owner?: string }) => request<WorkItemSnapshot>(`/v1/projects/${projectId}/work-items`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(body) }),
   executeWorkItem: (tenantId: string, projectId: string, workItemId: string) => request<EvaluationSnapshot>(`/v1/projects/${projectId}/work-items/${workItemId}:execute`, tenantId, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }),
   getEvaluation: (tenantId: string, projectId: string, evaluationId: string) => request<EvaluationSnapshot>(`/v1/projects/${projectId}/evaluations/${evaluationId}`, tenantId),
-  listDocuments: (tenantId: string, projectId: string, search = "", category = "", status = "") => {
+  listDocuments: (tenantId: string, projectId: string, search = "", category = "", status = "", businessWorkKeys: string[] = []) => {
     const query = new URLSearchParams();
     if (search) query.set("search", search);
     if (category) query.set("category", category);
     if (status) query.set("status", status);
+    for (const key of businessWorkKeys) query.append("businessWorkKey", key);
     const suffix = query.size ? `?${query.toString()}` : "";
     return request<DocumentListResponse>(`/v1/projects/${projectId}/documents${suffix}`, tenantId);
   },

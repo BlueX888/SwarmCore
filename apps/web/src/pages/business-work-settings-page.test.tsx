@@ -15,6 +15,7 @@ vi.mock("@/api/client", async (importOriginal) => {
       getBusinessWork: vi.fn(),
       listStrategies: vi.fn(),
       listVersions: vi.fn(),
+      listPublishedStrategyVersions: vi.fn(),
       listDocuments: vi.fn(),
       bindBusinessWorkStrategy: vi.fn(),
       getPackBindings: vi.fn(),
@@ -112,6 +113,10 @@ describe("business work settings configuration", () => {
       statusLabel: "可运行",
       blockers: [],
     });
+    vi.mocked(api.listPublishedStrategyVersions).mockResolvedValue({
+      items: [{ strategyVersionId: "strategy-version-1", strategyId: "strategy-1", strategyName: "后评价执行策略", version: 7, lifecycle: "PUBLISHED" }],
+      total: 1,
+    });
     vi.mocked(api.getPackBindings).mockResolvedValue({ decisions: [], resources: [] });
     vi.mocked(api.createDecisionAsset).mockResolvedValue({
       decisionAssetId: "decision-1",
@@ -185,7 +190,7 @@ describe("business work settings configuration", () => {
   });
 
   it("shows a failure message instead of infinite loading when strategies fail", async () => {
-    vi.mocked(api.listStrategies).mockRejectedValue(new Error("strategies unavailable"));
+    vi.mocked(api.listPublishedStrategyVersions).mockRejectedValue(new Error("strategies unavailable"));
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("策略加载失败：strategies unavailable");
     expect(screen.queryByText("正在加载策略…")).not.toBeInTheDocument();

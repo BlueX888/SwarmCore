@@ -5,7 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from swarmcore_persistence.models import Run, RunEvent, RunTask
+from swarmcore_persistence.models import Run, RunEvent, RunTask, Strategy, StrategyVersion
 
 _TERMINAL_RUN_STATUSES = {"REJECTED", "CANCELLED", "SUCCEEDED", "TIMED_OUT"}
 
@@ -28,6 +28,16 @@ class RunQueryService:
         )
         if run is None:
             raise LookupError("run not found")
+        strategy_spec = await session.scalar(
+            select(StrategyVersion.raw_spec)
+            .join(Strategy, Strategy.id == StrategyVersion.strategy_id)
+            .where(
+                StrategyVersion.id == run.strategy_version_id,
+                StrategyVersion.tenant_id == tenant_id,
+                Strategy.tenant_id == tenant_id,
+                Strategy.project_id == project_id,
+            )
+        )
         tasks = list(
             await session.scalars(
                 select(RunTask).where(RunTask.run_id == run_id).order_by(RunTask.task_instance_key)
@@ -64,6 +74,7 @@ class RunQueryService:
             errors=errors,
             outputs=outputs,
             retryable=is_retryable_run_failure(failure),
+            strategy_node_order=strategy_node_order_from_spec(strategy_spec),
         )
 
 
@@ -74,6 +85,7 @@ def render_run_snapshot(
     errors: dict[UUID | None, Any] | None = None,
     outputs: dict[UUID | None, Any] | None = None,
     retryable: bool = False,
+    strategy_node_order: list[str] | None = None,
 ) -> dict[str, Any]:
     task_items = tasks or []
     task_counts: dict[str, int] = {}
@@ -102,6 +114,7 @@ def render_run_snapshot(
         "snapshotSeq": run.next_event_seq - 1,
         "earliestAvailableSeq": run.earliest_available_seq,
         "strategyVersionId": str(run.strategy_version_id),
+        "strategyNodeOrder": strategy_node_order or [],
         "planHash": run.plan_hash,
         "usage": run.usage,
         "taskCounts": task_counts,
@@ -123,6 +136,21 @@ def render_run_snapshot(
             for task in task_items
         ],
     }
+
+
+def strategy_node_order_from_spec(raw_spec: Any) -> list[str]:
+    if not isinstance(raw_spec, dict):
+        return []
+    spec = raw_spec.get("spec")
+    if not isinstance(spec, dict):
+        return []
+    graph = spec.get("graph")
+    if not isinstance(graph, dict):
+        return []
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, dict):
+        return []
+    return [key for key in nodes if isinstance(key, str)]
 
 
 def is_retryable_run_failure(failure: RunEvent | None) -> bool:

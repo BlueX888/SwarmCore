@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal, cast
@@ -569,11 +569,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 api_key = runtime[1]
         if not api_key:
             raise HTTPException(status_code=422, detail="API key is required")
+        # Omit temperature: some providers (e.g. kimi-k2.5) reject values other than 1.
+        # Use enough tokens for reasoning models that spend budget before emitting content.
         probe = InvokeBody(
             capabilityToken="probe",
             messages=[{"role": "user", "content": "Reply with OK only."}],
-            maxTokens=16,
-            parameters={"temperature": 0},
+            maxTokens=64,
         )
         started = asyncio.get_running_loop().time()
         try:
@@ -1125,10 +1126,12 @@ def _litellm(
     )
     try:
         with urlopen(request, timeout=timeout_seconds) as response:
-            return _decode_openai_response(response.read(4 * 1024 * 1024))
+            result = _decode_openai_response(response.read(4 * 1024 * 1024))
     except HTTPError as exc:
         detail = _provider_error_detail(exc.read(64 * 1024))
         raise RuntimeError(f"provider HTTP {exc.code}: {detail}") from exc
+    _assert_usable_completion(result)
+    return result
 
 
 def _provider_error_detail(payload: bytes) -> str:
@@ -1167,7 +1170,9 @@ def _portal_capability_invoke(
         method="POST",
     )
     with urlopen(request, timeout=timeout_seconds) as response:
-        return _decode_portal_response(response.read(4 * 1024 * 1024), fallback_model=model)
+        result = _decode_portal_response(response.read(4 * 1024 * 1024), fallback_model=model)
+    _assert_usable_completion(result)
+    return result
 
 
 def _decode_portal_response(raw: bytes, *, fallback_model: str) -> dict[str, Any]:
@@ -1210,11 +1215,109 @@ def _decode_portal_response(raw: bytes, *, fallback_model: str) -> dict[str, Any
     }
 
 
+_PROVIDER_SOFT_FAILURE_MARKERS = (
+    "上游通道不可用",
+    "通道不可用",
+    "upstream channel",
+    "upstream unavailable",
+    "provider unavailable",
+    "model unavailable",
+)
+
+
+def _format_provider_error(error: Any) -> str:
+    if isinstance(error, str):
+        detail = " ".join(error.split()).strip()
+        return detail[:1000] or "unknown provider error"
+    if not isinstance(error, dict):
+        detail = " ".join(str(error).split()).strip()
+        return detail[:1000] or "unknown provider error"
+    parts: list[str] = []
+    for key in ("message", "msg", "code"):
+        value = error.get(key)
+        if isinstance(value, str) and value.strip():
+            parts.append(value.strip())
+            break
+    hint = error.get("hint")
+    if isinstance(hint, str) and hint.strip():
+        parts.append(hint.strip())
+    detail = " — ".join(parts) if parts else "unknown provider error"
+    return " ".join(detail.split())[:1000]
+
+
+def _raise_if_provider_error(document: Mapping[str, Any]) -> None:
+    error = document.get("error")
+    if error is None:
+        return
+    raise ValueError(f"model provider soft failure: {_format_provider_error(error)}")
+
+
+def _assistant_message_fields(result: Mapping[str, Any]) -> tuple[Any, str, bool]:
+    choices = result.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None, "", False
+    first = choices[0]
+    if not isinstance(first, dict):
+        return None, "", False
+    message = first.get("message")
+    if not isinstance(message, dict):
+        return None, "", False
+    tool_calls = message.get("tool_calls")
+    has_tools = isinstance(tool_calls, list) and bool(tool_calls)
+    reasoning = message.get("reasoning_content")
+    reasoning_text = reasoning.strip() if isinstance(reasoning, str) else ""
+    return message.get("content"), reasoning_text, has_tools
+
+
+def _looks_like_provider_soft_error(content: str) -> bool:
+    text = " ".join(content.split()).strip()
+    if not text:
+        return True
+    lowered = text.casefold()
+    if any(
+        marker.casefold() in lowered or marker in text
+        for marker in _PROVIDER_SOFT_FAILURE_MARKERS
+    ):
+        return True
+    return (
+        text.startswith(("⚠", "⚠️", "❌", "🚫"))
+        and len(text) <= 80
+        and "{" not in text
+    )
+
+
+def _assert_usable_completion(result: Mapping[str, Any]) -> None:
+    """Reject HTTP-200 soft failures (empty / banner content) before they reach agents."""
+    _raise_if_provider_error(result)
+    content, reasoning, has_tools = _assistant_message_fields(result)
+    if has_tools:
+        return
+    if isinstance(content, str) and content.strip():
+        if _looks_like_provider_soft_error(content):
+            raise ValueError(f"model provider soft failure: {content.strip()[:500]}")
+        return
+    if isinstance(content, list | dict):
+        return
+    # Reasoning-only deltas still prove the upstream channel answered (common on
+    # short connection probes against thinking models).
+    if reasoning and not _looks_like_provider_soft_error(reasoning):
+        return
+    choices = result.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ValueError("model provider returned no choices")
+    if content is None or (isinstance(content, str) and not content.strip()):
+        raise ValueError("model provider returned empty content")
+    raise ValueError("model provider returned unsupported content type")
+
+
 def _decode_openai_response(raw: bytes) -> dict[str, Any]:
     try:
-        return cast(dict[str, Any], json.loads(raw))
+        document = cast(dict[str, Any], json.loads(raw))
     except json.JSONDecodeError:
-        pass
+        document = None
+    if document is not None:
+        _raise_if_provider_error(document)
+        return document
 
     chunks: list[dict[str, Any]] = []
     for line in raw.decode("utf-8").splitlines():
@@ -1225,6 +1328,7 @@ def _decode_openai_response(raw: bytes) -> dict[str, Any]:
             continue
         value = json.loads(data)
         if isinstance(value, dict):
+            _raise_if_provider_error(value)
             chunks.append(value)
     if not chunks:
         raise ValueError("model provider returned neither JSON nor OpenAI-compatible SSE")

@@ -103,6 +103,7 @@ class AgnoAdapter:
         if not self._has_content(content):
             raise ValueError("model returned no final answer")
         if output_schema is not None:
+            content = self._coerce_structured_content(content)
             try:
                 Draft202012Validator(output_schema).validate(content)
             except ValidationError as exc:
@@ -127,6 +128,19 @@ class AgnoAdapter:
             "model": output.model,
             "metrics": metrics,
         }
+
+    @staticmethod
+    def _coerce_structured_content(content: Any) -> Any:
+        """Parse JSON strings; treat non-JSON banners as model invocation failures."""
+        if not isinstance(content, str):
+            return content
+        stripped = content.strip()
+        if not stripped:
+            raise ValueError("model returned no final answer")
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"model invocation failed: {stripped[:500]}") from exc
 
     @classmethod
     def _extract_final_content(cls, output: RunOutput) -> tuple[Any, str | None]:

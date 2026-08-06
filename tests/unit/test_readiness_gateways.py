@@ -441,3 +441,89 @@ async def test_model_api_key_is_configured_only_when_vault_value_is_readable() -
     assert await model_gateway._read_api_key(empty, secret_ref) is None
     assert await model_gateway._api_key_configured(missing, secret_ref) is False
     assert await model_gateway._api_key_configured(None, secret_ref) is False
+
+
+def test_provider_soft_failure_banner_is_rejected() -> None:
+    with pytest.raises(ValueError, match="model provider soft failure"):
+        model_gateway._assert_usable_completion(
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "⚠️ 上游通道不可用"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+        )
+
+
+def test_provider_structured_sse_error_is_rejected() -> None:
+    raw = (
+        b'data: {"id":"err-1","model":"DeepSeek-V4-Flash","choices":[{"index":0,'
+        b'"delta":{"role":"assistant","content":"banner"}}],'
+        b'"error":{"code":"UPSTREAM_UNAVAILABLE","message":"upstream unavailable",'
+        b'"hint":"linked API key disabled"}}\n\n'
+        b"data: [DONE]\n\n"
+    )
+
+    with pytest.raises(ValueError, match="linked API key disabled"):
+        model_gateway._decode_openai_response(raw)
+
+
+def test_provider_reasoning_only_completion_is_accepted() -> None:
+    model_gateway._assert_usable_completion(
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "reasoning_content": "User asked for OK; prepare reply.",
+                    },
+                    "finish_reason": "length",
+                }
+            ]
+        }
+    )
+
+
+def test_provider_empty_content_without_tools_is_rejected() -> None:
+    with pytest.raises(ValueError, match="empty content"):
+        model_gateway._assert_usable_completion(
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "   "},
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+        )
+
+
+def test_provider_tool_calls_without_content_are_accepted() -> None:
+    model_gateway._assert_usable_completion(
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call-1",
+                                "type": "function",
+                                "function": {"name": "lookup", "arguments": "{}"},
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        }
+    )

@@ -136,6 +136,17 @@ export interface StrategyVersionSummary {
   planHash: string; schemaVersion: string; runtimeVersion: string; createdAt: string;
 }
 export interface StrategyVersionListResponse { items: StrategyVersionSummary[]; total: number; }
+export interface PublishedStrategyVersionSnapshot {
+  strategyVersionId: string;
+  strategyId: string;
+  strategyName: string;
+  version: number;
+  lifecycle: string;
+}
+export interface PublishedStrategyVersionListResponse {
+  items: PublishedStrategyVersionSnapshot[];
+  total: number;
+}
 export interface StrategyVersionDetail extends StrategyVersionSummary {
   spec: Record<string, unknown>; normalizedSpec: Record<string, unknown>; plan: Record<string, unknown>;
 }
@@ -151,6 +162,7 @@ export interface RunSnapshot {
   snapshotSeq: number;
   earliestAvailableSeq: number;
   strategyVersionId: string;
+  strategyNodeOrder?: string[];
   planHash: string;
   usage: Record<string, unknown>;
   taskCounts: Record<string, number>;
@@ -161,6 +173,21 @@ export interface RunSnapshot {
 }
 
 export interface RunListResponse { items: RunSnapshot[]; total: number; }
+export interface RunSummarySnapshot {
+  runId: string;
+  status: string;
+  strategyVersionId: string;
+  snapshotSeq: number;
+  eventCount?: number;
+  taskCount: number;
+  operatorName: string;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  failureReason?: string | null;
+  cancelReason?: string | null;
+}
+export interface RunSummaryListResponse { items: RunSummarySnapshot[]; total: number; }
 export interface CommandHandle {
   commandId: string; requestId: string; commandSeq: number; status: string;
   result?: Record<string, unknown> | null; error?: Record<string, unknown> | null;
@@ -554,6 +581,18 @@ export interface BusinessWorkSnapshot {
   configuration: Record<string, unknown>;
   workItemType: string | null;
   caseBased: boolean;
+  caseDefinition?: {
+    type: string;
+    schema: string;
+    subjectsRequired: boolean;
+    subjectRoles: Array<{
+      key: string;
+      objectType: string;
+      role: "PRIMARY" | "COMPARISON" | "EVIDENCE" | "RELATED";
+      min: number;
+      max: number | null;
+    }>;
+  } | null;
   boundStrategyVersionId: string | null;
   boundStrategyName: string | null;
   boundStrategyVersion: number | null;

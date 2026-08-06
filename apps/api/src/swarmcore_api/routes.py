@@ -116,10 +116,14 @@ from .schemas import (
     ModelProviderTestResult,
     ProjectConfigurationListResponse,
     ProjectConfigurationSnapshot,
+    PublishedStrategyVersionListResponse,
+    PublishedStrategyVersionSnapshot,
     PublishRequest,
     RunHandle,
     RunListResponse,
     RunSnapshot,
+    RunSummaryListResponse,
+    RunSummarySnapshot,
     StrategyDeleteBlockerSnapshot,
     StrategyDeleteImpactResponse,
     StrategyDetail,
@@ -665,6 +669,59 @@ async def list_strategies(
     return StrategyListResponse(items=summaries, total=total or 0)
 
 
+@router.get(
+    "/projects/{project_id}/strategies/versions",
+    response_model=PublishedStrategyVersionListResponse,
+)
+async def list_published_strategy_versions(
+    scope: Scope,
+    session: Session,
+    lifecycle: Annotated[list[str] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> PublishedStrategyVersionListResponse:
+    allowed_lifecycles = ("PUBLISHED", "TRUSTED")
+    lifecycles = tuple(
+        value for value in allowed_lifecycles if lifecycle is None or value in lifecycle
+    )
+    query = (
+        select(StrategyVersion, Strategy.name)
+        .join(Strategy, Strategy.id == StrategyVersion.strategy_id)
+        .where(
+            StrategyVersion.tenant_id == scope.tenant_id,
+            Strategy.tenant_id == scope.tenant_id,
+            Strategy.project_id == scope.project_id,
+            StrategyVersion.lifecycle.in_(lifecycles),
+        )
+        .order_by(Strategy.name, StrategyVersion.version.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    rows = list(await session.execute(query))
+    items = [
+        PublishedStrategyVersionSnapshot(
+            strategyVersionId=version.id,
+            strategyId=version.strategy_id,
+            strategyName=name,
+            version=version.version,
+            lifecycle=version.lifecycle,
+        )
+        for version, name in rows
+    ]
+    total = await session.scalar(
+        select(func.count())
+        .select_from(StrategyVersion)
+        .join(Strategy, Strategy.id == StrategyVersion.strategy_id)
+        .where(
+            StrategyVersion.tenant_id == scope.tenant_id,
+            Strategy.tenant_id == scope.tenant_id,
+            Strategy.project_id == scope.project_id,
+            StrategyVersion.lifecycle.in_(lifecycles),
+        )
+    )
+    return PublishedStrategyVersionListResponse(items=items, total=total or 0)
+
+
 @router.get("/projects/{project_id}/strategies/{strategy_id}", response_model=StrategyDetail)
 async def get_strategy(strategy_id: UUID, scope: Scope, session: Session) -> StrategyDetail:
     strategy = await _get_scoped_strategy(session, scope, strategy_id)
@@ -946,6 +1003,128 @@ async def list_runs(
         )
         snapshots.append(RunSnapshot.model_validate(render_run_snapshot(run, tasks)))
     return RunListResponse(items=snapshots, total=total)
+
+
+@router.get(
+    "/projects/{project_id}/run-summaries",
+    response_model=RunSummaryListResponse,
+)
+async def list_run_summaries(
+    scope: Scope,
+    session: Session,
+    strategy_version_id: Annotated[UUID, Query(alias="strategyVersionId")],
+    limit: Annotated[int, Query(ge=1, le=20)] = 5,
+    include_active: Annotated[bool, Query(alias="includeActive")] = True,
+) -> RunSummaryListResponse:
+    base_filters = (
+        Run.tenant_id == scope.tenant_id,
+        Run.project_id == scope.project_id,
+        Run.strategy_version_id == strategy_version_id,
+    )
+    recent = list(
+        await session.scalars(
+            select(Run)
+            .where(*base_filters)
+            .order_by(Run.created_at.desc())
+            .limit(limit)
+        )
+    )
+    runs_by_id = {run.id: run for run in recent}
+    if include_active:
+        active_statuses = (
+            "ACCEPTED",
+            "QUEUED",
+            "RUNNING",
+            "PENDING",
+            "WAITING_INPUT",
+            "WAITING_APPROVAL",
+            "PAUSING",
+            "CANCELLING",
+        )
+        active = list(
+            await session.scalars(
+                select(Run)
+                .where(*base_filters, Run.status.in_(active_statuses))
+                .order_by(Run.created_at.desc())
+            )
+        )
+        runs_by_id.update({run.id: run for run in active})
+    selected = sorted(runs_by_id.values(), key=lambda run: run.created_at, reverse=True)
+    task_counts: dict[UUID, int] = {}
+    if selected:
+        task_rows = await session.execute(
+            select(RunTask.run_id, func.count(RunTask.id))
+            .where(
+                RunTask.tenant_id == scope.tenant_id,
+                RunTask.run_id.in_(tuple(run.id for run in selected)),
+            )
+            .group_by(RunTask.run_id)
+        )
+        task_counts = {run_id: int(count) for run_id, count in task_rows}
+    reason_by_run: dict[UUID, tuple[str, str]] = {}
+    reason_runs = [run for run in selected if run.status in {"FAILED", "CANCELLED"}]
+    if reason_runs:
+        reason_rows = await session.execute(
+            select(RunEvent.run_id, RunEvent.type, RunEvent.payload)
+            .where(
+                RunEvent.tenant_id == scope.tenant_id,
+                RunEvent.project_id == scope.project_id,
+                RunEvent.run_id.in_(tuple(run.id for run in reason_runs)),
+                RunEvent.type.in_(("run.failed", "run.cancelled")),
+            )
+            .order_by(RunEvent.event_seq.desc())
+        )
+        for run_id, event_type, payload in reason_rows:
+            if run_id in reason_by_run or not isinstance(payload, dict):
+                continue
+            reason = payload.get("message") or payload.get("reason") or payload.get("code")
+            if isinstance(reason, str) and reason:
+                reason_by_run[run_id] = (event_type, reason)
+
+    items: list[RunSummarySnapshot] = []
+    for run in selected:
+        input_data = run.input if isinstance(run.input, dict) else {}
+        provenance = input_data.get("provenance")
+        operator_name = None
+        if isinstance(provenance, dict) and isinstance(provenance.get("operatorName"), str):
+            operator_name = provenance["operatorName"]
+        if not operator_name and isinstance(input_data.get("operatorName"), str):
+            operator_name = input_data["operatorName"]
+        if not operator_name and isinstance(input_data.get("owner"), str):
+            operator_name = input_data["owner"]
+        operator_name = operator_name or run.initiated_by or "当前用户"
+        output = run.output if isinstance(run.output, dict) else {}
+        event_reason = reason_by_run.get(run.id)
+        failure_reason = output.get("failureReason") or output.get("error")
+        if event_reason is not None and event_reason[0] == "run.failed":
+            failure_reason = event_reason[1]
+        if not isinstance(failure_reason, str):
+            failure_reason = "运行执行失败,请查看运行详情" if run.status == "FAILED" else None
+        cancel_reason = input_data.get("cancelReason")
+        if event_reason is not None and event_reason[0] == "run.cancelled":
+            cancel_reason = event_reason[1]
+        if not isinstance(cancel_reason, str):
+            cancel_reason = "运行已取消" if run.status == "CANCELLED" else None
+        items.append(
+            RunSummarySnapshot(
+                runId=run.id,
+                status=run.status,
+                strategyVersionId=run.strategy_version_id,
+                snapshotSeq=run.next_event_seq - 1,
+                eventCount=run.next_event_seq - 1,
+                taskCount=task_counts.get(run.id, 0),
+                operatorName=operator_name,
+                createdAt=run.created_at,
+                startedAt=run.started_at,
+                completedAt=run.completed_at,
+                failureReason=failure_reason,
+                cancelReason=cancel_reason,
+            )
+        )
+    total = await session.scalar(
+        select(func.count()).select_from(Run).where(*base_filters)
+    )
+    return RunSummaryListResponse(items=items, total=total or 0)
 
 
 @router.post(
@@ -1580,6 +1759,24 @@ async def _get_input(
     return request
 
 
+def approval_decision_error(
+    request: ApprovalRequest,
+    *,
+    actor: str,
+) -> tuple[int, str] | None:
+    """Return (status, detail) when an approval cannot be decided yet.
+
+    ``expires_at`` is advisory metadata for HIGH/CRITICAL tool prompts. The
+    workflow still waits until approve/reject/cancel, so a wall-clock expiry
+    must not leave Action Center cards that fail while the run is waiting.
+    """
+    if request.status != "PENDING":
+        return 410, "该审批已处理，请刷新待办列表。"
+    if request.requires_distinct_approver and actor == request.requested_by:
+        return 403, "关键审批要求审批人与发起人分离（maker-checker）。"
+    return None
+
+
 async def _handle_approval(
     session: AsyncSession,
     scope: RequestScope,
@@ -1589,12 +1786,10 @@ async def _handle_approval(
     value: dict[str, Any],
     actor: str,
 ) -> CommandHandle:
-    if request.status != "PENDING":
-        raise HTTPException(status_code=410, detail="approval request was already handled")
-    if request.expires_at is not None and request.expires_at <= datetime.now(UTC):
-        raise HTTPException(status_code=410, detail="approval request expired")
-    if request.requires_distinct_approver and actor == request.requested_by:
-        raise HTTPException(status_code=403, detail="critical approval requires maker-checker")
+    blocked = approval_decision_error(request, actor=actor)
+    if blocked is not None:
+        status, detail = blocked
+        raise HTTPException(status_code=status, detail=detail)
     handle = await _append_command(
         session,
         scope,

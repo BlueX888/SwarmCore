@@ -756,3 +756,6 @@ INFO:     127.0.0.1:59758 - "GET /v1/projects/3bad4546-a2c9-4179-8c0e-1afd34cd23
 INFO:     127.0.0.1:52276 - "GET /v1/projects/3bad4546-a2c9-4179-8c0e-1afd34cd233a/commands/019fa702-5c81-789f-9f04-12978c3fc2d3 HTTP/1.1" 200 OK
 INFO:     127.0.0.1:52278 - "GET /v1/projects/3bad4546-a2c9-4179-8c0e-1afd34cd233a/runs/019fa700-541c-7fa3-a055-c839701f5dde/event-history HTTP/1.1" 200 OK
 INFO:     127.0.0.1:55510 - "GET /v1/projects/3bad4546-a2c9-4179-8c0e-1afd34cd233a/runs/019fa700-541c-7fa3-a055-c839701f5dde/event-history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55965 - "GET /health HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60008 - "GET / HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:57025 - "GET /health/live HTTP/1.1" 200 OK

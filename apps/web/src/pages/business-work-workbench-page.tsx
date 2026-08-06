@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3, Boxes, Braces, ChevronDown, ChevronUp, Files, Play, Settings2, ShieldCheck, Workflow,
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api } from "@/api/client";
-import type { CapabilityPackSnapshot, CaseSubjectInput, InvoiceRuleTrendSnapshot } from "@/api/types";
+import type { BusinessWorkSnapshot, CaseSubjectInput, InvoiceRuleTrendSnapshot } from "@/api/types";
 import { BusinessWorkPageHeader } from "@/components/business-works/business-work-page-header";
 import {
   DocumentRequirementChecklist,
@@ -16,6 +16,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
+import {
+  BUSINESS_WORK_QUERY_GC_TIME,
+  BUSINESS_WORK_QUERY_STALE_TIME,
+  getBusinessWork,
+} from "@/lib/business-works";
 
 type SubjectRole = CaseSubjectInput["role"];
 type SubjectContract = { key: string; objectType: string; role: SubjectRole; min: number };
@@ -143,6 +148,8 @@ export function BusinessWorkWorkbenchPage() {
   const { workKey = "" } = useParams();
   const { tenantId, projectId, workspacePath } = useWorkspaceScope();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const local = getBusinessWork(workKey);
   const [owner, setOwner] = useState("");
   const [title, setTitle] = useState("");
   const [contractType, setContractType] = useState("purchase");
@@ -173,25 +180,19 @@ export function BusinessWorkWorkbenchPage() {
   const work = useQuery({
     queryKey: ["business-work", tenantId, projectId, workKey],
     queryFn: () => api.getBusinessWork(tenantId, projectId, workKey),
-  });
-  const packs = useQuery({
-    queryKey: ["capability-packs", tenantId, projectId],
-    queryFn: () => api.listCapabilityPacks(tenantId, projectId),
-    enabled: Boolean(work.data?.packName),
+    staleTime: BUSINESS_WORK_QUERY_STALE_TIME,
+    gcTime: BUSINESS_WORK_QUERY_GC_TIME,
   });
   const invoiceTrends = useQuery({
     queryKey: ["invoice-assurance-rule-trends", tenantId, projectId],
     queryFn: () => api.getInvoiceAssuranceRuleTrends(tenantId, projectId, "day"),
     enabled: workKey === "invoice-assurance",
   });
-  const pack = useMemo(
-    () => selectPack(packs.data?.items ?? [], work.data?.packName ?? ""),
-    [packs.data, work.data?.packName],
-  );
-
   useEffect(() => {
-    if (!pack) return;
-    const defaults = defaultPayload(workItemType(pack));
+    if (!work.data) return;
+    const type = workItemType(work.data);
+    if (!type) return;
+    const defaults = defaultPayload(type);
     setPayloadSource(JSON.stringify(defaults, null, 2));
     if (typeof defaults.title === "string") setTitle(defaults.title);
     if (typeof defaults.contractType === "string") setContractType(defaults.contractType);
@@ -242,14 +243,14 @@ export function BusinessWorkWorkbenchPage() {
     if (contract && typeof contract === "object" && typeof (contract as Record<string, unknown>).contractId === "string") {
       setContractId((contract as Record<string, unknown>).contractId as string);
     }
-  }, [pack]);
+  }, [work.data]);
 
-  const ready = work.data?.status === "runnable" && Boolean(pack);
+  const ready = work.data?.status === "runnable" && Boolean(work.data.packVersionId);
   const run = useMutation({
     mutationFn: async () => {
-      if (!pack || !work.data) throw new Error("业务工作尚未载入。");
-      const type = workItemType(pack);
-      const payload = buildPayload(pack, {
+      if (!work.data) throw new Error("业务工作尚未载入。");
+      const type = workItemType(work.data);
+      const payload = buildPayload(work.data, {
         title,
         contractType,
         contractId,
@@ -276,7 +277,7 @@ export function BusinessWorkWorkbenchPage() {
       });
       const localError = validateWorkbenchPayload(type, payload);
       if (localError) throw new Error(localError);
-      const subjectContracts = requiredSubjects(pack);
+      const subjectContracts = requiredSubjects(work.data);
       if (!subjectContracts.length) {
         const item = await api.createWorkItem(tenantId, projectId, {
           workItemType: type,
@@ -292,7 +293,7 @@ export function BusinessWorkWorkbenchPage() {
           canonicalKey: canonicalKey(data, payload, contract.objectType),
           schemaRef: `schema://${contract.objectType}/facts@1`,
           data,
-          provenance: { source: "business-work-workbench", workKey, capabilityPackVersionId: pack.versionId },
+          provenance: { source: "business-work-workbench", workKey, capabilityPackVersionId: work.data.packVersionId },
         });
         return {
           businessObjectId: object.businessObjectId,
@@ -332,12 +333,27 @@ export function BusinessWorkWorkbenchPage() {
       }
       return api.assessCase(tenantId, projectId, businessCase.caseId);
     },
-    onSuccess: (evaluation) => navigate(`${workspacePath}/assessments/${evaluation.evaluationId}`),
+    onSuccess: (evaluation) => {
+      void queryClient.invalidateQueries({ queryKey: ["business-work", tenantId, projectId, workKey] });
+      if (work.data?.boundStrategyVersionId) {
+        void queryClient.invalidateQueries({
+          queryKey: ["business-work-run-summaries", tenantId, projectId, work.data.boundStrategyVersionId],
+        });
+      }
+      void navigate(`${workspacePath}/assessments/${evaluation.evaluationId}`);
+    },
     onError: (error) => setInputError(workbenchErrorMessage(error)),
   });
 
-  if (work.isPending || (work.data?.packName && packs.isPending)) {
-    return <div className="space-y-4"><Skeleton className="h-40" /><Skeleton className="h-80" /></div>;
+  if (work.isPending) {
+    return <div className="min-w-0 space-y-6">
+      {local ? <header className="rounded-2xl border border-gray-200/80 bg-white/90 p-5 shadow-theme-card dark:border-gray-800 dark:bg-white/[0.035]">
+        <p className="text-sm text-gray-500">工作台</p>
+        <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{local.shortName}</p>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-500">{local.summary}</p>
+      </header> : <Skeleton className="h-40" />}
+      <Skeleton className="h-80" />
+    </div>;
   }
   if (work.isError || !work.data) {
     return <LoadError message={work.error?.message ?? `未找到业务工作：${workKey}`} onRetry={() => void work.refetch()} />;
@@ -350,12 +366,12 @@ export function BusinessWorkWorkbenchPage() {
       <Button asChild variant="outline"><Link to={`${workspacePath}/business-works/${workKey}`}>返回业务工作</Link></Button>
     </CardContent></Card>;
   }
-  if (packs.isError || !pack) {
-    return <LoadError message={packs.error?.message ?? "内部执行定义尚未配置"} onRetry={() => void packs.refetch()} />;
+  if (!work.data.packVersionId || !workItemType(work.data)) {
+    return <LoadError message="内部执行定义尚未配置" onRetry={() => void work.refetch()} />;
   }
 
-  const type = workItemType(pack);
-  const subjectContracts = requiredSubjects(pack);
+  const type = workItemType(work.data);
+  const subjectContracts = requiredSubjects(work.data);
   const blockers = work.data.blockers.map((item) => item.message);
   const strategyLabel = work.data.boundStrategyName && work.data.boundStrategyVersion != null
     ? `${work.data.boundStrategyName} · v${work.data.boundStrategyVersion}`
@@ -633,7 +649,7 @@ export function BusinessWorkWorkbenchPage() {
               setShowAdvanced((open) => {
                 if (!open) {
                   try {
-                    setPayloadSource(JSON.stringify(buildPayload(pack, {
+                    setPayloadSource(JSON.stringify(buildPayload(work.data, {
                       title,
                       contractType,
                       contractId,
@@ -863,8 +879,8 @@ const FORM_MANAGED_KEYS: Record<string, readonly string[]> = {
   "invoice-assurance-case": ["title"],
 };
 
-function buildPayload(pack: CapabilityPackSnapshot, values: WorkbenchFormValues) {
-  const type = workItemType(pack);
+function buildPayload(work: BusinessWorkSnapshot, values: WorkbenchFormValues) {
+  const type = workItemType(work);
   const formPayload = buildFormPayload(type, values);
   if (!values.advancedSource) return formPayload;
   const advanced = parseObject(values.advancedSource, "业务输入必须是 JSON 对象。");
@@ -1029,40 +1045,19 @@ function parseArray(source: string, message: string) {
   return value as unknown[];
 }
 
-function selectPack(items: CapabilityPackSnapshot[], name: string) {
-  return items.filter((item) => item.name === name).sort((left, right) => {
-    if (left.enabled !== right.enabled) return left.enabled ? -1 : 1;
-    return right.version.localeCompare(left.version, undefined, { numeric: true });
-  })[0];
+function workItemType(work: BusinessWorkSnapshot) {
+  return work.workItemType ?? work.caseDefinition?.type ?? work.packName ?? work.workKey;
 }
 
-function manifestSpec(pack: CapabilityPackSnapshot) {
-  return pack.manifest.spec && typeof pack.manifest.spec === "object" ? pack.manifest.spec as Record<string, unknown> : {};
-}
-
-function workItemType(pack: CapabilityPackSnapshot) {
-  const spec = manifestSpec(pack);
-  const caseContract = spec.case;
-  if (caseContract && typeof caseContract === "object" && typeof (caseContract as Record<string, unknown>).type === "string") {
-    return (caseContract as Record<string, unknown>).type as string;
-  }
-  return typeof spec.workItemType === "string" ? spec.workItemType : pack.name;
-}
-
-function requiredSubjects(pack: CapabilityPackSnapshot): SubjectContract[] {
-  const value = manifestSpec(pack).case;
-  if (!value || typeof value !== "object") return [];
-  const caseContract = value as Record<string, unknown>;
-  const roles = caseContract.subjectRoles;
-  if (!Array.isArray(roles)) return [];
-  const contracts = roles.flatMap((item): SubjectContract[] => {
-    if (!item || typeof item !== "object") return [];
-    const role = item as Record<string, unknown>;
-    if (typeof role.key !== "string" || typeof role.objectType !== "string" || !isSubjectRole(role.role)) return [];
-    return [{ key: role.key, objectType: role.objectType, role: role.role, min: typeof role.min === "number" ? role.min : 0 }];
+function requiredSubjects(work: BusinessWorkSnapshot): SubjectContract[] {
+  const value = work.caseDefinition;
+  if (!value) return [];
+  const contracts = value.subjectRoles.flatMap((role) => {
+    if (!role.key || !role.objectType || !isSubjectRole(role.role)) return [];
+    return [{ key: role.key, objectType: role.objectType, role: role.role, min: role.min } satisfies SubjectContract];
   });
   const required = contracts.filter((contract) => contract.min > 0);
-  if (required.length || caseContract.subjectsRequired !== true) return required;
+  if (required.length || !value.subjectsRequired) return required;
   const primary = contracts.find((contract) => contract.role === "PRIMARY");
   return primary ? [primary] : [];
 }
@@ -1084,6 +1079,8 @@ function DocumentWorkbenchPanel({
   const requirements = useQuery({
     queryKey: ["document-requirements", tenantId, projectId, workKey],
     queryFn: () => api.listWorkDocumentRequirements(tenantId, projectId, workKey),
+    staleTime: BUSINESS_WORK_QUERY_STALE_TIME,
+    gcTime: BUSINESS_WORK_QUERY_GC_TIME,
   });
   const [showUpload, setShowUpload] = useState(false);
   const [uploadCategory, setUploadCategory] = useState("");
@@ -1136,6 +1133,9 @@ function DocumentWorkbenchPanel({
                 setShowUpload(false);
                 await Promise.all([
                   requirements.refetch(),
+                  queryClient.invalidateQueries({
+                    queryKey: ["business-work-documents", tenantId, projectId],
+                  }),
                   queryClient.invalidateQueries({
                     queryKey: ["business-work", tenantId, projectId, workKey],
                   }),

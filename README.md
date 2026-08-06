@@ -197,6 +197,11 @@ pnpm web:dev
 
 REST 与 MCP 都调用统一应用服务。产品侧优先使用 Business Work、Case、Assessment 和
 DecisionAsset 术语；`WorkItem`、`Evaluation` 与 `RuleSet` 仅作为兼容存储/API 术语保留。
+业务工作详情链路支持按工作键过滤资料：
+`GET /v1/projects/{projectId}/documents?businessWorkKey=...`；设置页可用
+`GET /v1/projects/{projectId}/strategies/versions` 一次读取项目级已发布/可信策略版本，
+详情页用 `GET /v1/projects/{projectId}/run-summaries?strategyVersionId=...` 读取轻量运行摘要。
+业务工作投影中的 `caseDefinition` 提供办理所需 Case 类型、Schema 和主体约束，避免加载完整能力包。
 合同履约专用 REST 位于
 `/v1/projects/{projectId}/contract-performance/cases`，覆盖 Case 创建、计划初始化/发布、
 增量采集、甘特、证据账和不可变结果快照。

@@ -348,6 +348,7 @@ def _business_work_snapshot(summary: BusinessWorkSummary) -> BusinessWorkSnapsho
         configuration=summary.configuration,
         workItemType=summary.work_item_type,
         caseBased=summary.case_based,
+        caseDefinition=summary.case_definition,
         boundStrategyVersionId=summary.bound_strategy_version_id,
         boundStrategyName=summary.bound_strategy_name,
         boundStrategyVersion=summary.bound_strategy_version,
@@ -1755,6 +1756,9 @@ async def list_documents(
     search: str | None = Query(default=None, max_length=256),
     category: str | None = Query(default=None, max_length=128),
     status: str | None = Query(default=None, max_length=32),
+    business_work_keys: Annotated[
+        list[str] | None, Query(alias="businessWorkKey", max_length=128)
+    ] = None,
 ) -> DocumentListResponse:
     values = await documents.list_documents(
         session,
@@ -1763,21 +1767,25 @@ async def list_documents(
         search=search,
         category=category,
         status=status,
+        business_work_keys=tuple(
+            value.strip() for value in (business_work_keys or ()) if value.strip()
+        ),
+    )
+    document_ids = tuple(document.id for document, _ in values)
+    object_links, work_bindings = await documents.list_bindings(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        document_ids=document_ids,
     )
     items: list[DocumentSnapshot] = []
     for document, version in values:
-        _, _, object_links, work_bindings = await documents.details(
-            session,
-            tenant_id=scope.tenant_id,
-            project_id=scope.project_id,
-            document_id=document.id,
-        )
         items.append(
             _document_snapshot(
                 document,
                 current=version,
-                business_object_ids=[value.business_object_id for value in object_links],
-                business_work_keys=[value.business_work_key for value in work_bindings],
+                business_object_ids=object_links.get(document.id, []),
+                business_work_keys=work_bindings.get(document.id, []),
             )
         )
     return DocumentListResponse(items=items)

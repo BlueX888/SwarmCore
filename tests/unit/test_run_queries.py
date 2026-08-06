@@ -4,7 +4,11 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID
 
-from swarmcore_application.queries import is_retryable_run_failure, render_run_snapshot
+from swarmcore_application.queries import (
+    is_retryable_run_failure,
+    render_run_snapshot,
+    strategy_node_order_from_spec,
+)
 from swarmcore_domain import uuid7
 
 
@@ -93,3 +97,31 @@ def test_render_run_snapshot_preserves_task_error_payload() -> None:
         retryable=False,
     )
     assert cleared["tasks"][0]["error"] is None
+
+
+def test_run_snapshot_preserves_strategy_node_order() -> None:
+    order = ["read-contract", "analyze", "report"]
+    snapshot = render_run_snapshot(
+        _run(status="SUCCEEDED"),
+        [],
+        strategy_node_order=order,
+    )
+
+    assert snapshot["strategyNodeOrder"] == order
+
+
+def test_strategy_node_order_handles_valid_and_missing_graphs() -> None:
+    assert strategy_node_order_from_spec(
+        {
+            "spec": {
+                "graph": {
+                    "nodes": {
+                        "read-contract": {"type": "tool"},
+                        "analyze": {"type": "agent"},
+                    }
+                }
+            }
+        }
+    ) == ["read-contract", "analyze"]
+    assert strategy_node_order_from_spec({"spec": {"graph": {}}}) == []
+    assert strategy_node_order_from_spec(None) == []

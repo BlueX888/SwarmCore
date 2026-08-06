@@ -125,6 +125,19 @@ class StrategyVersionListResponse(ApiModel):
     total: int
 
 
+class PublishedStrategyVersionSnapshot(ApiModel):
+    strategy_version_id: UUID = Field(alias="strategyVersionId")
+    strategy_id: UUID = Field(alias="strategyId")
+    strategy_name: str = Field(alias="strategyName")
+    version: int
+    lifecycle: str
+
+
+class PublishedStrategyVersionListResponse(ApiModel):
+    items: list[PublishedStrategyVersionSnapshot]
+    total: int
+
+
 class StrategyVersionDetail(StrategyVersionSummary):
     spec: dict[str, Any]
     normalized_spec: dict[str, Any] = Field(alias="normalizedSpec")
@@ -311,6 +324,7 @@ class RunSnapshot(ApiModel):
     snapshot_seq: int = Field(alias="snapshotSeq")
     earliest_available_seq: int = Field(alias="earliestAvailableSeq")
     strategy_version_id: UUID = Field(alias="strategyVersionId")
+    strategy_node_order: list[str] = Field(default_factory=list, alias="strategyNodeOrder")
     plan_hash: str = Field(alias="planHash")
     usage: dict[str, Any] = Field(default_factory=dict)
     task_counts: dict[str, int] = Field(default_factory=dict, alias="taskCounts")
@@ -334,6 +348,26 @@ class TaskSnapshot(ApiModel):
 
 class RunListResponse(ApiModel):
     items: list[RunSnapshot]
+    total: int
+
+
+class RunSummarySnapshot(ApiModel):
+    run_id: UUID = Field(alias="runId")
+    status: str
+    strategy_version_id: UUID = Field(alias="strategyVersionId")
+    snapshot_seq: int = Field(alias="snapshotSeq")
+    event_count: int = Field(alias="eventCount")
+    task_count: int = Field(alias="taskCount")
+    operator_name: str = Field(alias="operatorName")
+    created_at: datetime = Field(alias="createdAt")
+    started_at: datetime | None = Field(default=None, alias="startedAt")
+    completed_at: datetime | None = Field(default=None, alias="completedAt")
+    failure_reason: str | None = Field(default=None, alias="failureReason")
+    cancel_reason: str | None = Field(default=None, alias="cancelReason")
+
+
+class RunSummaryListResponse(ApiModel):
+    items: list[RunSummarySnapshot]
     total: int
 
 

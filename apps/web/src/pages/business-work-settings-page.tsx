@@ -10,7 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaceScope } from "@/lib/demo-scope";
-import { DOCUMENT_CATEGORY_LABELS, documentBindingKeys } from "@/lib/business-works";
+import {
+  BUSINESS_WORK_QUERY_GC_TIME,
+  BUSINESS_WORK_QUERY_STALE_TIME,
+  DOCUMENT_CATEGORY_LABELS,
+  documentBindingKeys,
+  getBusinessWork,
+} from "@/lib/business-works";
 import {
   listPublishedStrategyOptions,
   type PublishedStrategyOption,
@@ -22,22 +28,34 @@ export function BusinessWorkSettingsPage() {
   const { workKey = "" } = useParams();
   const { tenantId, projectId, workspacePath } = useWorkspaceScope();
   const queryClient = useQueryClient();
+  const local = getBusinessWork(workKey);
   const [selectedStrategyVersionId, setSelectedStrategyVersionId] = useState("");
   const [bindSuccess, setBindSuccess] = useState(false);
 
   const work = useQuery({
     queryKey: ["business-work", tenantId, projectId, workKey],
     queryFn: () => api.getBusinessWork(tenantId, projectId, workKey),
+    staleTime: BUSINESS_WORK_QUERY_STALE_TIME,
+    gcTime: BUSINESS_WORK_QUERY_GC_TIME,
   });
+  const bindingKeyList = useMemo(
+    () => [...documentBindingKeys(work.data?.workKey ?? workKey, work.data?.workItemType ?? null)].sort(),
+    [work.data?.workItemType, work.data?.workKey, workKey],
+  );
+  const bindingKeys = useMemo(() => new Set(bindingKeyList), [bindingKeyList]);
   const documents = useQuery({
-    queryKey: ["documents", tenantId, projectId],
-    queryFn: () => api.listDocuments(tenantId, projectId),
+    queryKey: ["business-work-documents", tenantId, projectId, bindingKeyList],
+    queryFn: () => api.listDocuments(tenantId, projectId, "", "", "", bindingKeyList),
     enabled: Boolean(work.data && work.data.status !== "planned"),
+    staleTime: BUSINESS_WORK_QUERY_STALE_TIME,
+    gcTime: BUSINESS_WORK_QUERY_GC_TIME,
   });
   const strategies = useQuery({
     queryKey: ["published-strategy-options", tenantId, projectId],
     enabled: Boolean(work.data && work.data.status !== "planned"),
     queryFn: () => listPublishedStrategyOptions(tenantId, projectId),
+    staleTime: BUSINESS_WORK_QUERY_STALE_TIME,
+    gcTime: BUSINESS_WORK_QUERY_GC_TIME,
   });
   const decisionBindings = useQuery({
     queryKey: ["capability-pack-bindings", tenantId, projectId, work.data?.packVersionId],
@@ -46,12 +64,10 @@ export function BusinessWorkSettingsPage() {
       if (!work.data?.packVersionId) throw new Error("能力包版本尚未载入。");
       return api.getPackBindings(tenantId, projectId, work.data.packVersionId);
     },
+    staleTime: BUSINESS_WORK_QUERY_STALE_TIME,
+    gcTime: BUSINESS_WORK_QUERY_GC_TIME,
   });
 
-  const bindingKeys = useMemo(
-    () => new Set(documentBindingKeys(work.data?.workKey ?? workKey, work.data?.workItemType ?? null)),
-    [work.data?.workItemType, work.data?.workKey, workKey],
-  );
   const boundDocuments = useMemo(() => {
     const items = documents.data?.items ?? [];
     return items.filter((doc) => doc.businessWorkKeys.some((key) => bindingKeys.has(key)));
@@ -87,6 +103,7 @@ export function BusinessWorkSettingsPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["business-work", tenantId, projectId, workKey] }),
         queryClient.invalidateQueries({ queryKey: ["business-works", tenantId, projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["business-work-run-summaries", tenantId, projectId] }),
         queryClient.invalidateQueries({ queryKey: ["capability-packs", tenantId, projectId] }),
       ]);
     },
@@ -119,13 +136,21 @@ export function BusinessWorkSettingsPage() {
         decisionBindings.refetch(),
         queryClient.invalidateQueries({ queryKey: ["business-work", tenantId, projectId, workKey] }),
         queryClient.invalidateQueries({ queryKey: ["business-works", tenantId, projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["business-work-run-summaries", tenantId, projectId] }),
         queryClient.invalidateQueries({ queryKey: ["capability-packs", tenantId, projectId] }),
       ]);
     },
   });
 
   if (work.isPending) {
-    return <div className="space-y-4"><Skeleton className="h-24" /><Skeleton className="h-72" /></div>;
+    return <div className="min-w-0 space-y-6">
+      {local ? <header className="rounded-2xl border border-gray-200/80 bg-white/90 p-5 shadow-theme-card dark:border-gray-800 dark:bg-white/[0.035]">
+        <p className="text-sm text-gray-500">项目配置</p>
+        <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{local.shortName}</p>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-500">{local.summary}</p>
+      </header> : <Skeleton className="h-24" />}
+      <Skeleton className="h-72" />
+    </div>;
   }
   if (work.isError || !work.data) {
     return <LoadError message={work.error?.message ?? `未找到业务工作：${workKey}`} onRetry={() => void work.refetch()} />;

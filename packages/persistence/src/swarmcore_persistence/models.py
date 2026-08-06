@@ -151,6 +151,13 @@ class Run(Base, IdMixin, TenantMixin, TimestampMixin):
         ),
         Index("ix_runs_tenant_created", "tenant_id", "created_at"),
         Index("ix_runs_project_status", "project_id", "status"),
+        Index(
+            "ix_runs_scope_strategy_created",
+            "tenant_id",
+            "project_id",
+            "strategy_version_id",
+            "created_at",
+        ),
         Index("ix_runs_reconciled_at", "reconciled_at"),
     )
 

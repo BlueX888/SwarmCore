@@ -1,0 +1,62 @@
+INFO:     127.0.0.1:58380 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64928 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55028 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62635 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56445 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57969 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57026 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55913 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59374 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65328 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51172 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63276 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55358 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55973 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49339 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57320 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54078 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60857 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58636 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64912 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52623 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60368 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56987 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54844 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50860 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63626 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60692 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63362 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53364 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60376 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55006 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56896 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60238 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49336 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56456 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51354 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52246 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51083 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53681 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61885 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62345 - "GET /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider?logical_model=model%3A%2F%2Fproject%2F7467363a-b30b-48ef-a453-b49dba8d99a2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54929 - "POST /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider%3Atest HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:53734 - "GET /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider?logical_model=model%3A%2F%2Fgeneral HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62505 - "POST /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider%3Atest HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:55910 - "POST /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider%3Atest HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:64347 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60495 - "GET /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider?logical_model=model%3A%2F%2Fgeneral HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57410 - "POST /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider%3Akey?logical_model=model%3A%2F%2Fgeneral HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53317 - "POST /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider%3Atest HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:56323 - "GET /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider?logical_model=model%3A%2F%2Fgeneral HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52505 - "POST /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider%3Atest HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:65131 - "GET /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider?logical_model=model%3A%2F%2Fgeneral HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60200 - "POST /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider%3Atest HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:60203 - "POST /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider%3Akey?logical_model=model%3A%2F%2Fgeneral HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65446 - "POST /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider%3Akey?logical_model=model%3A%2F%2Fgeneral HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62711 - "POST /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider%3Akey?logical_model=model%3A%2F%2Fgeneral HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54634 - "POST /internal/v1/projects/00000000-0000-0000-0000-000000000002/model-provider%3Akey?logical_model=model%3A%2F%2Fgeneral HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49973 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61921 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62147 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53535 - "GET /internal/v1/readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63799 - "GET /health/live HTTP/1.1" 404 Not Found

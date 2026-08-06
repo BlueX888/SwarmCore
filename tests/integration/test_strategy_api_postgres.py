@@ -106,6 +106,20 @@ async def test_strategy_queries_are_project_scoped_and_versioned() -> None:
         )
         assert run_response.status_code == 202
         run_id = run_response.json()["runId"]
+        version_response = client.get(
+            f"{base}/{handle['strategyId']}/versions/{version_id}",
+            headers=headers,
+        )
+        assert version_response.status_code == 200
+        expected_node_order = list(
+            version_response.json()["spec"]["spec"]["graph"]["nodes"]
+        )
+        run_detail = client.get(
+            f"/v1/projects/{project_id}/runs/{run_id}",
+            headers=headers,
+        )
+        assert run_detail.status_code == 200
+        assert run_detail.json()["strategyNodeOrder"] == expected_node_order
         command_key = "shared-cancel-command"
         rest_command = client.post(
             f"/v1/projects/{project_id}/runs/{run_id}:cancel",

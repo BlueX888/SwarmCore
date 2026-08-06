@@ -1,7 +1,9 @@
-INFO:     127.0.0.1:60244 - "GET /openapi.json HTTP/1.1" 200 OK
-INFO:     127.0.0.1:53941 - "GET /internal/v1/readiness HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:57984 - "GET /v1/projects/00000000-0000-0000-0000-000000000002/capability-center HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:52334 - "POST /internal/v1/blobs/019fac97-c8fc-7ba4-bd32-8e46ab4cc823 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:61396 - "POST /internal/v1/blobs/019fac98-3e8b-7a54-8b8f-5c61c6fe220e HTTP/1.1" 200 OK
-INFO:     127.0.0.1:53125 - "POST /internal/v1/blobs/019fb130-2255-74cc-b9fe-d8af3a15ab6d HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60431 - "POST /internal/v1/blobs/019fb1aa-87b3-76a0-b32e-ad350092fe1f HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51834 - "GET /internal/v1/readiness HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:51552 - "GET /internal/v1/readiness HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:65514 - "GET /health/live HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:65514 - "GET /health HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:65514 - "GET /ready HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:65514 - "GET /internal/v1/health HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:65514 - "GET /v1/health HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:65514 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65527 - "GET /openapi.json HTTP/1.1" 200 OK

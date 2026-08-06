@@ -122,6 +122,10 @@ async def test_report_generation_reuses_runnable_post_evaluation_pack() -> None:
     assert summary.pack_name == "contract-post-evaluation"
     assert summary.work_item_type == "contract-post-evaluation-case"
     assert summary.case_based is True
+    assert summary.case_definition is not None
+    assert summary.case_definition["type"] == "contract-post-evaluation-case"
+    assert summary.case_definition["schema"]
+    assert summary.case_definition["subjectRoles"][0]["key"] == "contract"
 
 
 @pytest.mark.asyncio

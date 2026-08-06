@@ -1,9 +1,22 @@
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, CircleAlert, Download, FileText, LoaderCircle, Table2, Upload, X } from "lucide-react";
+import {
+  Check,
+  CircleAlert,
+  Download,
+  FileText,
+  Link2,
+  ListChecks,
+  LoaderCircle,
+  Table2,
+  Tags,
+  Upload,
+  X,
+} from "lucide-react";
 import { ApiError, api } from "@/api/client";
 import type {
+  DocumentProcessingEventSnapshot,
   DocumentRequirementSnapshot,
   DocumentSnapshot,
   UploadBatchSnapshot,
@@ -300,7 +313,31 @@ export function DocumentProcessingStatus({
   if (processing.isPending || !processing.data) {
     return <p className="inline-flex items-center gap-2 text-sm text-gray-500"><LoaderCircle className="size-4 animate-spin" />加载处理状态…</p>;
   }
-  const Icon = processing.data.status === "READY" ? Check : processing.data.status === "FAILED" ? CircleAlert : LoaderCircle;
+  const eventItems = events.data?.items ?? [];
+  const eventStages = new Set(eventItems.map((event) => event.stage));
+  const isReady = processing.data.status === "READY" || eventStages.has("READY");
+  const isReviewRequired = !isReady
+    && (processing.data.status === "REVIEW_REQUIRED" || eventStages.has("REVIEW_REQUIRED"));
+  const isFailed = processing.data.status === "FAILED";
+  const isCancelled = processing.data.status === "CANCELLED";
+  const isTerminal = isReady || isReviewRequired || isFailed || isCancelled;
+  const Icon = isReady ? Check : isFailed ? CircleAlert : LoaderCircle;
+  const statusTitle = isReady
+    ? "处理完成"
+    : isReviewRequired
+      ? "自动处理完成，待确认"
+      : isCancelled
+        ? "处理已取消"
+        : processing.data.stageLabel;
+  const statusDescription = isReady
+    ? "文件内容已完成解析与确认，可以用于后续业务。"
+    : isReviewRequired
+      ? "系统已完成识别，请确认下方的文档分类和字段。"
+      : isFailed
+        ? (processing.data.errorDetail || "处理未完成，请重新处理。")
+        : isCancelled
+          ? "本次处理已取消，可重新发起处理。"
+          : "系统正在解析文件，请稍候。";
   const plan = (
     processing.data.provenance?.processingPlan
     && typeof processing.data.provenance.processingPlan === "object"
@@ -309,19 +346,16 @@ export function DocumentProcessingStatus({
   const packageResult = structured.data?.result;
   const artifacts = packageResult?.artifacts ?? result.data?.result.artifacts ?? [];
   return (
-    <div className="space-y-4 rounded-lg border border-gray-200 p-4 text-sm dark:border-gray-800">
+    <div className="space-y-4 rounded-xl border border-gray-200 p-4 text-sm dark:border-gray-800">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="inline-flex items-center gap-2 font-medium text-gray-800 dark:text-gray-200">
-            <Icon className={`size-4 ${!["READY", "FAILED", "CANCELLED", "REVIEW_REQUIRED"].includes(processing.data.status) ? "animate-spin" : ""}`} />
-            {processing.data.stageLabel}
+          <p className="inline-flex items-center gap-2 font-semibold text-gray-900 dark:text-white">
+            <Icon className={`size-4 ${!isTerminal ? "animate-spin" : ""}`} />
+            {statusTitle}
           </p>
-          <p className="mt-1 text-xs text-gray-500">
-            第 {processing.data.attempt} 次处理 · {processing.data.profileRef}
-            {processing.data.errorDetail ? ` · ${processing.data.errorDetail}` : ""}
-          </p>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{statusDescription}</p>
         </div>
-        {!["READY", "FAILED", "CANCELLED", "REVIEW_REQUIRED"].includes(processing.data.status) ? (
+        {!isTerminal ? (
           <Button
             size="sm"
             variant="outline"
@@ -333,32 +367,16 @@ export function DocumentProcessingStatus({
         ) : null}
       </div>
       {cancel.isError ? <p role="alert" className="text-xs text-error-600">{cancel.error.message}</p> : null}
-      {plan ? (
-        <div className="grid gap-2 sm:grid-cols-4">
-          <Metric label="处理路径" value={plan.largeDocument ? "大文件分片" : "普通文件"} />
-          <Metric label="页数" value={displayScalar(plan.pageCount)} />
-          <Metric label="页组" value={displayScalar(plan.groupCount ?? (Array.isArray(plan.pageBatches) ? plan.pageBatches.length : undefined))} />
-          <Metric label="最大并行" value={displayScalar(plan.maxParallelism)} />
-        </div>
-      ) : null}
-      {events.data?.items.length ? (
-        <div>
-          <p className="mb-2 font-medium text-gray-800 dark:text-gray-200">处理过程与依据</p>
-          <ol className="space-y-2 border-l border-gray-200 pl-4 dark:border-gray-700">
-            {events.data.items.slice(-12).map((event) => (
-              <li key={event.eventId}>
-                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {event.eventSeq}. {event.type} · {event.stage}
-                </p>
-                <p className="mt-0.5 text-[11px] text-gray-500">
-                  {event.toolRef || "系统"}
-                  {event.outputHash ? ` · 输出 ${event.outputHash.slice(0, 12)}…` : ""}
-                  {` · ${new Date(event.occurredAt).toLocaleString()}`}
-                </p>
-              </li>
-            ))}
-          </ol>
-        </div>
+      {eventItems.length ? (
+        <ProcessingProgress
+          events={eventItems}
+          currentStage={processing.data.currentStage}
+          ready={isReady}
+          reviewRequired={isReviewRequired}
+          attempt={processing.data.attempt}
+          profileRef={processing.data.profileRef}
+          plan={plan}
+        />
       ) : null}
       {content ? (
         <div className="grid gap-2 sm:grid-cols-3">
@@ -408,6 +426,136 @@ export function DocumentProcessingStatus({
   );
 }
 
+const automaticProcessingSteps = [
+  { key: "scan", label: "安全检查", stages: ["SCANNING"] },
+  { key: "parse", label: "内容解析", stages: ["PARSING"] },
+  { key: "classify", label: "分类识别", stages: ["CLASSIFYING"] },
+  { key: "extract", label: "字段提取", stages: ["EXTRACTING"] },
+  { key: "quality", label: "质量校验", stages: ["QUALITY_CHECK"] },
+] as const;
+
+function ProcessingProgress({
+  events,
+  currentStage,
+  ready,
+  reviewRequired,
+  attempt,
+  profileRef,
+  plan,
+}: {
+  events: DocumentProcessingEventSnapshot[];
+  currentStage: string;
+  ready: boolean;
+  reviewRequired: boolean;
+  attempt: number;
+  profileRef: string;
+  plan: Record<string, unknown> | null;
+}) {
+  const stages = new Set(events.map((event) => event.stage));
+  const steps = [
+    ...automaticProcessingSteps.map((step) => ({
+      ...step,
+      complete: step.stages.some((stage) => stages.has(stage)),
+      active: step.stages.some((stage) => stage === currentStage),
+    })),
+    {
+      key: "review",
+      label: ready ? "确认完成" : "人工确认",
+      complete: ready,
+      active: reviewRequired,
+    },
+  ];
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-medium text-gray-700 dark:text-gray-300">处理进度</p>
+      <ol className="grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
+        {steps.map((step, index) => (
+          <li key={step.key} className="flex items-center gap-2">
+            <span
+              className={`grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${
+                step.complete
+                  ? "bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-300"
+                  : step.active
+                    ? "bg-brand-50 text-brand-600 ring-1 ring-brand-200 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-500/20"
+                    : "bg-gray-100 text-gray-400 dark:bg-gray-800"
+              }`}
+            >
+              {step.complete ? <Check className="size-3.5" /> : index + 1}
+            </span>
+            <span className={`text-xs ${step.complete || step.active ? "font-medium text-gray-700 dark:text-gray-300" : "text-gray-400"}`}>
+              {step.label}
+            </span>
+          </li>
+        ))}
+      </ol>
+      <details className="group border-t border-gray-100 pt-3 dark:border-gray-800">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+          <span>查看处理记录（{events.length} 条）</span>
+          <span className="text-[11px]">用于审计与问题排查</span>
+        </summary>
+        <div className="mt-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-900">
+          <p className="mb-3 text-[11px] text-gray-500">
+            第 {attempt} 次处理 · 处理方案 {profileRef}
+            {plan ? ` · ${processingPlanLabel(plan)}` : ""}
+          </p>
+          <ol className="space-y-2">
+            {events.slice(-12).map((event) => (
+              <li key={event.eventId} className="flex items-start justify-between gap-4 text-xs">
+                <div className="min-w-0">
+                  <p className="font-medium text-gray-700 dark:text-gray-300">{processingEventLabel(event)}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-gray-400" title={event.toolRef || event.type}>
+                    {event.toolRef || "系统处理"}{event.outputHash ? ` · 校验 ${event.outputHash.slice(0, 8)}…` : ""}
+                  </p>
+                </div>
+                <time className="shrink-0 text-[11px] text-gray-400" dateTime={event.occurredAt}>
+                  {new Date(event.occurredAt).toLocaleString("zh-CN")}
+                </time>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+const processingEventLabels: Record<string, string> = {
+  "document.processing.started": "开始处理文件",
+  "document.scan.completed": "安全检查完成",
+  "document.type.detected": "文件类型识别完成",
+  "document.parse.completed": "内容解析完成",
+  "document.classification.completed": "文档分类完成",
+  "document.extraction.completed": "字段提取完成",
+  "document.quality.checked": "质量检查完成",
+  "document.result.published": "处理结果已生成",
+  "document.review.decided": "确认状态已更新",
+};
+
+const processingStageLabels: Record<string, string> = {
+  PENDING: "等待处理",
+  SCANNING: "安全检查",
+  PARSING: "内容解析",
+  CLASSIFYING: "文档分类",
+  EXTRACTING: "字段提取",
+  QUALITY_CHECK: "质量检查",
+  REVIEW_REQUIRED: "等待人工确认",
+  READY: "处理完成",
+};
+
+function processingEventLabel(event: DocumentProcessingEventSnapshot) {
+  return processingEventLabels[event.type]
+    ?? processingStageLabels[event.stage]
+    ?? "处理状态已更新";
+}
+
+function processingPlanLabel(plan: Record<string, unknown>) {
+  const parts = [plan.largeDocument ? "大文件分片" : "普通文件"];
+  if (typeof plan.pageCount === "number") parts.push(`${plan.pageCount} 页`);
+  const groupCount = plan.groupCount ?? (Array.isArray(plan.pageBatches) ? plan.pageBatches.length : undefined);
+  if (typeof groupCount === "number") parts.push(`${groupCount} 个页组`);
+  return parts.join("，");
+}
+
 function Metric({ label, value, icon }: { label: string; value: string; icon?: ReactNode }) {
   return (
     <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900">
@@ -417,8 +565,63 @@ function Metric({ label, value, icon }: { label: string; value: string; icon?: R
   );
 }
 
-function displayScalar(value: unknown): string {
-  return typeof value === "string" || typeof value === "number" ? String(value) : "—";
+function ReviewCard({
+  icon,
+  title,
+  description,
+  saved,
+  savedLabel = "已保存",
+  pendingLabel,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: ReactNode;
+  saved: boolean;
+  savedLabel?: string;
+  pendingLabel?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3 px-4 pt-4">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span className="mt-0.5 shrink-0 text-brand-500">{icon}</span>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{title}</h3>
+            <div className="mt-1 text-xs leading-5 text-gray-500">{description}</div>
+          </div>
+        </div>
+        <SaveStateBadge saved={saved} label={savedLabel} pendingLabel={pendingLabel} />
+      </div>
+      <div className="space-y-3 p-4 pt-3">{children}</div>
+    </section>
+  );
+}
+
+function SaveStateBadge({
+  saved,
+  label = "已保存",
+  pendingLabel = "待保存",
+}: {
+  saved: boolean;
+  label?: string;
+  pendingLabel?: string;
+}) {
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+        saved
+          ? "bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-300"
+          : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+      }`}
+    >
+      {saved ? <Check className="size-3.5" /> : <span className="size-1.5 rounded-full bg-current" />}
+      {saved ? label : pendingLabel}
+    </span>
+  );
 }
 
 export function DocumentClassificationReview({
@@ -459,10 +662,11 @@ export function DocumentClassificationReview({
   const documentType = result.data?.result.documentType;
   const options = useMemo(() => {
     const values = [
+      ...(documentType?.confirmedLabel ? [{ label: documentType.confirmedLabel, displayName: documentType.confirmedLabel }] : []),
       ...(documentType?.label ? [{ label: documentType.label, displayName: documentType.displayName }] : []),
       ...(documentType?.alternatives ?? []),
     ];
-    return values;
+    return Array.from(new Map(values.map((item) => [item.label, item])).values());
   }, [documentType]);
   if (result.isError) return <p className="text-sm text-gray-500">暂无分类结果。</p>;
   if (!documentType) {
@@ -473,30 +677,44 @@ export function DocumentClassificationReview({
       </div>
     );
   }
+  const selectedLabel = label || documentType.confirmedLabel || documentType.label || "";
+  const isSaved = Boolean(documentType.confirmedLabel && selectedLabel === documentType.confirmedLabel);
   return (
-    <div className="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-800">
-      <div>
-        <p className="text-sm font-medium text-gray-900 dark:text-white">文档分类</p>
-        <p className="mt-1 text-xs text-gray-500">
+    <ReviewCard
+      icon={<Tags className="size-5" />}
+      title="文档分类"
+      saved={isSaved}
+      pendingLabel={documentType.confirmedLabel ? "有更改" : "待确认"}
+      description={(
+        <>
           机器结果：{documentType.displayName || documentType.label}（置信度 {Math.round((documentType.confidence ?? 0) * 100)}%）
-          {documentType.confirmedLabel ? ` · 已确认 ${documentType.confirmedLabel}` : " · 确认后才可变为可用"}
-        </p>
+          {!documentType.confirmedLabel ? " · 确认后才可变为可用" : null}
+        </>
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          aria-label="确认文档分类"
+          className={`${fieldClass} min-w-56 flex-1`}
+          value={selectedLabel}
+          onChange={(event) => {
+            setLabel(event.target.value);
+            setNotice("");
+          }}
+        >
+          {options.map((item) => <option key={item.label} value={item.label}>{item.displayName || item.label}</option>)}
+        </select>
+        {!isSaved ? (
+          <Button size="sm" loading={confirm.isPending} onClick={() => confirm.mutate()}>
+            {documentType.confirmedLabel ? "保存更改" : "确认分类"}
+          </Button>
+        ) : null}
       </div>
-      <select
-        aria-label="确认文档分类"
-        className={fieldClass}
-        value={label || documentType.confirmedLabel || documentType.label || ""}
-        onChange={(event) => {
-          setLabel(event.target.value);
-          setNotice("");
-        }}
-      >
-        {options.map((item) => <option key={item.label} value={item.label}>{item.displayName || item.label}</option>)}
-      </select>
-      <Button size="sm" loading={confirm.isPending} onClick={() => confirm.mutate()}>确认分类</Button>
-      {notice ? <p role="status" className="rounded-lg bg-success-50 p-2 text-sm text-success-700 dark:bg-success-500/10 dark:text-success-400">{notice}</p> : null}
+      <div className="flex flex-wrap items-center gap-3">
+        {notice ? <p role="status" className="text-sm text-success-700 dark:text-success-400">{notice}</p> : null}
+      </div>
       {confirm.isError ? <p role="alert" className="text-sm text-error-600">{confirm.error.message}</p> : null}
-    </div>
+    </ReviewCard>
   );
 }
 
@@ -540,32 +758,69 @@ export function DocumentExtractionReviewForm({
   const fields = result.data?.result.extractions ?? [];
   if (result.isError) return <p className="text-sm text-gray-500">暂无抽取结果。</p>;
   if (!fields.length) return <p className="text-sm text-gray-500">当前文件没有待确认字段。若分类已确认，状态会变为可用。</p>;
+  const savedFieldCount = fields.filter((field) => (
+    ["AUTO_ACCEPTED", "CONFIRMED", "CORRECTED"].includes(field.reviewStatus)
+    && (values[field.fieldPath] === undefined
+      || values[field.fieldPath] === stringifyFieldValue(field.confirmedValue ?? field.value))
+  )).length;
+  const allFieldsSaved = savedFieldCount === fields.length;
   return (
-    <div className="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-800">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium text-gray-900 dark:text-white">字段确认</p>
-        <Button size="sm" variant="outline" loading={confirm.isPending} onClick={() => confirm.mutate(true)}>批量确认高置信度</Button>
+    <ReviewCard
+      icon={<ListChecks className="size-5" />}
+      title="字段确认"
+      saved={allFieldsSaved}
+      pendingLabel={savedFieldCount ? `已保存 ${savedFieldCount}/${fields.length}` : undefined}
+      description={`共 ${fields.length} 个字段，机器原值始终保留，可安全修正确认值。`}
+    >
+      {!allFieldsSaved ? (
+        <div className="flex justify-end">
+          <Button size="sm" variant="outline" loading={confirm.isPending} onClick={() => confirm.mutate(true)}>
+            批量确认高置信度
+          </Button>
+        </div>
+      ) : null}
+      <div className="divide-y divide-gray-100 border-y border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+        {fields.map((field) => {
+          const displayedValue = values[field.fieldPath] ?? stringifyFieldValue(field.confirmedValue ?? field.value);
+          const fieldSaved = ["AUTO_ACCEPTED", "CONFIRMED", "CORRECTED"].includes(field.reviewStatus)
+            && (values[field.fieldPath] === undefined
+              || displayedValue === stringifyFieldValue(field.confirmedValue ?? field.value));
+          return (
+            <label
+              key={field.fieldPath}
+              className="block py-3 text-xs font-medium"
+            >
+              <span className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-gray-700 dark:text-gray-300">
+                  {field.displayName}
+                  <span className="ml-2 font-normal text-gray-500">置信度 {Math.round(field.confidence * 100)}%</span>
+                </span>
+                {fieldSaved ? <span className="inline-flex items-center gap-1 font-medium text-success-700 dark:text-success-400"><Check className="size-3.5" />已保存</span> : null}
+              </span>
+              <input
+                aria-label={field.displayName}
+                className={`mt-2 ${fieldClass}`}
+                value={displayedValue}
+                onChange={(event) => {
+                  setNotice("");
+                  setValues((current) => ({ ...current, [field.fieldPath]: event.target.value }));
+                }}
+              />
+              <DocumentEvidenceViewer evidence={field.evidenceRefs} />
+            </label>
+          );
+        })}
       </div>
-      {fields.map((field) => (
-        <label key={field.fieldPath} className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-          {field.displayName}
-          <span className="ml-2 font-normal text-gray-500">置信度 {Math.round(field.confidence * 100)}% · 机器值保留不可覆盖</span>
-          <input
-            aria-label={field.displayName}
-            className={`mt-2 ${fieldClass}`}
-            value={values[field.fieldPath] ?? stringifyFieldValue(field.confirmedValue ?? field.value)}
-            onChange={(event) => {
-              setNotice("");
-              setValues((current) => ({ ...current, [field.fieldPath]: event.target.value }));
-            }}
-          />
-          <DocumentEvidenceViewer evidence={field.evidenceRefs} />
-        </label>
-      ))}
-      <Button size="sm" loading={confirm.isPending} onClick={() => confirm.mutate(false)}>保存字段确认</Button>
-      {notice ? <p role="status" className="rounded-lg bg-success-50 p-2 text-sm text-success-700 dark:bg-success-500/10 dark:text-success-400">{notice}</p> : null}
+      <div className="flex flex-wrap items-center gap-3">
+        {!allFieldsSaved ? (
+          <Button size="sm" loading={confirm.isPending} onClick={() => confirm.mutate(false)}>
+            {savedFieldCount ? "保存更改" : "保存字段确认"}
+          </Button>
+        ) : null}
+        {notice ? <p role="status" className="text-sm text-success-700 dark:text-success-400">{notice}</p> : null}
+      </div>
       {confirm.isError ? <p role="alert" className="text-sm text-error-600">{confirm.error.message}</p> : null}
-    </div>
+    </ReviewCard>
   );
 }
 
@@ -608,28 +863,34 @@ export function DocumentBindingEditor({
   onSaved?: () => Promise<void> | void;
 }) {
   const [workKeys, setWorkKeys] = useState(document.businessWorkKeys);
+  const [savedWorkKeys, setSavedWorkKeys] = useState(document.businessWorkKeys);
   const [notice, setNotice] = useState("");
+  const isSaved = sameStringSet(workKeys, savedWorkKeys);
   const save = useMutation({
     mutationFn: () => api.updateDocumentBindings(tenantId, projectId, document.documentId, {
       businessObjectIds: document.businessObjectIds,
       businessWorkKeys: workKeys,
     }),
     onSuccess: async () => {
+      setSavedWorkKeys(workKeys);
       setNotice("绑定已保存成功。");
       await onSaved?.();
     },
   });
   return (
-    <div className="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-800">
-      <div>
-        <p className="text-sm font-medium text-gray-900 dark:text-white">业务绑定</p>
-        <p className="mt-1 text-xs text-gray-500">只关联业务工作，不会改变「需确认 / 可用」处理状态。</p>
-      </div>
+    <ReviewCard
+      icon={<Link2 className="size-5" />}
+      title="业务绑定"
+      saved={isSaved}
+      pendingLabel="有更改"
+      description="只关联业务工作，不会改变「需确认 / 可用」处理状态。"
+    >
       <div className="grid gap-2 sm:grid-cols-2">
         {workOptions.map((work) => (
-          <label key={work.key} className="flex items-center gap-2 text-sm">
+          <label key={work.key} className="flex cursor-pointer items-center gap-2.5 rounded-lg bg-gray-50 px-3 py-2.5 text-sm text-gray-700 dark:bg-gray-800/60 dark:text-gray-300">
             <input
               type="checkbox"
+              className="size-4 rounded border-gray-300 accent-brand-500"
               checked={workKeys.includes(work.key)}
               onChange={() => {
                 setNotice("");
@@ -640,11 +901,17 @@ export function DocumentBindingEditor({
           </label>
         ))}
       </div>
-      <Button size="sm" loading={save.isPending} onClick={() => save.mutate()}>保存绑定</Button>
-      {notice ? <p role="status" className="rounded-lg bg-success-50 p-2 text-sm text-success-700 dark:bg-success-500/10 dark:text-success-400">{notice}</p> : null}
+      <div className="flex flex-wrap items-center gap-3">
+        {!isSaved ? <Button size="sm" loading={save.isPending} onClick={() => save.mutate()}>保存绑定</Button> : null}
+        {notice ? <p role="status" className="text-sm text-success-700 dark:text-success-400">{notice}</p> : null}
+      </div>
       {save.isError ? <p role="alert" className="text-sm text-error-600">{save.error.message}</p> : null}
-    </div>
+    </ReviewCard>
   );
+}
+
+function sameStringSet(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value) => right.includes(value));
 }
 
 export function DocumentPicker({

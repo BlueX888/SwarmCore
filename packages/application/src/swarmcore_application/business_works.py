@@ -92,6 +92,7 @@ class BusinessWorkSummary:
     configuration: dict[str, Any] = field(default_factory=dict)
     work_item_type: str | None = None
     case_based: bool = False
+    case_definition: dict[str, Any] | None = None
     bound_strategy_version_id: UUID | None = None
     bound_strategy_name: str | None = None
     bound_strategy_version: int | None = None
@@ -361,7 +362,15 @@ class BusinessWorkService:
         await self._capability_packs.ensure_trusted(
             session, tenant_id=tenant_id, project_id=project_id
         )
-        pack_index = await self._pack_index(session, tenant_id=tenant_id, project_id=project_id)
+        pack_index = await self._pack_index(
+            session, tenant_id=tenant_id, project_id=project_id, reconcile_readiness=False
+        )
+        readiness_projection = await self._readiness_projection(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            pack_index=pack_index,
+        )
         return [
             await self._summarize(
                 session,
@@ -369,6 +378,7 @@ class BusinessWorkService:
                 project_id=project_id,
                 definition=definition,
                 pack_index=pack_index,
+                readiness_projection=readiness_projection,
             )
             for definition in BUSINESS_WORK_DEFINITIONS
         ]
@@ -384,10 +394,24 @@ class BusinessWorkService:
         definition = get_business_work_definition(work_key)
         if definition is None:
             raise LookupError("business work not found")
+        if definition.pack_name is None:
+            return await self._summarize(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                definition=definition,
+                pack_index={},
+            )
         await self._capability_packs.ensure_trusted(
             session, tenant_id=tenant_id, project_id=project_id
         )
-        pack_index = await self._pack_index(session, tenant_id=tenant_id, project_id=project_id)
+        pack_index = await self._pack_index(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            pack_name=definition.pack_name,
+            reconcile_readiness=False,
+        )
         return await self._summarize(
             session,
             tenant_id=tenant_id,
@@ -659,11 +683,17 @@ class BusinessWorkService:
         *,
         tenant_id: UUID,
         project_id: UUID,
+        pack_name: str | None = None,
+        reconcile_readiness: bool = True,
     ) -> dict[
         str, list[tuple[CapabilityPack, CapabilityPackVersion, ProjectCapabilityBinding | None]]
     ]:
         rows = await self._capability_packs.list_project(
-            session, tenant_id=tenant_id, project_id=project_id
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            pack_name=pack_name,
+            reconcile_readiness=reconcile_readiness,
         )
         index: dict[
             str, list[tuple[CapabilityPack, CapabilityPackVersion, ProjectCapabilityBinding | None]]
@@ -682,6 +712,7 @@ class BusinessWorkService:
         pack_index: dict[
             str, list[tuple[CapabilityPack, CapabilityPackVersion, ProjectCapabilityBinding | None]]
         ],
+        readiness_projection: dict[UUID, list[dict[str, Any]]] | None = None,
     ) -> BusinessWorkSummary:
         if definition.pack_name is None:
             return BusinessWorkSummary(
@@ -730,12 +761,19 @@ class BusinessWorkService:
         enabled = binding is not None and binding.status in {"ENABLED", "DEGRADED"}
         binding_status = binding.status if binding is not None else None
         configuration = dict(binding.configuration) if binding is not None else {}
-        dependency_blockers = await self._capability_packs.blockers_for_version(
-            tenant_id=tenant_id,
-            project_id=project_id,
-            version=version,
-            session=session,
-        )
+        if binding is None or binding.status not in {"ENABLED", "DEGRADED"}:
+            dependency_blockers: list[dict[str, Any]] = []
+        elif readiness_projection is not None and version.id in readiness_projection:
+            dependency_blockers = readiness_projection[version.id]
+        else:
+            dependency_blockers = await self._capability_packs.blockers_for_version(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                version=version,
+                session=session,
+            )
+        if binding is not None and binding.status in {"ENABLED", "DEGRADED"}:
+            binding_status = "DEGRADED" if dependency_blockers else "ENABLED"
         document_blockers = await self._document_blockers(
             session,
             tenant_id=tenant_id,
@@ -820,10 +858,44 @@ class BusinessWorkService:
             configuration=configuration,
             work_item_type=manifest.case_type,
             case_based=manifest.spec.case is not None,
+            case_definition=(
+                manifest.spec.case.model_dump(mode="json", by_alias=True)
+                if manifest.spec.case is not None
+                else None
+            ),
             bound_strategy_version_id=bound_strategy_version_id,
             bound_strategy_name=bound_strategy_name,
             bound_strategy_version=bound_strategy_version,
         )
+
+    async def _readiness_projection(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        pack_index: dict[
+            str, list[tuple[CapabilityPack, CapabilityPackVersion, ProjectCapabilityBinding | None]]
+        ],
+    ) -> dict[UUID, list[dict[str, Any]]]:
+        projection: dict[UUID, list[dict[str, Any]]] = {}
+        versions: dict[UUID, CapabilityPackVersion] = {}
+        for candidates in pack_index.values():
+            selected = self._select_pack_version(candidates)
+            if selected is None:
+                continue
+            _, version, binding = selected
+            projection[version.id] = []
+            if binding is not None and binding.status in {"ENABLED", "DEGRADED"}:
+                versions[version.id] = version
+        for version_id, version in versions.items():
+            projection[version_id] = await self._capability_packs.blockers_for_version(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                version=version,
+                session=session,
+            )
+        return projection
 
     async def _document_blockers(
         self,

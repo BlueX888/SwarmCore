@@ -60,6 +60,7 @@ const workspaceChildren = () => [
   { path: "capability-packs/:packName/workbench", element: <LegacyCapabilityPackDetailRedirect mode="workbench" /> },
   { path: "capability-packs/:packName", element: <LegacyCapabilityPackDetailRedirect mode="settings" /> },
   { path: DOCUMENT_LIBRARY_ROUTE, element: <DocumentLibraryPage /> },
+  { path: `${DOCUMENT_LIBRARY_ROUTE}/:documentId`, element: <DocumentLibraryPage /> },
   { path: LEGACY_RESOURCE_ROUTE, element: <Navigate to={LEGACY_RESOURCE_REDIRECT} replace /> },
   { path: "agents", children: [
     { index: true, element: <AgentCapabilitiesPage /> },

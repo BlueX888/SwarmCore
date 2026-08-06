@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { Position } from "@xyflow/react";
 import { describe, expect, it, vi } from "vitest";
 import { SchemaForm, validateSchemaValues } from "@/components/operations/schema-form";
 import type { TaskSnapshot } from "@/api/types";
+import { layoutDirectedGraph } from "@/components/strategy/strategy-editor-model";
 import { CommandStatus, EvaluationResult, evaluationIdFromInput, graph, refreshRunDetails } from "./run-detail-page";
 
 const schema = {
@@ -35,13 +37,42 @@ describe("human control forms", () => {
 });
 
 describe("run graph layout", () => {
-  it("lays out dependencies left-to-right regardless of API task order", () => {
-    const task = (nodeKey: string, dependencies: string[]): TaskSnapshot => ({ taskId: nodeKey, nodeKey, nodeType: "tool", status: "SUCCEEDED", dependencies, error: null, output: null, retryGeneration: 0, allowedActions: [] });
-    const flow = graph([task("report", ["evaluate"]), task("analyze", ["read"]), task("read", []), task("evaluate", ["analyze"])]);
-    const y = Object.fromEntries(flow.nodes.map((node) => [node.id, node.position.y]));
+  const task = (nodeKey: string, dependencies: string[]): TaskSnapshot => ({ taskId: nodeKey, nodeKey, nodeType: "tool", status: "SUCCEEDED", dependencies, error: null, output: null, retryGeneration: 0, allowedActions: [] });
 
-    expect(y).toEqual({ read: 0, analyze: 110, evaluate: 220, report: 330 });
+  it("uses the strategy layout and node order regardless of API task order", () => {
+    const strategyNodeOrder = ["read", "analyze-b", "analyze-a", "report"];
+    const tasks = [
+      task("report", ["analyze-a", "analyze-b"]),
+      task("analyze-a", ["read"]),
+      task("read", []),
+      task("analyze-b", ["read"]),
+    ];
+    const flow = graph(tasks, strategyNodeOrder);
+    const positions = Object.fromEntries(flow.nodes.map((node) => [node.id, node.position]));
+    const expected = layoutDirectedGraph(
+      strategyNodeOrder,
+      tasks.flatMap((item) => item.dependencies.map((source) => ({ source, target: item.nodeKey }))),
+    );
+
+    expect(positions).toEqual(expected);
+    expect(positions["analyze-b"].y).toBeLessThan(positions["analyze-a"].y);
+    expect(flow.nodes.every((node) => node.sourcePosition === Position.Right)).toBe(true);
+    expect(flow.nodes.every((node) => node.targetPosition === Position.Left)).toBe(true);
     expect(flow.edges.every((edge) => edge.type === "smoothstep")).toBe(true);
+  });
+
+  it("falls back to task order when historical responses omit strategy order", () => {
+    const flow = graph([
+      task("report", ["evaluate"]),
+      task("analyze", ["read"]),
+      task("read", []),
+      task("evaluate", ["analyze"]),
+    ]);
+    const x = Object.fromEntries(flow.nodes.map((node) => [node.id, node.position.x]));
+
+    expect(x.read).toBeLessThan(x.analyze);
+    expect(x.analyze).toBeLessThan(x.evaluate);
+    expect(x.evaluate).toBeLessThan(x.report);
   });
 });
 

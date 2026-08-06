@@ -14,38 +14,31 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { layoutDirectedGraph } from "@/components/strategy/strategy-editor-model";
 import { useRunEvents } from "@/hooks/use-run-events";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 import { eventTypeLabel, statusLabel } from "@/lib/display-text";
 import { cn } from "@/lib/utils";
 import { useRunEventStore } from "@/stores/run-event-store";
 
-export function graph(tasks: TaskSnapshot[]): { nodes: Node[]; edges: Edge[]; height: number } {
+export function graph(
+  tasks: TaskSnapshot[],
+  strategyNodeOrder: string[] = [],
+): { nodes: Node[]; edges: Edge[]; height: number } {
   const byKey = new Map(tasks.map((task) => [task.nodeKey, task]));
-  const depths = new Map<string, number>();
-  const visiting = new Set<string>();
-  const depthOf = (key: string): number => {
-    const cached = depths.get(key);
-    if (cached !== undefined) return cached;
-    if (visiting.has(key)) return 0;
-    visiting.add(key);
-    const task = byKey.get(key);
-    const depth = task?.dependencies.length ? Math.max(...task.dependencies.map((dependency) => depthOf(dependency))) + 1 : 0;
-    visiting.delete(key);
-    depths.set(key, depth);
-    return depth;
-  };
-  tasks.forEach((task) => depthOf(task.nodeKey));
-  const layers = new Map<number, TaskSnapshot[]>();
-  tasks.forEach((task) => layers.set(depthOf(task.nodeKey), [...(layers.get(depthOf(task.nodeKey)) ?? []), task]));
-  const widestLayer = Math.max(1, ...[...layers.values()].map((layer) => layer.length));
-  const nodes = [...layers.entries()].flatMap(([depth, layer]) => layer.map((task, row) => {
-    const offset = (widestLayer - layer.length) * 105;
-    return { id: task.nodeKey, position: { x: offset + row * 210, y: depth * 110 }, sourcePosition: Position.Bottom, targetPosition: Position.Top, data: { label: <div className="flex min-w-0 items-center justify-between gap-2"><span className="truncate font-medium" title={task.nodeKey}>{task.nodeKey}</span><span className="shrink-0 text-[10px] opacity-70">{statusLabel(task.status)}</span></div> }, className: cn("run-node", `run-node-${task.status.toLowerCase()}`), style: { width: 190 } };
-  }));
   const edges = tasks.flatMap((task) => task.dependencies.map((source) => ({ id: `${source}-${task.nodeKey}`, source, target: task.nodeKey, type: "smoothstep", animated: task.status === "RUNNING", style: { strokeWidth: 1.5 } })));
-  const deepest = Math.max(0, ...depths.values());
-  return { nodes, edges, height: Math.min(760, Math.max(420, deepest * 110 + 100)) };
+  const orderedKeys = [
+    ...strategyNodeOrder.filter((key) => byKey.has(key)),
+    ...tasks.map((task) => task.nodeKey).filter((key) => !strategyNodeOrder.includes(key)),
+  ];
+  const positions = layoutDirectedGraph(orderedKeys, edges);
+  const nodes = orderedKeys.map((key) => {
+    const task = byKey.get(key);
+    if (!task) throw new Error(`Task ${key} is missing from the run graph`);
+    return { id: task.nodeKey, position: positions[key] ?? { x: 80, y: 80 }, sourcePosition: Position.Right, targetPosition: Position.Left, data: { label: <div className="flex min-w-0 items-center justify-between gap-2"><span className="truncate font-medium" title={task.nodeKey}>{task.nodeKey}</span><span className="shrink-0 text-[10px] opacity-70">{statusLabel(task.status)}</span></div> }, className: cn("run-node", `run-node-${task.status.toLowerCase()}`), style: { width: 190 } };
+  });
+  const lowestNode = Math.max(80, ...Object.values(positions).map((position) => position.y));
+  return { nodes, edges, height: Math.min(760, Math.max(420, lowestNode + 180)) };
 }
 
 export function RunDetailPage() {
@@ -82,7 +75,7 @@ export function RunDetailPage() {
   if (runQuery.isPending) return <div className="space-y-5"><Skeleton className="h-20" /><Skeleton className="h-96" /></div>;
   if (runQuery.isError) return <Card><CardContent className="pt-5"><ErrorState title="无法加载运行详情" onRetry={() => void runQuery.refetch()} /></CardContent></Card>;
   const run = runQuery.data;
-  const flow = graph(run.tasks);
+  const flow = graph(run.tasks, run.strategyNodeOrder);
   const failedTasks = run.tasks.filter((task) => task.status === "FAILED");
   const contractPerformanceReview = contractPerformancePlanReviewFromTasks(run.tasks);
   return <div className="space-y-6">

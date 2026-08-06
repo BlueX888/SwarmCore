@@ -58,9 +58,18 @@ const document: DocumentSnapshot = {
   versions: [],
 };
 
-function renderPage() {
+function renderPage(path = "/documents") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<MemoryRouter><QueryClientProvider client={client}><DocumentLibraryPage /></QueryClientProvider></MemoryRouter>);
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <QueryClientProvider client={client}>
+        <Routes>
+          <Route path="/documents" element={<DocumentLibraryPage />} />
+          <Route path="/documents/:documentId" element={<DocumentLibraryPage />} />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
 }
 
 describe("business document library", () => {
@@ -126,11 +135,27 @@ describe("business document library", () => {
   it("opens document details in a dialog", async () => {
     renderPage();
     await screen.findAllByText("采购合同.pdf");
-    fireEvent.click(screen.getByRole("button", { name: "详情" }));
+    fireEvent.click(screen.getByRole("button", { name: "预览：采购合同.pdf" }));
     expect(await screen.findByRole("dialog")).toBeVisible();
+    expect(api.getDocument).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      "document-1",
+    );
     expect(screen.getByRole("heading", { name: "采购合同.pdf" })).toBeVisible();
-    expect(screen.getByText("文件详情与处理确认")).toBeVisible();
+    expect(screen.getByText("文件预览与资料治理")).toBeVisible();
     expect(screen.getByLabelText("关闭文件详情")).toBeVisible();
+  });
+
+  it("opens a document detail directly from its URL", async () => {
+    renderPage("/documents/document-1");
+    expect(await screen.findByRole("dialog")).toBeVisible();
+    expect(api.getDocument).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      "document-1",
+    );
+    expect(screen.getByRole("heading", { name: "采购合同.pdf" })).toBeVisible();
   });
 
   it("registers a file with the shared upload panel", async () => {
@@ -188,8 +213,64 @@ describe("business document library", () => {
     fireEvent.change(screen.getByLabelText("搜索文件"), { target: { value: "验收" } });
     expect(screen.queryAllByText("采购合同.pdf")).toHaveLength(0);
     expect(screen.getAllByText("验收报告.docx")[0]).toBeVisible();
-    fireEvent.change(screen.getByLabelText("按状态筛选"), { target: { value: "AVAILABLE" } });
-    expect(screen.getByText("没有匹配的文件")).toBeVisible();
+    fireEvent.change(screen.getByLabelText("状态"), { target: { value: "AVAILABLE" } });
+    expect(screen.getByText("没有匹配的资料")).toBeVisible();
+  });
+
+  it("shows the management workspace controls and batch selection", async () => {
+    vi.mocked(api.listDocuments).mockResolvedValue({
+      items: [
+        document,
+        {
+          ...document,
+          documentId: "document-failed",
+          name: "招采条款模板",
+          category: "MASTER_CONTRACT",
+          status: "FAILED",
+          businessObjectIds: [],
+          businessWorkKeys: [],
+          current: document.current === null ? null : {
+            ...document.current,
+            filename: "contract-template.txt",
+          },
+        },
+      ],
+    });
+    renderPage();
+    await screen.findAllByText("招采条款模板");
+    expect(screen.getAllByText("主合同").at(-1)).toBeVisible();
+    expect(screen.getAllByText("解析失败").at(-1)).toBeVisible();
+    expect(screen.getByText("查看原因")).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "使用情况" })).toBeVisible();
+    fireEvent.click(screen.getByLabelText("选择资料：招采条款模板"));
+    expect(screen.getByText("已选择 1 项")).toBeVisible();
+    expect(screen.getByRole("button", { name: "关联业务" })).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "重新解析" })[0]).toBeVisible();
+  });
+
+  it("searches original names and workflow names and exposes shortcut views", async () => {
+    vi.mocked(api.listDocuments).mockResolvedValue({
+      items: [{
+        ...document,
+        name: "招采合同条款模板",
+        tags: ["招采"],
+        businessObjectIds: [],
+        businessWorkKeys: ["document-integrity"],
+        current: document.current === null ? null : {
+          ...document.current,
+          filename: "contract-template.txt",
+        },
+      }],
+    });
+    renderPage();
+    await screen.findAllByText("招采合同条款模板");
+    fireEvent.change(screen.getByLabelText("搜索文件"), { target: { value: "文件完整性校验" } });
+    expect(screen.getByText("招采合同条款模板")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "未关联业务" }));
+    expect(screen.getAllByText("未关联业务").at(-1)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "更多筛选" }));
+    expect(screen.getByLabelText("是否关联业务")).toBeVisible();
+    expect(screen.getByLabelText("按标签筛选")).toBeVisible();
   });
 
   it("redirects the legacy resource route to the document library", async () => {

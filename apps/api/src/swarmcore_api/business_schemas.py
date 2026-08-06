@@ -483,6 +483,13 @@ class BusinessWorkFunctionSnapshot(BusinessModel):
     description: str
 
 
+class BusinessCaseDefinitionSnapshot(BusinessModel):
+    type: str
+    schema_ref: str = Field(alias="schema")
+    subjects_required: bool = Field(default=True, alias="subjectsRequired")
+    subject_roles: list[dict[str, Any]] = Field(default_factory=list, alias="subjectRoles")
+
+
 class BusinessWorkSnapshot(BusinessModel):
     work_key: str = Field(alias="workKey")
     name: str
@@ -511,6 +518,9 @@ class BusinessWorkSnapshot(BusinessModel):
     bound_strategy_version_id: UUID | None = Field(default=None, alias="boundStrategyVersionId")
     bound_strategy_name: str | None = Field(default=None, alias="boundStrategyName")
     bound_strategy_version: int | None = Field(default=None, alias="boundStrategyVersion")
+    case_definition: BusinessCaseDefinitionSnapshot | None = Field(
+        default=None, alias="caseDefinition"
+    )
 
 
 class BusinessWorkListResponse(BusinessModel):

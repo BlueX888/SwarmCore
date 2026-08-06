@@ -1,5 +1,9 @@
 export type BusinessWorkCategory = "foundation" | "business" | "governance";
 
+export const BUSINESS_WORK_QUERY_STALE_TIME = 30_000;
+export const BUSINESS_WORK_QUERY_GC_TIME = 5 * 60_000;
+export const BUSINESS_WORK_RUN_REFRESH_INTERVAL = 5_000;
+
 export interface BusinessWorkFunction {
   name: string;
   description: string;
@@ -177,6 +181,12 @@ export const DOCUMENT_CATEGORY_LABELS: Record<string, string> = {
   RISK: "风险资料",
   SUPPLIER: "供应商资料",
   PROCUREMENT: "招采资料",
+  TENDER_DOCUMENT: "招标/采购文件",
+  WINNING_BID: "中标投标/响应文件",
+  AWARD_NOTICE: "中标/成交通知书",
+  MASTER_CONTRACT: "待签或已签合同",
+  PROCUREMENT_CHANGE: "澄清、变更和补充协议",
+  SUPPLIER_PERFORMANCE: "供应商履约绩效资料",
   SUPPLEMENTAL_FACTS: "补充结构化事实",
   REPORT: "报告与成果",
   SCOPE_BASELINE: "范围基线",

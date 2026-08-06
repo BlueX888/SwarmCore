@@ -387,7 +387,33 @@ def _request(
     return value
 
 
-def _upload_document(
+def _find_reusable_document(
+    client: httpx.Client,
+    *,
+    category: str,
+    name: str,
+) -> dict[str, Any] | None:
+    """Return the newest ready document already bound to this work, if any."""
+    listed = _request(
+        client,
+        "GET",
+        f"/v1/projects/{PROJECT_ID}/documents?category={category}",
+    )
+    matches = [
+        item
+        for item in listed.get("items", [])
+        if isinstance(item, dict)
+        and item.get("category") == category
+        and item.get("name") == name
+        and "procurement-supplier-risk" in item.get("businessWorkKeys", [])
+        and item.get("status") in {"AVAILABLE", "REVIEW_REQUIRED"}
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda item: str(item.get("updatedAt", "")))
+
+
+def _ensure_document(
     client: httpx.Client,
     *,
     artifact_client: httpx.Client,
@@ -395,8 +421,27 @@ def _upload_document(
     document: dict[str, Any],
     nonce: str,
 ) -> dict[str, Any]:
+    """Reuse an existing ready document when present; otherwise upload a new one.
+
+    Repeated real-chain runs used to create a new BusinessDocument every time
+    (same display name, different documentId), which flooded the External Files
+    panel. Prefer the newest ready match bound to procurement-supplier-risk.
+    """
     content = str(document["content"]).encode("utf-8")
     digest = _sha256(content)
+    existing = _find_reusable_document(
+        client,
+        category=str(document["category"]),
+        name=str(document["name"]),
+    )
+    if existing is not None:
+        return {
+            **existing,
+            "contentSha256": digest,
+            "sourceCategory": document["category"],
+            "reused": True,
+        }
+
     initiated = _request(
         client,
         "POST",
@@ -454,6 +499,7 @@ def _upload_document(
         "contentSha256": digest,
         "sourceCategory": document["category"],
         "artifactUpload": upload.json(),
+        "reused": False,
     }
 
 
@@ -634,7 +680,7 @@ def main() -> int:
         documents: list[dict[str, Any]] = []
         with httpx.Client(base_url=ARTIFACT_URL, timeout=60) as artifact_client:
             for public_document in public_documents:
-                uploaded = _upload_document(
+                uploaded = _ensure_document(
                     client,
                     artifact_client=artifact_client,
                     business_object_id=procurement_object["businessObjectId"],
@@ -642,8 +688,9 @@ def main() -> int:
                     nonce=nonce,
                 )
                 documents.append(uploaded)
+                action = "reused" if uploaded.get("reused") else "uploaded"
                 print(
-                    f"uploaded {uploaded['sourceCategory']}: "
+                    f"{action} {uploaded['sourceCategory']}: "
                     f"{uploaded['documentId']}",
                     flush=True,
                 )

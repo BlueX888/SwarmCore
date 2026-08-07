@@ -141,10 +141,18 @@ from .post_evaluation_expanded import (
 from .procurement_supplier_risk import (
     calculate_supplier_performance,
     collect_risk_observations,
+    collect_risk_observations_v2,
     compare_procurement_clauses,
+    compare_procurement_clauses_v2,
     decide_supplier_risk,
+    decide_supplier_risk_v2,
     diff_supplier_risk_snapshots,
+    evaluate_procurement_evidence_gate,
     finalize_procurement_supplier_risk,
+    finalize_procurement_supplier_risk_v2,
+    normalize_registered_risk_sources,
+    resolve_procurement_baseline,
+    validate_clause_evidence_analyst_output,
     validate_procurement_supplier_risk_result,
 )
 from .procurement_supplier_risk_service import ProcurementSupplierRiskService
@@ -583,11 +591,111 @@ class SupplierRiskCollectExecutor:
         return bool(self._allowed_hosts)
 
 
+class SupplierRiskCollectV2Executor(SupplierRiskCollectExecutor):
+    """@2 collector: clients may only reference registered providerConfigId values."""
+
+    async def execute(
+        self, input_value: dict[str, Any], effect_id: str, context: Any
+    ) -> dict[str, Any]:
+        del effect_id, context
+        supplier = dict(input_value.get("supplier") or {})
+        as_of = str(input_value.get("asOf") or "").strip()
+        if not as_of:
+            raise ValueError("asOf is required")
+        registered = normalize_registered_risk_sources(
+            {
+                "sources": input_value.get("sources") or input_value.get("riskSources") or [],
+                "requiredProviderConfigIds": input_value.get("requiredProviderConfigIds"),
+            }
+        )
+        resolved_sources: list[dict[str, Any]] = []
+        for config in registered["sources"]:
+            kind = str(config.get("kind") or "").upper()
+            if kind == "CCGP_SERIOUS_ILLEGAL":
+                try:
+                    fetched = await to_thread(
+                        _supplier_risk_ccgp_fetch,
+                        {
+                            "sourceRef": config["sourceRef"],
+                            "kind": kind,
+                            "endpoint": "https://www.ccgp.gov.cn/cr/list",
+                        },
+                        supplier,
+                        as_of,
+                        allowed_hosts=self._allowed_hosts,
+                        timeout_seconds=self._timeout_seconds,
+                    )
+                except (RuntimeError, ValueError) as exc:
+                    fetched = {
+                        "sourceRef": config["sourceRef"],
+                        "status": "FAILED",
+                        "fetchedAt": datetime.now(UTC).isoformat(),
+                        "errorCode": type(exc).__name__.upper(),
+                        "records": [],
+                    }
+                fetched["providerConfigId"] = config["providerConfigId"]
+                resolved_sources.append(fetched)
+            elif kind == "INTERNAL_BLACKLIST":
+                # Server-side internal master lookup is not wired in this slice; fail closed.
+                resolved_sources.append(
+                    {
+                        "providerConfigId": config["providerConfigId"],
+                        "sourceRef": config["sourceRef"],
+                        "status": "FAILED",
+                        "fetchedAt": datetime.now(UTC).isoformat(),
+                        "errorCode": "PROVIDER_NOT_CONFIGURED",
+                        "records": [],
+                    }
+                )
+            else:
+                resolved_sources.append(
+                    {
+                        "providerConfigId": config["providerConfigId"],
+                        "sourceRef": config["sourceRef"],
+                        "status": "FAILED",
+                        "fetchedAt": datetime.now(UTC).isoformat(),
+                        "errorCode": "UNSUPPORTED_PROVIDER",
+                        "records": [],
+                    }
+                )
+        return collect_risk_observations_v2(
+            {
+                "supplier": supplier,
+                "asOf": as_of,
+                "sources": registered["sources"],
+                "requiredProviderConfigIds": registered["requiredProviderConfigIds"],
+                "resolvedSources": resolved_sources,
+            }
+        )
+
+
 async def procurement_consistency_compare(
     input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
     del effect_id
     return compare_procurement_clauses(input_value)
+
+
+async def agent_output_schema_validate(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    output = dict(input_value.get("output") or input_value)
+    return validate_clause_evidence_analyst_output(output)
+
+
+async def procurement_baseline_resolve(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return resolve_procurement_baseline(input_value)
+
+
+async def procurement_consistency_compare_v2(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return compare_procurement_clauses_v2(input_value)
 
 
 async def supplier_performance_calculate(
@@ -602,6 +710,11 @@ async def supplier_risk_decide(input_value: dict[str, Any], effect_id: str) -> d
     return decide_supplier_risk(input_value)
 
 
+async def supplier_risk_decide_v2(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
+    del effect_id
+    return decide_supplier_risk_v2(input_value)
+
+
 async def supplier_history_diff(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     previous = input_value.get("previous")
@@ -611,6 +724,13 @@ async def supplier_history_diff(input_value: dict[str, Any], effect_id: str) -> 
     )
 
 
+async def procurement_evidence_gate(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return evaluate_procurement_evidence_gate(input_value)
+
+
 async def procurement_supplier_risk_finalize(
     input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
@@ -618,10 +738,18 @@ async def procurement_supplier_risk_finalize(
     return finalize_procurement_supplier_risk(input_value)
 
 
+async def procurement_supplier_risk_finalize_v2(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    del effect_id
+    return finalize_procurement_supplier_risk_v2(input_value)
+
+
 def _procurement_supplier_risk_report_lines(result: dict[str, Any]) -> list[str]:
     consistency = dict(result.get("consistency") or {})
     risk = dict(result.get("risk") or {})
     performance = dict(result.get("performance") or {})
+    final_decision = dict(result.get("finalDecision") or {})
     counts = dict(consistency.get("counts") or {})
     lines = [
         "招采一致性与供应商风控报告",
@@ -629,6 +757,11 @@ def _procurement_supplier_risk_report_lines(result: dict[str, Any]) -> list[str]
         f"统一社会信用代码: {(result.get('supplier') or {}).get('creditCode') or '-'}",
         f"评估日期: {result.get('asOf') or '-'}",
         f"签署建议: {result.get('decision') or '-'}",
+        f"最终动作: {final_decision.get('action') or result.get('decision') or '-'}",
+        (
+            "资格结论: "
+            f"{final_decision.get('eligibilityDecision') or risk.get('eligibilityDecision') or '-'}"
+        ),
         f"风险等级: {result.get('riskLevel') or '-'}",
         (
             "差异统计: "
@@ -4323,14 +4456,24 @@ def capability_executors(
         "report.render_contract_performance": contract_performance_report_render,
         "workbench.record_contract_performance": ContractPerformanceRecorderExecutor(sessions),
         "procurement.consistency_compare": procurement_consistency_compare,
+        "agent_output.schema_validate": agent_output_schema_validate,
+        "procurement.baseline_resolve": procurement_baseline_resolve,
+        "procurement.consistency_compare_v2": procurement_consistency_compare_v2,
         "supplier.risk_collect": SupplierRiskCollectExecutor(
+            allowed_hosts=supplier_risk_allowed_hosts,
+            timeout_seconds=supplier_risk_timeout_seconds,
+        ),
+        "supplier.risk_collect_v2": SupplierRiskCollectV2Executor(
             allowed_hosts=supplier_risk_allowed_hosts,
             timeout_seconds=supplier_risk_timeout_seconds,
         ),
         "supplier.performance_calculate": supplier_performance_calculate,
         "supplier.risk_decide": supplier_risk_decide,
+        "supplier.risk_decide_v2": supplier_risk_decide_v2,
         "supplier.history_diff": supplier_history_diff,
+        "procurement.evidence_gate": procurement_evidence_gate,
         "procurement_supplier_risk.finalize": procurement_supplier_risk_finalize,
+        "procurement_supplier_risk.finalize_v2": procurement_supplier_risk_finalize_v2,
         "report.render_procurement_supplier_risk": procurement_supplier_risk_report_render,
         "workbench.record_procurement_supplier_risk": ProcurementSupplierRiskRecorderExecutor(
             sessions

@@ -13,12 +13,7 @@ def _load(name: str) -> dict[str, Any]:
     return value
 
 
-MANIFEST_V1_0_4 = _load("manifest.json")
-MANIFEST = deepcopy(MANIFEST_V1_0_4)
-MANIFEST["metadata"]["version"] = "1.0.5"
-MANIFEST["spec"]["strategies"]["execute"] = (
-    "strategy://procurement-supplier-risk/assess@6"
-)
+MANIFEST = _load("manifest.json")
 _ACCEPTED_MEDIA_TYPES = [
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -33,25 +28,13 @@ for _requirement in MANIFEST["spec"]["documents"]["requirements"]:
 SCHEMAS = {
     "schema://procurement-supplier-risk/case@1": _load("case.schema.json"),
     "schema://procurement-supplier-risk/input@1": _load("input.schema.json"),
+    "schema://procurement-supplier-risk/input@2": _load("input.v2.schema.json"),
     "schema://procurement-supplier-risk/result@1": _load("output.schema.json"),
+    "schema://procurement-supplier-risk/result@2": _load("output.v2.schema.json"),
 }
-_STRATEGY_V5 = _load("strategy.json")
-_STRATEGY_V6 = deepcopy(_STRATEGY_V5)
-_STRATEGY_V6["metadata"]["name"] = "procurement-supplier-risk-assess-v6"
-_V6_REVIEW = _STRATEGY_V6["spec"]["graph"]["nodes"]["manual-review"]
-_V6_REVIEW["requiredRoles"] = [
-    "procurement_reviewer",
-    "legal_reviewer",
-    "risk_reviewer",
-    "tenant_admin",
-]
-_V6_REVIEW["requiresDistinctApprover"] = True
-_STRATEGY_V6["spec"]["graph"]["nodes"]["finalize"]["input"]["provenance"][
-    "strategy"
-] = "strategy://procurement-supplier-risk/assess@6"
 STRATEGIES = {
-    "strategy://procurement-supplier-risk/assess@5": _STRATEGY_V5,
-    "strategy://procurement-supplier-risk/assess@6": _STRATEGY_V6,
+    "strategy://procurement-supplier-risk/assess@5": _load("strategy.json"),
+    "strategy://procurement-supplier-risk/assess@6": _load("strategy.v6.json"),
 }
 VIEW_DEFINITION = _load("view-definition.json")
 REFERENCES = frozenset(
@@ -62,8 +45,46 @@ REFERENCES = frozenset(
         *MANIFEST["spec"]["tools"],
         MANIFEST["spec"]["report"]["template"],
         MANIFEST["spec"]["ui"]["viewDefinition"],
+        # Keep @5 pack refs resolvable for historical runs / dual registration.
+        "agent://procurement/clause-evidence-analyst@3",
+        "agent://supplier/risk-analyst@1",
+        "agent://procurement/evidence-quality-reviewer@1",
+        "tool://procurement/consistency-compare@1",
+        "tool://supplier/risk-collect@1",
+        "tool://supplier/risk-decide@1",
+        "tool://procurement-supplier-risk/finalize@1",
+        "strategy://procurement-supplier-risk/assess@5",
+        "schema://procurement-supplier-risk/input@1",
+        "schema://procurement-supplier-risk/result@1",
     }
 )
+
+# Preserve prior manifest snapshot for regression comparisons.
+MANIFEST_V1_0_4 = deepcopy(MANIFEST)
+MANIFEST_V1_0_4["metadata"]["version"] = "1.0.4"
+MANIFEST_V1_0_4["spec"]["inputSchema"] = "schema://procurement-supplier-risk/input@1"
+MANIFEST_V1_0_4["spec"]["outputSchema"] = "schema://procurement-supplier-risk/result@1"
+MANIFEST_V1_0_4["spec"]["strategies"]["execute"] = (
+    "strategy://procurement-supplier-risk/assess@5"
+)
+MANIFEST_V1_0_4["spec"]["agents"] = [
+    "agent://procurement/clause-evidence-analyst@3",
+    "agent://supplier/risk-analyst@1",
+    "agent://procurement/evidence-quality-reviewer@1",
+]
+MANIFEST_V1_0_4["spec"]["tools"] = [
+    "tool://document/read-versions@1",
+    "tool://document/coverage-check@1",
+    "tool://evidence/search@1",
+    "tool://procurement/consistency-compare@1",
+    "tool://supplier/risk-collect@1",
+    "tool://supplier/performance-calculate@1",
+    "tool://supplier/risk-decide@1",
+    "tool://supplier/history-diff@1",
+    "tool://procurement-supplier-risk/finalize@1",
+    "tool://report/render-procurement-supplier-risk@1",
+    "tool://workbench/record-procurement-supplier-risk@1",
+]
 
 __all__ = [
     "MANIFEST",

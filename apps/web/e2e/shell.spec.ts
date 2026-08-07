@@ -155,7 +155,9 @@ test("splits the capability center into agent, tool, model and policy pages", as
   await page.goto("/models");
   await expect(page.getByRole("heading", { name: "模型", exact: true })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "显示已配置但未就绪" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /通用模型/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "新建模型" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /kimi-k2.5/ })).toBeVisible();
+  await expect(page.getByText("通用模型")).toHaveCount(0);
   await page.goto("/policies");
   await expect(page.getByRole("heading", { name: "策略能力", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /默认策略/ })).toBeVisible();
@@ -253,6 +255,7 @@ function capabilityCenter() {
       { ref: "tool://search@1", kind: "tool", name: "受控检索", description: "在已配置的知识源中检索内容。", source: "system", readiness: ready, risk: "LOW", inputSchema: { type: "object", required: ["query"], properties: { query: { type: "string", title: "检索词" } }, additionalProperties: false }, outputSchema: { type: "object" } },
       { ref: "tool://missing@1", kind: "tool", name: "未接入工具", description: "尚无执行器。", source: "system", readiness: { status: "NOT_READY", reasons: [{ code: "EXECUTOR_MISSING", message: "missing" }] }, risk: "LOW", inputSchema: { type: "object" }, outputSchema: { type: "object" } },
       { ref: "model://general@1", kind: "model", name: "通用模型", description: "通用模型路由。", source: "system", readiness: ready, inputSchema: { type: "object" }, outputSchema: { type: "object" } },
+      { ref: "model://project/11111111-1111-1111-1111-111111111111@1", kind: "model", name: "kimi-k2.5", description: "项目模型配置 · kimi-k2.5", source: "project", readiness: ready, inputSchema: { type: "object" }, outputSchema: { type: "object" } },
       { ref: "policy://default@1", kind: "policy", name: "默认策略", description: "默认能力治理策略。", source: "system", readiness: ready, inputSchema: { type: "object" }, outputSchema: { type: "object" } },
     ],
   };

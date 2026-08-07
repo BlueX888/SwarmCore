@@ -40,6 +40,7 @@ def project_model_capability_summary(
     provider_url = str(configuration.get("providerUrl", "")).strip()
     model_name = str(configuration.get("modelName", "")).strip()
     secret_ref = str(configuration.get("secretRef", "")).strip()
+    verified_at = str(configuration.get("connectionVerifiedAt", "")).strip()
     display_name = str(configuration.get("displayName", "")).strip() or model_name or "项目模型"
     reasons: list[ReadinessReason] = []
     if not provider_url or not model_name:
@@ -54,6 +55,15 @@ def project_model_capability_summary(
             ReadinessReason(
                 code=ReadinessReasonCode.SECRET_MISSING,
                 message="The provider credential cannot be leased.",
+            )
+        )
+    # Connectivity must be proven before agents can treat the project model as ready.
+    # Saved-but-unverified rows (e.g. upstream balance failures) stay visible as not ready.
+    if provider_url and model_name and secret_ref and not verified_at:
+        reasons.append(
+            ReadinessReason(
+                code=ReadinessReasonCode.HEALTH_CHECK_FAILED,
+                message="Provider connectivity has not been verified.",
             )
         )
     readiness = (

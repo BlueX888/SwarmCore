@@ -433,6 +433,16 @@ Runtime 负责实际路由、重试和主失败后的备用切换，确定性 To
 
 ### 6.10 招采一致性与供应商风控能力包
 
+`procurement-supplier-risk@1.0.5` 默认执行策略
+`strategy://procurement-supplier-risk/assess@6`；历史策略 `assess@5` 仍可解析，不在原地改写。
+`assess@6` 主流程仅保留 `agent://procurement/clause-evidence-analyst@4` 处理非结构化语义
+（`clauseFacts` / `mappingCandidates` / `ambiguities`），禁止输出 `severity` 等裁决字段；
+严重级别、有效采购基线、资格门禁、证据充分性与最终动作由确定性 Tool 完成。客户端风险源仅允许
+已注册 `providerConfigId`。最终结果使用 `schema://procurement-supplier-risk/result@2` 的
+`FinalDecision`（`PROCEED` / `PROCEED_WITH_CONTROLS` / `HOLD` / `BLOCK`），并保留兼容字段
+`decision`。完整设计见 `docs/swarmcore-procurement-supplier-risk-assess-v6-design.md`；
+`assess@5` 设计与验收边界见 `docs/swarmcore-procurement-supplier-risk-design.md`。
+
 `procurement-supplier-risk@1.0.4`（策略 `strategy://procurement-supplier-risk/assess@5`）
 复用 BusinessObject/Case、业务资料库、Assessment、
 Temporal 和统一 Gateway。条款 Agent 只从冻结的招标、投标、中标和合同资料提出语义候选，
@@ -444,8 +454,7 @@ Temporal 和统一 Gateway。条款 Agent 只从冻结的招标、投标、中�
 HTTPS allowlist 和 Vault `secretRef`。监控刷新仍创建标准 Case Assessment；Recorder 在同一事务
 写入不可变风险快照、预警、Finding、Report、Audit 和 Outbox。预警通过受控状态机生成并处置
 风控工单，动作历史不可变。REST 与 MCP 复用 `ProcurementSupplierRiskService`，Web Assessment
-展示条款、真实来源、绩效、风险、历史和工单，不建立独立业务逻辑。完整设计和验收边界见
-`docs/swarmcore-procurement-supplier-risk-design.md`。
+展示条款、真实来源、绩效、风险、历史和工单，不建立独立业务逻辑。
 
 2026-07-28 的真实链 Run `019fa6f0-f69f-701d-bff4-1eec4a9da397` 已通过正式 REST、
 Artifact Gateway、PostgreSQL、Temporal、外部 DeepSeek 模型和 Agent/Tool Worker 完成：

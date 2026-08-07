@@ -1,7 +1,7 @@
 {
   "apiVersion": "swarmcore.io/v2",
   "kind": "CapabilityPack",
-  "metadata": {"name": "procurement-supplier-risk", "version": "1.0.4"},
+  "metadata": {"name": "procurement-supplier-risk", "version": "1.0.5"},
   "spec": {
     "case": {
       "type": "procurement-supplier-risk-case",
@@ -12,24 +12,25 @@
         {"key": "supplier", "objectType": "supplier", "role": "RELATED", "min": 1, "max": 20}
       ]
     },
-    "inputSchema": "schema://procurement-supplier-risk/input@1",
-    "outputSchema": "schema://procurement-supplier-risk/result@1",
-    "strategies": {"execute": "strategy://procurement-supplier-risk/assess@5"},
+    "inputSchema": "schema://procurement-supplier-risk/input@2",
+    "outputSchema": "schema://procurement-supplier-risk/result@2",
+    "strategies": {"execute": "strategy://procurement-supplier-risk/assess@6"},
     "agents": [
-      "agent://procurement/clause-evidence-analyst@3",
-      "agent://supplier/risk-analyst@1",
-      "agent://procurement/evidence-quality-reviewer@1"
+      "agent://procurement/clause-evidence-analyst@4"
     ],
     "tools": [
       "tool://document/read-versions@1",
       "tool://document/coverage-check@1",
       "tool://evidence/search@1",
-      "tool://procurement/consistency-compare@1",
-      "tool://supplier/risk-collect@1",
+      "tool://agent-output/schema-validate@1",
+      "tool://procurement/baseline-resolve@1",
+      "tool://procurement/consistency-compare@2",
+      "tool://supplier/risk-collect@2",
       "tool://supplier/performance-calculate@1",
-      "tool://supplier/risk-decide@1",
+      "tool://supplier/risk-decide@2",
       "tool://supplier/history-diff@1",
-      "tool://procurement-supplier-risk/finalize@1",
+      "tool://procurement/evidence-gate@1",
+      "tool://procurement-supplier-risk/finalize@2",
       "tool://report/render-procurement-supplier-risk@1",
       "tool://workbench/record-procurement-supplier-risk@1"
     ],

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://procurement-supplier-risk/result@2",
+  "type": "object",
+  "required": [
+    "schemaVersion", "caseId", "assessmentId", "asOf", "supplier", "decision",
+    "riskLevel", "finalDecision", "consistency", "risk", "performance", "history",
+    "provenance", "snapshotHash", "resultHash"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "schema://procurement-supplier-risk/result@2"},
+    "caseId": {"type": "string"},
+    "monitorId": {"type": ["string", "null"]},
+    "assessmentId": {"type": "string"},
+    "asOf": {"type": "string", "format": "date"},
+    "supplier": {
+      "type": "object",
+      "required": ["creditCode"],
+      "properties": {
+        "name": {"type": "string"},
+        "creditCode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "decision": {"enum": ["PASS", "CONDITIONAL_PASS", "REVIEW_REQUIRED", "BLOCK"]},
+    "riskLevel": {"enum": ["A", "B", "C", "D", "UNKNOWN"]},
+    "finalDecision": {
+      "type": "object",
+      "required": [
+        "evidenceStatus", "consistencyDecision", "eligibilityDecision", "riskTier",
+        "performanceStatus", "action", "reasonCodes"
+      ],
+      "properties": {
+        "evidenceStatus": {"type": "string"},
+        "consistencyDecision": {"type": "string"},
+        "eligibilityDecision": {"enum": ["ELIGIBLE", "INELIGIBLE", "UNKNOWN"]},
+        "riskTier": {"type": "string"},
+        "performanceStatus": {"type": "string"},
+        "action": {"enum": ["PROCEED", "PROCEED_WITH_CONTROLS", "HOLD", "BLOCK"]},
+        "reasonCodes": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "consistency": {
+      "type": "object",
+      "required": ["clauseLineages", "findings", "counts", "blocking", "reviewRequired"]
+    },
+    "risk": {
+      "type": "object",
+      "required": [
+        "observations", "sourceStatuses", "externalRiskScore", "overallRiskScore",
+        "riskLevel", "hardGates", "decision", "reviewRequired", "eligibilityDecision",
+        "riskTier"
+      ]
+    },
+    "performance": {
+      "type": "object",
+      "required": ["metrics", "coverage", "status"]
+    },
+    "history": {"type": "object"},
+    "review": {"type": "object"},
+    "approval": {"type": ["object", "null"]},
+    "provenance": {"type": "object"},
+    "snapshotHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "resultHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": true
+}

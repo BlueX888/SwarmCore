@@ -1526,20 +1526,55 @@ def procurement_supplier_risk_tool_registrations() -> tuple[ToolRegistration, ..
     definitions = (
         (
             "tool://procurement/consistency-compare@1",
+            "1",
             "procurement.consistency_compare",
             ToolRisk.LOW,
             False,
             "确定性生成招标、投标、中标和合同四方条款链及分级差异。",
         ),
         (
+            "tool://agent-output/schema-validate@1",
+            "1",
+            "agent_output.schema_validate",
+            ToolRisk.LOW,
+            False,
+            "校验条款证据智能体输出并拒绝严重级别等裁决字段。",
+        ),
+        (
+            "tool://procurement/baseline-resolve@1",
+            "1",
+            "procurement.baseline_resolve",
+            ToolRisk.LOW,
+            False,
+            "合并澄清/变更后生成有效采购基线。",
+        ),
+        (
+            "tool://procurement/consistency-compare@2",
+            "2",
+            "procurement.consistency_compare_v2",
+            ToolRisk.LOW,
+            False,
+            "相对有效采购基线计算条款差异, 严重级别仅由规则矩阵决定。",
+        ),
+        (
             "tool://supplier/risk-collect@1",
+            "1",
             "supplier.risk_collect",
             ToolRisk.MEDIUM,
             False,
             "通过允许的授权来源按统一社会信用代码采集并冻结供应商风险事实。",
         ),
         (
+            "tool://supplier/risk-collect@2",
+            "2",
+            "supplier.risk_collect_v2",
+            ToolRisk.MEDIUM,
+            False,
+            "仅按已注册 providerConfigId 采集风险, 拒绝客户端原始记录与任意 endpoint。",
+        ),
+        (
             "tool://supplier/performance-calculate@1",
+            "1",
             "supplier.performance_calculate",
             ToolRisk.LOW,
             False,
@@ -1547,27 +1582,55 @@ def procurement_supplier_risk_tool_registrations() -> tuple[ToolRegistration, ..
         ),
         (
             "tool://supplier/risk-decide@1",
+            "1",
             "supplier.risk_decide",
             ToolRisk.LOW,
             False,
             "执行硬门禁、风险维度、覆盖率和综合风险等级规则。",
         ),
         (
+            "tool://supplier/risk-decide@2",
+            "2",
+            "supplier.risk_decide_v2",
+            ToolRisk.LOW,
+            False,
+            "拆分资格门禁与控制型风险等级, 并要求显式 asOf。",
+        ),
+        (
             "tool://supplier/history-diff@1",
+            "1",
             "supplier.history_diff",
             ToolRisk.LOW,
             False,
             "比较供应商风险快照并识别新增、移除和变化记录。",
         ),
         (
+            "tool://procurement/evidence-gate@1",
+            "1",
+            "procurement.evidence_gate",
+            ToolRisk.LOW,
+            False,
+            "确定性检查资料覆盖、必查来源、身份与绩效证据充分性。",
+        ),
+        (
             "tool://procurement-supplier-risk/finalize@1",
+            "1",
             "procurement_supplier_risk.finalize",
             ToolRisk.LOW,
             False,
             "冻结招采一致性、供应商风险、绩效、审批和历史变化结果。",
         ),
         (
+            "tool://procurement-supplier-risk/finalize@2",
+            "2",
+            "procurement_supplier_risk.finalize_v2",
+            ToolRisk.LOW,
+            False,
+            "输出类型化 FinalDecision, REQUEST_EVIDENCE 保持 HOLD。",
+        ),
+        (
             "tool://report/render-procurement-supplier-risk@1",
+            "1",
             "report.render_procurement_supplier_risk",
             ToolRisk.LOW,
             False,
@@ -1575,6 +1638,7 @@ def procurement_supplier_risk_tool_registrations() -> tuple[ToolRegistration, ..
         ),
         (
             "tool://workbench/record-procurement-supplier-risk@1",
+            "1",
             "workbench.record_procurement_supplier_risk",
             ToolRisk.HIGH,
             True,
@@ -1584,7 +1648,7 @@ def procurement_supplier_risk_tool_registrations() -> tuple[ToolRegistration, ..
     return tuple(
         ToolRegistration(
             ref=ref,
-            version="1",
+            version=version,
             operation=operation,
             description=description,
             risk=risk,
@@ -1594,7 +1658,7 @@ def procurement_supplier_risk_tool_registrations() -> tuple[ToolRegistration, ..
             sideEffecting=side_effecting,
             recoveryPolicy="idempotent",
         )
-        for ref, operation, risk, side_effecting, description in definitions
+        for ref, version, operation, risk, side_effecting, description in definitions
     )
 
 
@@ -3400,6 +3464,148 @@ def builtin_registry() -> RegistrySnapshot:
                         "ambiguities": {
                             "type": "array",
                             "maxItems": 8,
+                            "items": _object_schema(
+                                required=("code", "summary", "evidenceRefs"),
+                                properties={
+                                    "code": {"type": "string", "maxLength": 64},
+                                    "summary": {"type": "string", "maxLength": 240},
+                                    "evidenceRefs": {
+                                        "type": "array",
+                                        "maxItems": 3,
+                                        "items": {"type": "object"},
+                                    },
+                                },
+                            ),
+                        },
+                    },
+                ),
+            ),
+            AgentRegistration(
+                ref="agent://procurement/clause-evidence-analyst@4",
+                version="4",
+                role="procurement-clause-evidence-analyst",
+                description="仅提取条款事实与跨文档映射候选，不输出严重级别或业务裁决。",
+                instructions=(
+                    "Extract clauseFacts and mappingCandidates only from supplied frozen "
+                    "evidence. Each clauseFact needs documentRole, category, text or "
+                    "normalizedValue, matchKey and evidenceRefs copied from supplied hits. "
+                    "mappingCandidates may propose cross-document relations with confidence "
+                    "and rationale, but must NEVER include severity, decision, BLOCK, PASS, "
+                    "eligibility, riskTier or legal conclusions. Record gaps as ambiguities. "
+                    "Preserve provided clauseFacts when valid. Never call tools, invent "
+                    "missing text, approve exceptions or adjudicate."
+                ),
+                model="model://general@1",
+                inputSchema={"type": "object"},
+                outputSchema=_object_schema(
+                    required=("clauseFacts", "mappingCandidates", "ambiguities"),
+                    properties={
+                        "clauseFacts": {
+                            "type": "array",
+                            "maxItems": 48,
+                            "items": _object_schema(
+                                required=(
+                                    "clauseId",
+                                    "matchKey",
+                                    "category",
+                                    "documentRole",
+                                    "text",
+                                    "evidenceRefs",
+                                ),
+                                properties={
+                                    "clauseId": {"type": "string", "maxLength": 128},
+                                    "matchKey": {"type": "string", "maxLength": 128},
+                                    "category": {
+                                        "type": "string",
+                                        "enum": [
+                                            "PARTY",
+                                            "SUBJECT",
+                                            "PRICE",
+                                            "SCOPE",
+                                            "QUANTITY",
+                                            "QUALITY",
+                                            "PERFORMANCE_PERIOD",
+                                            "PAYMENT",
+                                            "ACCEPTANCE",
+                                            "GUARANTEE",
+                                            "LIABILITY",
+                                            "BREACH",
+                                            "INTELLECTUAL_PROPERTY",
+                                            "DATA_SECURITY",
+                                            "SUBCONTRACTING",
+                                        ],
+                                    },
+                                    "documentRole": {
+                                        "enum": [
+                                            "TENDER",
+                                            "CLARIFICATION",
+                                            "BID",
+                                            "AWARD",
+                                            "CONTRACT",
+                                            "APPROVED_CHANGE",
+                                        ]
+                                    },
+                                    "text": {"type": "string", "maxLength": 240},
+                                    "normalizedValue": {
+                                        "type": [
+                                            "string",
+                                            "number",
+                                            "integer",
+                                            "boolean",
+                                            "null",
+                                        ]
+                                    },
+                                    "evidenceRefs": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "maxItems": 3,
+                                        "items": {"type": "object"},
+                                    },
+                                },
+                            ),
+                        },
+                        "mappingCandidates": {
+                            "type": "array",
+                            "maxItems": 24,
+                            "items": _object_schema(
+                                required=(
+                                    "matchKey",
+                                    "category",
+                                    "proposedRelation",
+                                    "confidence",
+                                    "rationale",
+                                    "evidenceRefs",
+                                ),
+                                properties={
+                                    "matchKey": {"type": "string", "maxLength": 128},
+                                    "category": {"type": "string", "maxLength": 64},
+                                    "proposedRelation": {
+                                        "enum": [
+                                            "SAME",
+                                            "CHANGED",
+                                            "WEAKENED",
+                                            "CONFLICT",
+                                            "UNCONFIRMED",
+                                        ]
+                                    },
+                                    "confidence": {
+                                        "type": "number",
+                                        "minimum": 0,
+                                        "maximum": 1,
+                                    },
+                                    "rationale": {"type": "string", "maxLength": 240},
+                                    "evidenceRefs": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "maxItems": 4,
+                                        "items": {"type": "object"},
+                                    },
+                                },
+                            ),
+                        },
+                        "ambiguities": {
+                            "type": "array",
+                            "maxItems": 12,
                             "items": _object_schema(
                                 required=("code", "summary", "evidenceRefs"),
                                 properties={

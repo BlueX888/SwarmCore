@@ -59,7 +59,7 @@ def test_synthesize_project_model_registration_accepts_uuid_refs() -> None:
     assert synthesize_project_model_registration("model://project/not-a-uuid") is None
 
 
-def test_project_model_capability_summary_is_ready_when_provider_is_complete() -> None:
+def test_project_model_capability_summary_is_ready_when_provider_is_verified() -> None:
     model_id = uuid4()
     summary = project_model_capability_summary(
         logical_model=f"model://project/{model_id}",
@@ -69,6 +69,7 @@ def test_project_model_capability_summary_is_ready_when_provider_is_complete() -
             "modelName": "gpt-4.1-mini",
             "secretRef": "secret://projects/demo/models/x",
             "displayName": "业务模型",
+            "connectionVerifiedAt": "2026-08-07T09:45:46.373435+00:00",
         },
     )
     assert summary is not None
@@ -76,6 +77,25 @@ def test_project_model_capability_summary_is_ready_when_provider_is_complete() -
     assert summary.name == "业务模型"
     assert summary.source == "project"
     assert summary.readiness.status.value == "READY"
+
+
+def test_project_model_capability_summary_not_ready_until_connectivity_verified() -> None:
+    model_id = uuid4()
+    summary = project_model_capability_summary(
+        logical_model=f"model://project/{model_id}",
+        revision=1,
+        configuration={
+            "providerUrl": "https://gateway.example.com/v1",
+            "modelName": "MiniMax-M2.7-highspeed",
+            "secretRef": "secret://projects/demo/models/minimax",
+            "displayName": "MiniMax-M2.7-highspeed",
+        },
+    )
+    assert summary is not None
+    assert summary.readiness.status.value == "NOT_READY"
+    assert any(
+        reason.code.value == "HEALTH_CHECK_FAILED" for reason in summary.readiness.reasons
+    )
 
 
 def test_compiler_accepts_project_model_references() -> None:
@@ -130,6 +150,7 @@ async def test_capability_center_lists_project_runtime_models() -> None:
             "modelName": "gpt-4.1-mini",
             "secretRef": "secret://projects/demo/models/x",
             "displayName": "业务模型",
+            "connectionVerifiedAt": "2026-08-07T09:45:46.373435+00:00",
         },
     )
 

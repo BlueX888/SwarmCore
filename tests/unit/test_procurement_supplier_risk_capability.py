@@ -33,18 +33,31 @@ def test_procurement_supplier_risk_capability_assets_are_valid() -> None:
     assert all(registry.resolve_agent(ref) is not None for ref in manifest.spec.agents)
     assert all(registry.resolve_tool(ref) is not None for ref in manifest.spec.tools)
     clause_agent = registry.resolve_agent(
-        "agent://procurement/clause-evidence-analyst@3"
+        "agent://procurement/clause-evidence-analyst@4"
     )
     assert clause_agent is not None
     assert clause_agent.tools == ()
     assert clause_agent.output_schema is not None
-    clause_schema = clause_agent.output_schema["properties"]["clauses"]["properties"][
-        "TENDER"
-    ]["items"]
-    assert "category" in clause_schema["required"]
-    assert "matchKey" in clause_schema["required"]
-    assert "evidenceRefs" in clause_schema["required"]
-    assert clause_schema["properties"]["evidenceRefs"]["minItems"] == 1
+    assert "clauseFacts" in clause_agent.output_schema["required"]
+    mapping_schema = clause_agent.output_schema["properties"]["mappingCandidates"]["items"]
+    assert "severity" not in mapping_schema.get("properties", {})
+    assert "severity" not in mapping_schema.get("required", [])
+    assert "strategy://procurement-supplier-risk/assess@5" in STRATEGIES
+    assert strategy.spec.agents["clause-analyst"].ref == (
+        "agent://procurement/clause-evidence-analyst@4"
+    )
+    assert "risk-analyst" not in strategy.spec.agents
+    assert "reviewer" not in strategy.spec.agents
+    review = strategy.spec.graph.nodes.root["manual-review"]
+    assert review.requires_distinct_approver is True
+    assert set(review.required_roles) == {
+        "procurement_reviewer",
+        "legal_reviewer",
+        "risk_reviewer",
+        "tenant_admin",
+    }
+    assert "action" in review.input_schema["required"]
+    assert "approved" not in review.input_schema.get("properties", {})
     resolved, snapshot = resolve_manifest(
         MANIFEST, CapabilityReferenceCatalog.from_iterable(REFERENCES)
     )
@@ -55,14 +68,6 @@ def test_procurement_supplier_risk_capability_assets_are_valid() -> None:
         policy_revision="test",
     )
     assert set(plan.resolved_tools) == set(manifest.spec.tools)
-    review = strategy.spec.graph.nodes.root["manual-review"]
-    assert review.requires_distinct_approver is True
-    assert set(review.required_roles) == {
-        "procurement_reviewer",
-        "legal_reviewer",
-        "risk_reviewer",
-        "tenant_admin",
-    }
     for schema in SCHEMAS.values():
         Draft202012Validator.check_schema(schema)
 

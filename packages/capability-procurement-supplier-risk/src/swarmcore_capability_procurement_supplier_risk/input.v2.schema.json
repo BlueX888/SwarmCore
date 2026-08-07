@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://procurement-supplier-risk/input@2",
+  "type": "object",
+  "required": [
+    "workItemId", "workItemRevisionId", "evaluationId", "payload", "subjects",
+    "documents", "attachments", "attachmentManifestHash", "selectionManifestHash",
+    "baselineHash", "configurationHash", "configuration"
+  ],
+  "properties": {
+    "workItemId": {"type": "string", "format": "uuid"},
+    "workItemRevisionId": {"type": "string", "format": "uuid"},
+    "evaluationId": {"type": "string", "format": "uuid"},
+    "payload": {
+      "type": "object",
+      "required": [
+        "title", "projectNo", "lotNo", "procurementType", "asOf", "supplier"
+      ],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "projectNo": {"type": "string", "minLength": 1},
+        "lotNo": {"type": "string", "minLength": 1},
+        "procurementType": {"type": "string"},
+        "asOf": {"type": "string", "format": "date"},
+        "supplier": {"type": "object"},
+        "riskSources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["providerConfigId"],
+            "properties": {
+              "providerConfigId": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+          }
+        },
+        "performance": {"type": "object"},
+        "clauseFacts": {"type": "array", "items": {"type": "object"}},
+        "mappingCandidates": {"type": "array", "items": {"type": "object"}},
+        "clauses": {"type": "object"},
+        "approvedExceptionKeys": {"type": "array", "items": {"type": "string"}},
+        "previousSnapshot": {"type": ["object", "null"]},
+        "monitorId": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "subjects": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+    "documents": {"type": "array", "minItems": 1, "maxItems": 120, "items": {"type": "object"}},
+    "attachments": {"type": "array", "items": {"type": "object"}},
+    "attachmentManifestHash": {"type": "string", "minLength": 1},
+    "selectionManifestHash": {"type": "string", "minLength": 1},
+    "baselineHash": {"type": "string", "minLength": 1},
+    "configurationHash": {"type": "string", "minLength": 1},
+    "configuration": {"type": "object"}
+  },
+  "additionalProperties": false
+}

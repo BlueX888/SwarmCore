@@ -37,6 +37,16 @@ const projectAgent = {
   source: "project",
 };
 const model = {
+  ref: "model://project/11111111-1111-1111-1111-111111111111@1",
+  kind: "model" as const,
+  name: "kimi-k2.5",
+  description: "项目模型配置 · kimi-k2.5",
+  source: "project",
+  readiness: { status: "READY" as const, reasons: [] },
+  inputSchema: { type: "object" },
+  outputSchema: { type: "object" },
+};
+const systemModel = {
   ref: "model://general@1", kind: "model" as const, name: "general", description: "通用对话与结构化输出模型路由。", source: "system",
   readiness: { status: "READY" as const, reasons: [] }, inputSchema: { type: "object" }, outputSchema: { type: "object" },
 };
@@ -83,10 +93,10 @@ describe("capabilities page", () => {
     vi.mocked(api.updatePreset).mockResolvedValue({ ...preset, name: "更新预设", revision: 2 });
     vi.mocked(api.copyPreset).mockResolvedValue({ ...preset, presetId: "preset-2", name: "日报检索 副本" });
     vi.mocked(api.deletePreset).mockResolvedValue(undefined);
-    vi.mocked(api.getModelProvider).mockResolvedValue({ logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", apiKeyConfigured: true, displayName: "test-model" });
+    vi.mocked(api.getModelProvider).mockResolvedValue({ logicalModel: "model://project/11111111-1111-1111-1111-111111111111", providerUrl: "https://api.example.com/v1", modelName: "kimi-k2.5", apiKeyConfigured: true, displayName: "kimi-k2.5" });
     vi.mocked(api.revealModelProviderApiKey).mockResolvedValue({ apiKey: "sk-saved-secret" });
-    vi.mocked(api.saveModelProvider).mockResolvedValue({ logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", apiKeyConfigured: true, displayName: "test-model" });
-    vi.mocked(api.testModelProvider).mockResolvedValue({ connected: true, modelName: "test-model", latencyMs: 42, readinessUpdated: true });
+    vi.mocked(api.saveModelProvider).mockResolvedValue({ logicalModel: "model://project/11111111-1111-1111-1111-111111111111", providerUrl: "https://api.example.com/v1", modelName: "kimi-k2.5", apiKeyConfigured: true, displayName: "kimi-k2.5" });
+    vi.mocked(api.testModelProvider).mockResolvedValue({ connected: true, modelName: "kimi-k2.5", latencyMs: 42, readinessUpdated: true });
   });
 
   it("shows ready capabilities by default and explains not-ready resources on demand", async () => {
@@ -277,37 +287,57 @@ describe("capabilities page", () => {
   });
 
   it("guides empty model catalog toward three-field creation", async () => {
-    vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [] });
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [systemModel] });
     renderModelPage();
     expect(await screen.findByRole("heading", { name: "模型" })).toBeVisible();
-    expect(screen.getByText(/模型只负责连接和调用.*任务能力在智能体中定义/)).toBeVisible();
+    expect(screen.getByText(/管理当前项目可调用的模型型号/)).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "显示已配置但未就绪" })).toBeVisible();
     expect(screen.getByPlaceholderText("搜索模型名称或 API 连接")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /general/ })).not.toBeInTheDocument();
     expect(screen.getByText("没有可调用的模型 API。")).toBeVisible();
     expect(screen.getByText(/点击“新建模型”，只需填写 API URL、ModelName 和 API Key/)).toBeVisible();
     fireEvent.click(screen.getByRole("checkbox", { name: "显示已配置但未就绪" }));
     expect(await screen.findByText("当前项目还没有模型 API 配置。")).toBeVisible();
   });
 
+  it("lists only project model names without source or boilerplate copy", async () => {
+    vi.mocked(api.getCapabilityCenter).mockResolvedValue({
+      registrySnapshot: "registry:test",
+      items: [
+        model,
+        systemModel,
+        { ...model, ref: "model://project/22222222-2222-2222-2222-222222222222@1", name: "业务显示名", description: "项目模型配置 · DeepSeek-V4-Pro" },
+      ],
+    });
+    renderModelPage();
+    expect(await screen.findByRole("button", { name: /kimi-k2\.5/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /业务显示名/ })).toBeVisible();
+    expect(screen.getByText("DeepSeek-V4-Pro")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /general/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("供智能体调用的模型 API 连接。")).not.toBeInTheDocument();
+    expect(screen.queryByText("项目创建")).not.toBeInTheDocument();
+    expect(screen.queryByText("系统内置")).not.toBeInTheDocument();
+  });
+
   it("configures and performs a real model connectivity test without run controls", async () => {
     vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [model] });
     renderModelPage();
-    fireEvent.click(await screen.findByRole("button", { name: /general/ }));
-    const dialog = screen.getByRole("dialog", { name: "general" });
+    fireEvent.click(await screen.findByRole("button", { name: /kimi-k2\.5/ }));
+    const dialog = screen.getByRole("dialog", { name: "kimi-k2.5" });
     await waitFor(() => expect(within(dialog).getByLabelText("模型 API URL")).toHaveValue("https://api.example.com/v1"));
-    expect(within(dialog).getByText("供智能体调用的模型 API 连接。")).toBeVisible();
+    expect(within(dialog).getByText("编辑该型号的 API 连接。")).toBeVisible();
     expect(within(dialog).queryByText(model.description)).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("heading", { name: "我的预设" })).not.toBeInTheDocument();
     expect(within(dialog).queryByLabelText("运行输入 JSON")).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "加入画布" })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "立即运行" })).not.toBeInTheDocument();
-    expect(within(dialog).getByText(/角色、提示词、工具和任务能力请在智能体中定义/)).toBeVisible();
+    expect(within(dialog).queryByText(/角色、提示词、工具和任务能力请在智能体中定义/)).not.toBeInTheDocument();
     expect(within(dialog).getByText("可调用")).toBeVisible();
     fireEvent.click(within(dialog).getByText("连接详情"));
     expect(within(dialog).queryByText(/inputSchema/)).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "重新检测" }));
     await waitFor(() => expect(api.testModelProvider).toHaveBeenCalledWith(expect.any(String), expect.any(String), {
-      logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", displayName: "test-model",
+      logicalModel: "model://project/11111111-1111-1111-1111-111111111111", providerUrl: "https://api.example.com/v1", modelName: "kimi-k2.5", displayName: "kimi-k2.5",
     }));
     expect(await within(dialog).findByText(/连接成功.*42 ms/)).toBeVisible();
   });
@@ -325,8 +355,8 @@ describe("capabilities page", () => {
       .mockResolvedValue({ registrySnapshot: "registry:test", items: [model] });
     renderModelPage();
     fireEvent.click(screen.getByRole("checkbox", { name: "显示已配置但未就绪" }));
-    fireEvent.click(await screen.findByRole("button", { name: /general/ }));
-    const dialog = screen.getByRole("dialog", { name: "general" });
+    fireEvent.click(await screen.findByRole("button", { name: /kimi-k2\.5/ }));
+    const dialog = screen.getByRole("dialog", { name: "kimi-k2.5" });
     expect(within(dialog).getByText("未就绪")).toBeVisible();
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "重新检测" })).toBeEnabled());
 
@@ -340,11 +370,10 @@ describe("capabilities page", () => {
   it("shows a visual API key mask when configured and toggles only local typed values", async () => {
     vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [model] });
     renderModelPage();
-    fireEvent.click(await screen.findByRole("button", { name: /general/ }));
-    const dialog = screen.getByRole("dialog", { name: "general" });
+    fireEvent.click(await screen.findByRole("button", { name: /kimi-k2\.5/ }));
+    const dialog = screen.getByRole("dialog", { name: "kimi-k2.5" });
     const apiKeyInput = await within(dialog).findByLabelText("模型 API Key");
-    await waitFor(() => expect(apiKeyInput).toHaveAttribute("placeholder", "••••••••"));
-    expect(apiKeyInput).toHaveValue("");
+    await waitFor(() => expect(apiKeyInput).toHaveValue("••••••••"));
     expect(apiKeyInput).toHaveAttribute("type", "password");
     expect(within(dialog).getByText(/API Key 已保存/)).toBeVisible();
     const vaultMaskToggle = within(dialog).getByRole("button", { name: "显示已保存 API Key" });
@@ -355,7 +384,7 @@ describe("capabilities page", () => {
     await waitFor(() => expect(api.revealModelProviderApiKey).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
-      "model://general",
+      "model://project/11111111-1111-1111-1111-111111111111",
     ));
     expect(apiKeyInput).toHaveValue("sk-saved-secret");
     expect(apiKeyInput).toHaveAttribute("type", "text");
@@ -378,28 +407,28 @@ describe("capabilities page", () => {
 
     fireEvent.change(apiKeyInput, { target: { value: "" } });
     fireEvent.blur(apiKeyInput);
-    await waitFor(() => expect(apiKeyInput).toHaveAttribute("placeholder", "••••••••"));
-    expect(apiKeyInput).toHaveValue("");
+    await waitFor(() => expect(apiKeyInput).toHaveValue("••••••••"));
     expect(within(dialog).getByRole("button", { name: "显示已保存 API Key" })).toBeEnabled();
   });
 
   it("automatically verifies a saved model and keeps its API key revealable", async () => {
     vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [model] });
     renderModelPage();
-    fireEvent.click(await screen.findByRole("button", { name: /general/ }));
-    const dialog = screen.getByRole("dialog", { name: "general" });
+    fireEvent.click(await screen.findByRole("button", { name: /kimi-k2\.5/ }));
+    const dialog = screen.getByRole("dialog", { name: "kimi-k2.5" });
     const apiKeyInput = await within(dialog).findByLabelText("模型 API Key");
-    await waitFor(() => expect(apiKeyInput).toHaveAttribute("placeholder", "••••••••"));
+    await waitFor(() => expect(apiKeyInput).toHaveValue("••••••••"));
 
+    fireEvent.focus(apiKeyInput);
     fireEvent.change(apiKeyInput, { target: { value: "sk-newly-saved" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "保存并检测" }));
 
     expect(await within(dialog).findByText(/配置保存成功.*已就绪/)).toBeVisible();
     expect(api.testModelProvider).toHaveBeenCalledWith(expect.any(String), expect.any(String), {
-      logicalModel: "model://general",
+      logicalModel: "model://project/11111111-1111-1111-1111-111111111111",
       providerUrl: "https://api.example.com/v1",
-      modelName: "test-model",
-      displayName: "test-model",
+      modelName: "kimi-k2.5",
+      displayName: "kimi-k2.5",
       apiKey: "sk-newly-saved",
     });
     expect(apiKeyInput).toHaveValue("sk-newly-saved");
@@ -420,9 +449,9 @@ describe("capabilities page", () => {
     });
     renderModelPage();
     fireEvent.click(await screen.findByRole("button", { name: "新建模型" }));
-    const dialog = screen.getByRole("dialog", { name: "新建模型 API" });
+    const dialog = screen.getByRole("dialog", { name: "新建模型" });
     expect(within(dialog).queryByLabelText("逻辑模型路由")).not.toBeInTheDocument();
-    expect(within(dialog).getByText(/创建供智能体调用的模型 API 连接.*任务能力在智能体中定义/)).toBeVisible();
+    expect(within(dialog).getByText("填写 API URL、ModelName 和 API Key。")).toBeVisible();
     fireEvent.change(within(dialog).getByLabelText("模型显示名称"), { target: { value: "业务模型" } });
     fireEvent.change(within(dialog).getByLabelText("模型 API URL"), { target: { value: "https://api.example.com/v1" } });
     fireEvent.change(within(dialog).getByLabelText("模型名称"), { target: { value: "gpt-4.1-mini" } });
@@ -437,7 +466,7 @@ describe("capabilities page", () => {
       apiKey: "sk-test",
     });
     expect(request?.logicalModel).toMatch(/^model:\/\/project\/[0-9a-f-]{36}$/);
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建模型 API" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建模型" })).not.toBeInTheDocument());
   });
 
   it("opens the policy creation flow from the page header", async () => {

@@ -21,7 +21,7 @@ const kindLabels: Record<CapabilityKind, string> = { agent: "智能体", tool: "
 const pageDescriptions: Record<CapabilityKind, string> = {
   agent: "选择已就绪智能体直接运行，或基于内置版本创建可编辑的项目配置。",
   tool: "选择已就绪工具直接运行，或保存参数为我的预设。",
-  model: "配置供智能体调用的模型 API。模型只负责连接和调用；角色、提示词、工具及任务能力在智能体中定义。",
+  model: "管理当前项目可调用的模型型号；填写 API URL、ModelName 和 API Key 即可新建。",
   policy: "查看策略能力的就绪状态，或保存参数为我的预设。",
 };
 const reasonLabels: Record<ReadinessReasonCode, string> = {
@@ -61,13 +61,17 @@ export function CapabilitiesPage({ kind }: { kind: CapabilityKind }) {
   const query = useQuery({ queryKey: ["capability-center", tenantId, projectId], queryFn: () => api.getCapabilityCenter(tenantId, projectId) });
   React.useEffect(() => {
     if (!selected || !query.data) return;
-    const refreshed = query.data.items.find((item) => item.ref === selected.ref);
+    const selectedLogical = selected.ref.replace(/@[^@]+$/, "");
+    const refreshed = query.data.items.find((item) => item.ref === selected.ref)
+      ?? query.data.items.find((item) => item.ref.replace(/@[^@]+$/, "") === selectedLogical);
     if (refreshed && refreshed !== selected) setSelected(refreshed);
   }, [query.data, selected]);
   const presets = useQuery({ queryKey: ["capability-presets", tenantId, projectId], queryFn: () => api.listPresets(tenantId, projectId) });
   const filtered = React.useMemo(() => (query.data?.items ?? []).filter((item) => {
     if (!showNotReady && item.readiness.status !== "READY") return false;
     if (item.kind !== kind) return false;
+    // 模型广场只展示项目创建的具体型号，不罗列系统逻辑路由。
+    if (kind === "model" && item.source !== "project") return false;
     if (kind === "tool" && riskFilter && item.risk !== riskFilter) return false;
     const needle = search.trim().toLowerCase();
     return !needle || capabilitySearchHaystack(item).includes(needle);
@@ -151,7 +155,7 @@ export function CapabilitiesPage({ kind }: { kind: CapabilityKind }) {
           <div className="flex shrink-0 items-start justify-between gap-4 border-b border-gray-100 p-5 dark:border-gray-800">
             <div className="min-w-0">
               <Dialog.Title asChild><h2 className="font-semibold text-gray-900 dark:text-white">{capabilityDisplayName(selected)}</h2></Dialog.Title>
-              <Dialog.Description className="mt-1 text-sm text-gray-500">{kind === "model" ? "供智能体调用的模型 API 连接。" : selected.description}</Dialog.Description>
+              <Dialog.Description className="mt-1 text-sm text-gray-500">{kind === "model" ? (modelCardSubtitle(selected) ?? "编辑该型号的 API 连接。") : selected.description}</Dialog.Description>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Badge color={selected.readiness.status === "READY" ? "success" : "warning"}>{selected.readiness.status === "READY" ? (kind === "model" ? "可调用" : "可用") : "未就绪"}</Badge>
@@ -162,7 +166,6 @@ export function CapabilitiesPage({ kind }: { kind: CapabilityKind }) {
             {selected.readiness.reasons.length ? <ul className="rounded-xl bg-warning-50 p-4 text-sm text-warning-700 dark:bg-warning-500/10">{selected.readiness.reasons.map((reason) => <li key={`${reason.code}-${reason.dependencyRef ?? ""}`}>{reasonLabels[reason.code]}{reason.dependencyRef ? `：${capabilityDisplayName({ ref: reason.dependencyRef, name: reason.dependencyRef })}` : ""}</li>)}</ul> : null}
             {kind === "agent" ? <p className="rounded-xl bg-brand-50 p-3 text-sm text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">{selected.source === "project" ? "这是当前项目的版本化智能体；运行时会由 Agno Adapter 创建真实实例。" : "系统内置版本保持只读。“编辑配置”会复制当前模型、工具和提示词，创建可独立修改的项目智能体。"}</p> : null}
             {kind === "model" ? <ModelProviderForm tenantId={tenantId} projectId={projectId} capabilityRef={selected.ref} onSaved={async () => { await queryClient.invalidateQueries({ queryKey: ["capability-center", tenantId, projectId] }); }} /> : null}
-            {kind === "model" ? <p className="rounded-xl bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">这里只配置模型 API 的连接与调用。角色、提示词、工具和任务能力请在智能体中定义。</p> : null}
             {kind !== "model" ? <InputForm properties={simpleProperties} input={input} jsonInput={jsonInput} onInput={setInput} onJsonInput={setJsonInput} /> : null}
             {kind !== "model" ? <section className="space-y-3" aria-labelledby="preset-title"><div><h3 id="preset-title" className="font-semibold text-gray-900 dark:text-white">我的预设</h3><p className="text-sm text-gray-500">预设只保存可复用参数，不保存凭证。</p></div>{capabilityPresets.length ? <div className="flex flex-wrap gap-2">{capabilityPresets.map((preset) => <span key={preset.presetId} className="inline-flex items-center rounded-lg border border-gray-200 dark:border-gray-700"><button type="button" className="px-3 py-2 text-sm" onClick={() => loadPreset(preset)}>{preset.name}</button><button type="button" aria-label={`复制预设 ${preset.name}`} className="p-2 text-gray-400 hover:text-brand-500" onClick={() => copyPreset.mutate(preset)}><Copy className="size-4" /></button><button type="button" aria-label={`删除预设 ${preset.name}`} className="p-2 text-gray-400 hover:text-error-500" onClick={() => deletePreset.mutate(preset.presetId)}><Trash2 className="size-4" /></button></span>)}</div> : <p className="text-sm text-gray-500">尚未保存预设。</p>}<div className="flex flex-wrap gap-2"><input aria-label="预设名称" className={`${fieldClass} max-w-sm`} value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="例如：日报检索" /><Button variant="outline" onClick={() => savePreset.mutate()} loading={savePreset.isPending} disabled={!presetName.trim()}>{selectedPresetId ? null : <Plus />}{selectedPresetId ? "更新预设" : "保存预设"}</Button>{selectedPresetId ? <Button variant="ghost" onClick={() => { setSelectedPresetId(""); setPresetName(""); }}>取消编辑</Button> : null}</div></section> : null}
             {formError ? <p role="alert" className="rounded-lg bg-error-50 p-3 text-sm text-error-600">{formError}</p> : null}
@@ -185,7 +188,7 @@ function agentConfigurationPath(workspacePath: string, item: CapabilitySummary):
 
 function NewModelConfigurationDialog({ tenantId, projectId, onClose, onSaved }: { tenantId: string; projectId: string; onClose: () => void; onSaved: () => Promise<void> }) {
   const logicalModel = React.useMemo(() => `model://project/${crypto.randomUUID()}`, []);
-  return <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-40 bg-gray-950/50 backdrop-blur-[2px]" /><Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 outline-none"><div className="rounded-2xl border border-gray-200 bg-white shadow-theme-xl dark:border-gray-800 dark:bg-gray-900"><div className="flex items-start justify-between border-b border-gray-100 p-5 dark:border-gray-800"><div><Dialog.Title className="font-semibold text-gray-900 dark:text-white">新建模型 API</Dialog.Title><Dialog.Description className="mt-1 text-sm text-gray-500">创建供智能体调用的模型 API 连接；具体任务能力在智能体中定义。</Dialog.Description></div><Dialog.Close asChild><Button variant="ghost" size="icon" aria-label="关闭新建模型"><X /></Button></Dialog.Close></div><div className="space-y-4 p-5"><ModelProviderForm tenantId={tenantId} projectId={projectId} capabilityRef={logicalModel} createMode onSaved={onSaved} /></div></div></Dialog.Content></Dialog.Portal></Dialog.Root>;
+  return <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-40 bg-gray-950/50 backdrop-blur-[2px]" /><Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 outline-none"><div className="rounded-2xl border border-gray-200 bg-white shadow-theme-xl dark:border-gray-800 dark:bg-gray-900"><div className="flex items-start justify-between border-b border-gray-100 p-5 dark:border-gray-800"><div><Dialog.Title className="font-semibold text-gray-900 dark:text-white">新建模型</Dialog.Title><Dialog.Description className="mt-1 text-sm text-gray-500">填写 API URL、ModelName 和 API Key。</Dialog.Description></div><Dialog.Close asChild><Button variant="ghost" size="icon" aria-label="关闭新建模型"><X /></Button></Dialog.Close></div><div className="space-y-4 p-5"><ModelProviderForm tenantId={tenantId} projectId={projectId} capabilityRef={logicalModel} createMode onSaved={onSaved} /></div></div></Dialog.Content></Dialog.Portal></Dialog.Root>;
 }
 
 function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, createMode = false }: { tenantId: string; projectId: string; capabilityRef: string; onSaved: () => Promise<void>; createMode?: boolean }) {
@@ -200,6 +203,7 @@ function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, create
   const [providerUrl, setProviderUrl] = React.useState("");
   const [modelName, setModelName] = React.useState("");
   const [apiKey, setApiKey] = React.useState("");
+  const [editingKey, setEditingKey] = React.useState(false);
   const [showApiKey, setShowApiKey] = React.useState(false);
   const [notice, setNotice] = React.useState("");
   React.useEffect(() => {
@@ -209,7 +213,7 @@ function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, create
     setDisplayName(configuration.data.displayName ?? "");
   }, [configuration.data]);
   const apiKeyConfigured = Boolean(!createMode && configuration.data?.apiKeyConfigured);
-  const showingConfiguredMask = apiKeyConfigured && !apiKey;
+  const showingConfiguredMask = apiKeyConfigured && !apiKey && !editingKey;
   const body = () => ({
     logicalModel,
     providerUrl: providerUrl.trim(),
@@ -236,6 +240,7 @@ function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, create
     mutationFn: () => api.revealModelProviderApiKey(tenantId, projectId, logicalModel),
     onSuccess: ({ apiKey: savedApiKey }) => {
       setApiKey(savedApiKey);
+      setEditingKey(true);
       setShowApiKey(true);
       setNotice("");
     },
@@ -244,6 +249,16 @@ function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, create
   const save = useMutation({
     mutationFn: (requestBody: ReturnType<typeof body>) => api.saveModelProvider(tenantId, projectId, requestBody),
     onSuccess: async (saved, requestBody) => {
+      queryClient.setQueryData(["model-provider", tenantId, projectId, logicalModel], saved);
+      if (requestBody.apiKey) {
+        setApiKey(requestBody.apiKey);
+        setEditingKey(true);
+        setShowApiKey(false);
+      } else {
+        setApiKey("");
+        setEditingKey(false);
+        setShowApiKey(false);
+      }
       if (!createMode) await configuration.refetch();
       try {
         const result = await api.testModelProvider(tenantId, projectId, requestBody);
@@ -273,12 +288,25 @@ function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, create
             type={showingConfiguredMask || !showApiKey ? "password" : "text"}
             autoComplete="new-password"
             className={`${fieldClass} pr-11`}
-            value={apiKey}
+            value={showingConfiguredMask ? CONFIGURED_API_KEY_MASK : apiKey}
+            onFocus={() => {
+              if (showingConfiguredMask) {
+                setEditingKey(true);
+                setShowApiKey(false);
+              }
+            }}
+            onBlur={() => {
+              if (!apiKey) {
+                setEditingKey(false);
+                setShowApiKey(false);
+              }
+            }}
             onChange={(event) => {
-              setApiKey(event.target.value);
+              setEditingKey(true);
+              setApiKey(event.target.value === CONFIGURED_API_KEY_MASK ? "" : event.target.value);
               setNotice("");
             }}
-            placeholder={showingConfiguredMask ? CONFIGURED_API_KEY_MASK : apiKeyConfigured ? "输入新密钥以覆盖" : "请输入 API Key"}
+            placeholder={apiKeyConfigured ? "输入新密钥以覆盖" : "请输入 API Key"}
           />
           <button
             type="button"
@@ -307,11 +335,23 @@ function ModelProviderForm({ tenantId, projectId, capabilityRef, onSaved, create
   </section>;
 }
 
+function modelCardSubtitle(item: CapabilitySummary): string | null {
+  const match = /^项目模型配置 · (.+)$/.exec(item.description.trim());
+  const modelName = match?.[1]?.trim();
+  if (!modelName) return null;
+  const title = capabilityDisplayName(item);
+  return modelName === title ? null : modelName;
+}
+
 function CapabilityCard({ item, selected, onSelect, onConfigure }: { item: CapabilitySummary; selected: boolean; onSelect: () => void; onConfigure?: () => void }) {
   const Icon = item.kind === "agent" ? Bot : item.kind === "model" ? Cpu : item.kind === "policy" ? ShieldCheck : Wrench;
   const riskColor = item.risk === "LOW" ? "success" : item.risk === "HIGH" || item.risk === "CRITICAL" ? "error" : "warning";
   const title = capabilityDisplayName(item);
-  return <article className={`flex flex-col rounded-2xl border bg-white shadow-theme-xs transition dark:bg-gray-900 ${selected ? "border-brand-500 ring-3 ring-brand-500/10" : "border-gray-200 hover:border-brand-300 dark:border-gray-800"}`}><button type="button" onClick={onSelect} className="min-w-0 flex-1 p-5 text-left"><span className="flex items-start justify-between gap-3"><span className="grid size-11 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15"><Icon /></span><Badge color={item.readiness.status === "READY" ? "success" : "warning"}>{item.readiness.status === "READY" ? (item.kind === "model" ? "可调用" : "可用") : "未就绪"}</Badge></span><span className="mt-4 block font-semibold text-gray-900 dark:text-white">{title}</span><span className="mt-1 line-clamp-2 block min-h-10 text-sm text-gray-500">{item.kind === "model" ? "供智能体调用的模型 API 连接。" : item.description}</span><span className="mt-4 flex items-center gap-2 text-xs"><Badge color="neutral">{item.source === "system" ? "系统内置" : item.source === "project" ? "项目创建" : item.source}</Badge>{item.risk ? <Badge color={riskColor}>{item.risk} 风险</Badge> : null}</span></button>{onConfigure ? <div className="border-t border-gray-100 px-5 py-2 dark:border-gray-800"><button type="button" aria-label={`编辑 ${title} 配置`} className="inline-flex items-center gap-2 py-1 text-sm font-medium text-brand-500 hover:text-brand-600" onClick={onConfigure}><Settings2 className="size-4" />编辑配置</button></div> : null}</article>;
+  const modelSubtitle = item.kind === "model" ? modelCardSubtitle(item) : null;
+  if (item.kind === "model") {
+    return <article className={`flex flex-col rounded-2xl border bg-white shadow-theme-xs transition dark:bg-gray-900 ${selected ? "border-brand-500 ring-3 ring-brand-500/10" : "border-gray-200 hover:border-brand-300 dark:border-gray-800"}`}><button type="button" onClick={onSelect} className="min-w-0 flex-1 p-5 text-left"><span className="flex items-start justify-between gap-3"><span className="grid size-11 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15"><Icon /></span><Badge color={item.readiness.status === "READY" ? "success" : "warning"}>{item.readiness.status === "READY" ? "可调用" : "未就绪"}</Badge></span><span className="mt-4 block font-semibold text-gray-900 dark:text-white">{title}</span>{modelSubtitle ? <span className="mt-1 block text-sm text-gray-500">{modelSubtitle}</span> : null}</button></article>;
+  }
+  return <article className={`flex flex-col rounded-2xl border bg-white shadow-theme-xs transition dark:bg-gray-900 ${selected ? "border-brand-500 ring-3 ring-brand-500/10" : "border-gray-200 hover:border-brand-300 dark:border-gray-800"}`}><button type="button" onClick={onSelect} className="min-w-0 flex-1 p-5 text-left"><span className="flex items-start justify-between gap-3"><span className="grid size-11 place-items-center rounded-xl bg-brand-50 text-brand-500 dark:bg-brand-500/15"><Icon /></span><Badge color={item.readiness.status === "READY" ? "success" : "warning"}>{item.readiness.status === "READY" ? "可用" : "未就绪"}</Badge></span><span className="mt-4 block font-semibold text-gray-900 dark:text-white">{title}</span><span className="mt-1 line-clamp-2 block min-h-10 text-sm text-gray-500">{item.description}</span><span className="mt-4 flex items-center gap-2 text-xs"><Badge color="neutral">{item.source === "system" ? "系统内置" : item.source === "project" ? "项目创建" : item.source}</Badge>{item.risk ? <Badge color={riskColor}>{item.risk} 风险</Badge> : null}</span></button>{onConfigure ? <div className="border-t border-gray-100 px-5 py-2 dark:border-gray-800"><button type="button" aria-label={`编辑 ${title} 配置`} className="inline-flex items-center gap-2 py-1 text-sm font-medium text-brand-500 hover:text-brand-600" onClick={onConfigure}><Settings2 className="size-4" />编辑配置</button></div> : null}</article>;
 }
 
 function InputForm({ properties, input, jsonInput, onInput, onJsonInput }: { properties: Array<[string, Record<string, unknown>]> | null; input: Record<string, unknown>; jsonInput: string; onInput: (value: Record<string, unknown>) => void; onJsonInput: (value: string) => void }) {

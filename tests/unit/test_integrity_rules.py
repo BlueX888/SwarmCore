@@ -7,6 +7,7 @@ from swarmcore_application import (
     evaluate_integrity,
     select_unique_rule,
 )
+from swarmcore_application.integrity import finalize_integrity_result
 
 
 def _rules() -> IntegrityRuleDocument:
@@ -36,6 +37,39 @@ def _attachment(kind: str, digest: str | None = None) -> AttachmentInput:
         mediaType="application/pdf",
         sha256=digest or kind.ljust(64, "0")[:64],
     )
+
+
+def test_finalize_integrity_result_preserves_cross_file_findings_and_approval() -> None:
+    result = finalize_integrity_result(
+        {
+            "passed": True,
+            "ruleSetVersionId": "rules-v1",
+            "attachmentManifestHash": "manifest-1",
+            "checks": {"requirements": 1},
+            "findings": [],
+        },
+        {
+            "reviewRequired": True,
+            "findings": [
+                {
+                    "ruleKey": "amount",
+                    "code": "CROSS_FILE_MISMATCH",
+                    "severity": "HIGH",
+                    "detail": "合同金额不一致",
+                    "requiresReview": True,
+                    "evidence": [{"page": 1, "text": "100 元"}],
+                }
+            ],
+        },
+        {"schemaVersion": "schema://contract/document-extraction@1"},
+        {"approved": True, "reason": "按补充协议处理"},
+    )
+
+    assert result["passed"] is False
+    assert result["reviewRequired"] is True
+    assert result["checks"]["crossFileFindings"] == 1
+    assert result["findings"][0]["category"] == "cross-file-consistency"
+    assert result["approval"]["reason"] == "按补充协议处理"
 
 
 def test_fixed_integrity_scenario_missing_then_complete() -> None:

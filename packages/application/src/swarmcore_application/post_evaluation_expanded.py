@@ -452,7 +452,9 @@ def check_document_coverage(
 
 
 def merge_domain_analyses(
-    base_payload: dict[str, Any], analyses: dict[str, dict[str, Any]]
+    base_payload: dict[str, Any],
+    analyses: dict[str, dict[str, Any]],
+    upstream_evaluations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     payload = deepcopy(base_payload)
     PostEvaluationPayload.model_validate(payload)
@@ -525,12 +527,166 @@ def merge_domain_analyses(
         analysis_missing = analysis.get("missingEvidence", [])
         if isinstance(analysis_missing, list):
             missing_evidence.extend(str(value) for value in analysis_missing if str(value))
+    upstream_refs: list[dict[str, str]] = []
+    for upstream in upstream_evaluations or []:
+        result = upstream.get("result")
+        if not isinstance(result, dict):
+            continue
+        projected = _project_upstream_evaluation(result)
+        candidate = deepcopy(payload)
+        reused_fields: list[str] = []
+        for field in ("obligations", "deviations", "invoices", "risks"):
+            value = projected.get(field)
+            if not isinstance(value, list) or not value:
+                continue
+            candidate[field] = deepcopy(value)
+            try:
+                PostEvaluationPayload.model_validate(candidate)
+            except ValidationError:
+                candidate[field] = payload.get(field, [])
+                conflicts.append(
+                    f"upstream evaluation {upstream.get('evaluationId')} returned invalid {field}"
+                )
+                continue
+            payload = deepcopy(candidate)
+            reused_fields.append(field)
+        upstream_refs.append(
+            {
+                "evaluationId": str(upstream.get("evaluationId", "")),
+                "businessWorkKey": str(upstream.get("businessWorkKey", "")),
+                "outputSchemaVersion": str(upstream.get("outputSchemaVersion", "")),
+                "resultHash": str(upstream.get("resultHash", "")),
+                "reusedFields": ",".join(reused_fields),
+            }
+        )
     return {
         "payload": payload,
         "evidenceFacts": facts,
         "conflicts": sorted(set(conflicts)),
         "missingEvidence": sorted(set(missing_evidence)),
         "sourceAgents": source_agents,
+        "upstreamEvaluationRefs": upstream_refs,
+    }
+
+
+def _project_upstream_evaluation(result: dict[str, Any]) -> dict[str, Any]:
+    nested = result.get("payload")
+    if isinstance(nested, dict):
+        return nested
+    schema_version = str(result.get("schemaVersion") or "")
+    if schema_version == "schema://contract-performance/result@1":
+        return {"obligations": _performance_obligations(result)}
+    if schema_version == "schema://invoice-assurance/result@1":
+        invoice = _invoice_fact(result)
+        return {"invoices": [invoice] if invoice else []}
+    if schema_version in {
+        "schema://deviation-analysis/result@1",
+        "schema://deviation-analysis/result@2",
+    }:
+        return {"deviations": _deviation_facts(result)}
+    if schema_version == "schema://procurement-supplier-risk/result@1":
+        return {"risks": [_supplier_risk_fact(result)]}
+    return result
+
+
+def _performance_obligations(result: dict[str, Any]) -> list[dict[str, Any]]:
+    plan = result.get("plan") if isinstance(result.get("plan"), dict) else {}
+    performance = (
+        result.get("performance") if isinstance(result.get("performance"), dict) else {}
+    )
+    actual_by_id = {
+        str(value.get("milestoneId") or ""): value
+        for value in performance.get("milestones", [])
+        if isinstance(value, dict)
+    }
+    obligations: list[dict[str, Any]] = []
+    for value in plan.get("milestones", []):
+        if not isinstance(value, dict) or not value.get("id"):
+            continue
+        actual = actual_by_id.get(str(value["id"]), {})
+        status = str(actual.get("status") or "NOT_STARTED")
+        timeliness = (
+            "OVERDUE"
+            if status == "OVERDUE"
+            else "LATE"
+            if status in {"REJECTED", "EVIDENCE_PENDING"}
+            else "ON_TIME"
+            if status in {"ACCEPTED", "CONDITIONALLY_ACCEPTED"}
+            else "NOT_DUE"
+        )
+        quality = {
+            "ACCEPTED": "ACCEPTED",
+            "CONDITIONALLY_ACCEPTED": "CONDITIONALLY_ACCEPTED",
+            "REJECTED": "REJECTED",
+        }.get(status, "PENDING" if status != "NOT_STARTED" else "NOT_ASSESSED")
+        obligations.append(
+            {
+                "obligationId": str(value["id"]),
+                "category": str(value.get("title") or "合同里程碑"),
+                "timeliness": timeliness,
+                "quality": quality,
+            }
+        )
+    return obligations
+
+
+def _invoice_fact(result: dict[str, Any]) -> dict[str, Any] | None:
+    fact_set = (
+        result.get("invoiceFactSet")
+        if isinstance(result.get("invoiceFactSet"), dict)
+        else {}
+    )
+    totals = fact_set.get("totals") if isinstance(fact_set.get("totals"), dict) else {}
+    amount = totals.get("amountIncludingTax") or fact_set.get("amountIncludingTax")
+    try:
+        normalized_amount = float(amount)
+    except (TypeError, ValueError):
+        return None
+    if normalized_amount <= 0:
+        return None
+    outcome = str(result.get("outcome") or "")
+    verification = result.get("verification") if isinstance(result.get("verification"), dict) else {}
+    duplication = result.get("duplication") if isinstance(result.get("duplication"), dict) else {}
+    return {
+        "invoiceId": str(fact_set.get("invoiceNumber") or result.get("resultHash") or "invoice"),
+        "amount": normalized_amount,
+        "contractMatched": outcome == "PAYMENT_READY",
+        "acceptanceMatched": outcome == "PAYMENT_READY",
+        "taxValid": str(verification.get("status") or "") == "MATCHED",
+        "duplicate": bool(duplication.get("duplicate") or duplication.get("duplicates")),
+    }
+
+
+def _deviation_facts(result: dict[str, Any]) -> list[dict[str, Any]]:
+    facts: list[dict[str, Any]] = []
+    for index, finding in enumerate(result.get("findings", []), start=1):
+        if not isinstance(finding, dict):
+            continue
+        status = str(finding.get("status") or "")
+        facts.append(
+            {
+                "deviationId": str(finding.get("code") or f"deviation-{index}"),
+                "category": str(finding.get("dimension") or "偏差"),
+                "severity": "HIGH" if finding.get("material") else "MEDIUM",
+                "status": "CLOSED" if status in {"CLOSED", "RESOLVED"} else "OPEN",
+                "costImpact": 0,
+                "delayDays": 0,
+            }
+        )
+    return facts
+
+
+def _supplier_risk_fact(result: dict[str, Any]) -> dict[str, Any]:
+    risk_level = str(result.get("riskLevel") or "MEDIUM")
+    level = risk_level if risk_level in {"LOW", "MEDIUM", "HIGH", "CRITICAL"} else "MEDIUM"
+    supplier = result.get("supplier") if isinstance(result.get("supplier"), dict) else {}
+    decision = str(result.get("decision") or "")
+    return {
+        "riskId": str(result.get("assessmentId") or result.get("resultHash") or "supplier-risk"),
+        "category": f"供应商风险：{supplier.get('name') or supplier.get('supplierName') or '未命名'}",
+        "level": level,
+        "status": "CLOSED" if decision == "PASS" else "OPEN",
+        "actionOverdue": decision in {"BLOCK", "REVIEW_REQUIRED"},
     }
 
 

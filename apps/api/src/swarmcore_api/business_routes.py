@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
@@ -28,16 +28,27 @@ from swarmcore_application import (
     InvoiceAssuranceOperationsService,
     InvoiceBatchInput,
     ProcurementSupplierRiskService,
+    ProjectOverviewService,
     ResourceCatalogService,
     RuleSetService,
     UploadBatchService,
     WorkbenchService,
     build_schedule,
 )
+from swarmcore_capability_ai_foundation_quality import (
+    MANIFEST as AI_QUALITY_MANIFEST,
+)
+from swarmcore_capability_ai_foundation_quality import (
+    REFERENCES as AI_QUALITY_REFERENCES,
+)
+from swarmcore_capability_ai_foundation_quality import (
+    SCHEMAS as AI_QUALITY_SCHEMAS,
+)
+from swarmcore_capability_ai_foundation_quality import (
+    STRATEGIES as AI_QUALITY_STRATEGIES,
+)
 from swarmcore_capability_contract_integrity import (
-    MANIFEST,
-    MANIFEST_V2,
-    MANIFEST_V2_1,
+    MANIFEST_V2_2,
     REFERENCES,
     SCHEMAS,
     STRATEGIES,
@@ -114,6 +125,18 @@ from swarmcore_capability_procurement_supplier_risk import (
 from swarmcore_capability_procurement_supplier_risk import (
     STRATEGIES as PROCUREMENT_SUPPLIER_RISK_STRATEGIES,
 )
+from swarmcore_capability_report_generation import (
+    MANIFEST as REPORT_GENERATION_MANIFEST,
+)
+from swarmcore_capability_report_generation import (
+    REFERENCES as REPORT_GENERATION_REFERENCES,
+)
+from swarmcore_capability_report_generation import (
+    SCHEMAS as REPORT_GENERATION_SCHEMAS,
+)
+from swarmcore_capability_report_generation import (
+    STRATEGIES as REPORT_GENERATION_STRATEGIES,
+)
 from swarmcore_capability_swarm_calibration import (
     MANIFEST as SWARM_CALIBRATION_MANIFEST,
 )
@@ -157,6 +180,7 @@ from .business_schemas import (
     BindBusinessWorkStrategyRequest,
     BindDecisionRequest,
     BindResourceRequest,
+    BusinessCaseDefinitionSnapshot,
     BusinessWorkBlockerSnapshot,
     BusinessWorkFunctionSnapshot,
     BusinessWorkListResponse,
@@ -209,6 +233,11 @@ from .business_schemas import (
     InvoiceAssuranceBatchItemSnapshot,
     InvoiceAssuranceBatchSnapshot,
     InvoiceRuleTrendSnapshot,
+    ProjectOverviewCountsSnapshot,
+    ProjectOverviewReadinessSnapshot,
+    ProjectOverviewRunSnapshot,
+    ProjectOverviewSnapshot,
+    ProjectOverviewWorkSnapshot,
     PublishContractPerformancePlanRequest,
     ReportListResponse,
     ReportSnapshot,
@@ -256,12 +285,12 @@ capability_packs = CapabilityPackService(
             *INVOICE_ASSURANCE_REFERENCES,
             *PROCUREMENT_SUPPLIER_RISK_REFERENCES,
             *SWARM_CALIBRATION_REFERENCES,
+            *AI_QUALITY_REFERENCES,
+            *REPORT_GENERATION_REFERENCES,
         )
     ),
     trusted_manifests=(
-        MANIFEST,
-        MANIFEST_V2,
-        MANIFEST_V2_1,
+        MANIFEST_V2_2,
         POST_EVALUATION_MANIFEST,
         CONTRACT_PERFORMANCE_MANIFEST,
         DEVIATION_ANALYSIS_MANIFEST,
@@ -269,6 +298,8 @@ capability_packs = CapabilityPackService(
         INVOICE_ASSURANCE_MANIFEST,
         PROCUREMENT_SUPPLIER_RISK_MANIFEST,
         SWARM_CALIBRATION_MANIFEST,
+        AI_QUALITY_MANIFEST,
+        REPORT_GENERATION_MANIFEST,
     ),
     trusted_strategies={
         **STRATEGIES,
@@ -279,6 +310,8 @@ capability_packs = CapabilityPackService(
         **INVOICE_ASSURANCE_STRATEGIES,
         **PROCUREMENT_SUPPLIER_RISK_STRATEGIES,
         **SWARM_CALIBRATION_STRATEGIES,
+        **AI_QUALITY_STRATEGIES,
+        **REPORT_GENERATION_STRATEGIES,
     },
 )
 rule_sets = RuleSetService()
@@ -293,6 +326,8 @@ workbench = WorkbenchService(
         **INVOICE_ASSURANCE_SCHEMAS,
         **PROCUREMENT_SUPPLIER_RISK_SCHEMAS,
         **SWARM_CALIBRATION_SCHEMAS,
+        **AI_QUALITY_SCHEMAS,
+        **REPORT_GENERATION_SCHEMAS,
     },
     rule_sets=rule_sets,
 )
@@ -309,6 +344,7 @@ document_review = DocumentReviewService(document_processing)
 upload_batches = UploadBatchService()
 document_requirements = DocumentRequirementService()
 business_works = BusinessWorkService(capability_packs, workbench, cases, documents=documents)
+project_overview = ProjectOverviewService(business_works)
 invoice_assurance_operations = InvoiceAssuranceOperationsService(business_works)
 contract_performance = ContractPerformanceService()
 procurement_supplier_risk = ProcurementSupplierRiskService()
@@ -327,6 +363,8 @@ def _business_work_snapshot(summary: BusinessWorkSummary) -> BusinessWorkSnapsho
         summary=summary.summary,
         status=summary.status,
         statusLabel=summary.status_label,
+        qualificationStatus=summary.qualification_status,
+        qualificationLabel=summary.qualification_label,
         packName=summary.pack_name,
         packVersionId=summary.pack_version_id,
         packVersion=summary.pack_version,
@@ -340,6 +378,7 @@ def _business_work_snapshot(summary: BusinessWorkSummary) -> BusinessWorkSnapsho
         tools=list(summary.tools),
         models=list(summary.models),
         documentRequirements=list(summary.document_requirements),
+        documentBindingKeys=list(summary.document_binding_keys),
         decisionSlots=list(summary.decision_slots),
         functions=[
             BusinessWorkFunctionSnapshot(name=item.name, description=item.description)
@@ -348,10 +387,32 @@ def _business_work_snapshot(summary: BusinessWorkSummary) -> BusinessWorkSnapsho
         configuration=summary.configuration,
         workItemType=summary.work_item_type,
         caseBased=summary.case_based,
-        caseDefinition=summary.case_definition,
+        caseDefinition=(
+            BusinessCaseDefinitionSnapshot.model_validate(summary.case_definition)
+            if summary.case_definition is not None
+            else None
+        ),
         boundStrategyVersionId=summary.bound_strategy_version_id,
         boundStrategyName=summary.bound_strategy_name,
         boundStrategyVersion=summary.bound_strategy_version,
+    )
+
+
+def _project_overview_run_snapshot(value: Any) -> ProjectOverviewRunSnapshot:
+    return ProjectOverviewRunSnapshot(
+        runId=value.run_id,
+        businessWorkKey=value.business_work_key,
+        businessWorkName=value.business_work_name,
+        status=value.status,
+        strategyVersionId=value.strategy_version_id,
+        eventCount=value.event_count,
+        taskCount=value.task_count,
+        operatorName=value.operator_name,
+        createdAt=value.created_at,
+        startedAt=value.started_at,
+        completedAt=value.completed_at,
+        failureReason=value.failure_reason,
+        cancelReason=value.cancel_reason,
     )
 
 
@@ -1110,6 +1171,69 @@ async def update_supplier_risk_work_order(
         actor=scope.actor_id,
     )
     return await _supplier_risk_work_order_snapshot(session, scope=scope, value=value)
+
+
+@router.get(
+    "/projects/{project_id}/overview",
+    response_model=ProjectOverviewSnapshot,
+)
+async def get_project_overview(scope: Scope, session: Session) -> ProjectOverviewSnapshot:
+    value = await project_overview.get(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+    )
+    return ProjectOverviewSnapshot(
+        generatedAt=value.generated_at,
+        counts=ProjectOverviewCountsSnapshot(
+            pendingApprovals=value.counts.pending_approvals,
+            pendingInputs=value.counts.pending_inputs,
+            documentsAvailable=value.counts.documents_available,
+            documentsReviewRequired=value.counts.documents_review_required,
+            documentsFailed=value.counts.documents_failed,
+            activeRuns=value.counts.active_runs,
+            waitingRuns=value.counts.waiting_runs,
+        ),
+        businessWorks=[
+            ProjectOverviewWorkSnapshot(
+                workKey=item.work_key,
+                name=item.name,
+                shortName=item.short_name,
+                category=item.category,
+                status=item.status,
+                statusLabel=item.status_label,
+                qualificationStatus=cast(
+                    Literal[
+                        "planned", "unverified", "local_verified", "production_verified"
+                    ],
+                    item.qualification_status,
+                ),
+                qualificationLabel=item.qualification_label,
+                blockers=[
+                    BusinessWorkBlockerSnapshot(
+                        code=blocker.code,
+                        message=blocker.message,
+                        ref=blocker.ref,
+                    )
+                    for blocker in item.blockers
+                ],
+                readiness=ProjectOverviewReadinessSnapshot(
+                    requiredDocuments=item.readiness.required_documents,
+                    satisfiedDocuments=item.readiness.satisfied_documents,
+                    documentsReady=item.readiness.documents_ready,
+                    readyToStart=item.readiness.ready_to_start,
+                ),
+                activeRunId=item.active_run_id,
+                latestRun=(
+                    _project_overview_run_snapshot(item.latest_run)
+                    if item.latest_run is not None
+                    else None
+                ),
+            )
+            for item in value.business_works
+        ],
+        recentRuns=[_project_overview_run_snapshot(item) for item in value.recent_runs],
+    )
 
 
 @router.get(
@@ -2931,13 +3055,39 @@ async def create_case(
     session: Session,
     idempotency_key: IdempotencyKey,
 ) -> dict[str, Any]:
-    item, revision, subjects = await cases.create(
-        session,
-        tenant_id=scope.tenant_id,
-        project_id=scope.project_id,
-        scenario_type=body.scenario_type,
-        payload=body.payload,
-        subjects=[
+    if body.document_ids and body.business_work_key is None:
+        raise ValueError("BUSINESS_WORK_KEY_REQUIRED_FOR_DOCUMENTS")
+    selected_documents: list[tuple[Any, list[Any], list[Any]]] = []
+    if body.business_work_key is not None:
+        summary = await business_works.get_work(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            work_key=body.business_work_key,
+        )
+        allowed_binding_keys = set(summary.document_binding_keys)
+        for document_id in dict.fromkeys(body.document_ids):
+            document, _, object_links, work_bindings = await documents.details(
+                session,
+                tenant_id=scope.tenant_id,
+                project_id=scope.project_id,
+                document_id=document_id,
+            )
+            bound_keys = {value.business_work_key for value in work_bindings}
+            if not bound_keys.intersection(allowed_binding_keys):
+                raise ValueError("DOCUMENT_SELECTION_INVALID")
+            if document.status not in {"AVAILABLE", "REVIEW_REQUIRED"}:
+                raise ValueError("DOCUMENT_SELECTION_INVALID")
+            selected_documents.append((document, object_links, work_bindings))
+        counts: dict[str, int] = {}
+        for document, _, _ in selected_documents:
+            counts[document.category] = counts.get(document.category, 0) + 1
+        for requirement in summary.document_requirements:
+            if requirement.get("required") and counts.get(str(requirement["category"]), 0) < int(
+                requirement.get("minCount", 1)
+            ):
+                raise ValueError("DOCUMENT_SELECTION_REQUIRED")
+    subject_inputs = [
             CaseSubjectInput(
                 business_object_id=value.business_object_id,
                 business_object_version_id=value.business_object_version_id,
@@ -2945,11 +3095,48 @@ async def create_case(
                 subject_key=value.subject_key,
             )
             for value in body.subjects
-        ],
-        owner=body.owner,
-        idempotency_key=idempotency_key,
-        actor=scope.actor_id,
-    )
+        ]
+    if body.business_work_key is not None:
+        item, revision, subjects = await business_works.create_case(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            work_key=body.business_work_key,
+            payload=body.payload,
+            subjects=subject_inputs,
+            owner=body.owner,
+            idempotency_key=idempotency_key,
+            actor=scope.actor_id,
+        )
+        if item.work_item_type != body.scenario_type:
+            raise ValueError("BUSINESS_WORK_SCENARIO_MISMATCH")
+    else:
+        item, revision, subjects = await cases.create(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            scenario_type=body.scenario_type,
+            payload=body.payload,
+            subjects=subject_inputs,
+            owner=body.owner,
+            idempotency_key=idempotency_key,
+            actor=scope.actor_id,
+        )
+    subject_ids = [value.business_object_id for value in subjects]
+    for document, object_links, work_bindings in selected_documents:
+        await documents.update_bindings(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            document_id=document.id,
+            business_object_ids=list(
+                dict.fromkeys([value.business_object_id for value in object_links] + subject_ids)
+            ),
+            business_work_keys=list(
+                dict.fromkeys(value.business_work_key for value in work_bindings)
+            ),
+            actor=scope.actor_id,
+        )
     return _case_snapshot(item, revision, subjects)
 
 

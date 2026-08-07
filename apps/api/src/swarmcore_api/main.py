@@ -36,10 +36,17 @@ from .capability_readiness import create_capability_center
 from .mcp import router as mcp_router
 from .routes import router
 from .settings import Settings
+from .sse import SseConnectionLimiter
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or Settings()
+
+    def sse_limiter() -> SseConnectionLimiter:
+        return SseConnectionLimiter(
+            per_actor=resolved.sse_max_connections_per_actor,
+            per_project=resolved.sse_max_connections_per_project,
+        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -56,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         capability_packs.attach_readiness(center, environment=resolved.environment)
         app.state.capability_center = center
         app.state.capability_presets = presets
+        app.state.sse_limiter = sse_limiter()
         yield
         await app.state.database.dispose()
 
@@ -73,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     capability_packs.attach_readiness(center, environment=resolved.environment)
     app.state.capability_center = center
     app.state.capability_presets = presets
+    app.state.sse_limiter = sse_limiter()
     if resolved.cors_origins:
         app.add_middleware(
             CORSMiddleware,
@@ -92,9 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(mcp_router)
 
     @app.middleware("http")
-    async def trace_request(
-        request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def trace_request(request: Request, call_next: RequestResponseEndpoint) -> Response:
         tracer = get_tracer("api")
         with tracer.start_as_current_span(
             f"HTTP {request.method}",
@@ -133,9 +140,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return _problem(request, 409, exc.code, exc.detail)
 
     @app.exception_handler(StrategyDeleteError)
-    async def strategy_delete_denied(
-        request: Request, exc: StrategyDeleteError
-    ) -> JSONResponse:
+    async def strategy_delete_denied(request: Request, exc: StrategyDeleteError) -> JSONResponse:
         return _problem(
             request,
             409,

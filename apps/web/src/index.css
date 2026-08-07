@@ -68,6 +68,14 @@ body {
 ::selection { background: rgb(70 95 255 / 0.2); color: var(--color-brand-700); }
 .dark ::selection { color: white; }
 
+.overview-business-grid { grid-template-columns: minmax(0, 1fr); }
+@media (width >= 48rem) {
+  .overview-business-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (width >= 1536px) {
+  .overview-business-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 main > div { animation: page-enter 320ms ease-out both; }
 main h1 { letter-spacing: -0.025em; }
 main table tbody tr { transition: background-color 160ms ease; }

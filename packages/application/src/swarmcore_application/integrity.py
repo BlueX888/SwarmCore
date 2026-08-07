@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -76,6 +77,68 @@ class IntegrityResult(IntegrityModel):
     attachment_manifest_hash: str = Field(alias="attachmentManifestHash")
     checks: dict[str, int]
     findings: tuple[IntegrityFinding, ...]
+
+
+def finalize_integrity_result(
+    rule_result: dict[str, Any],
+    consistency_result: dict[str, Any],
+    document_intelligence: dict[str, Any],
+    approval: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Merge deterministic checklist and cross-file findings into one auditable result."""
+    result = deepcopy(rule_result)
+    rule_findings = [
+        deepcopy(value) for value in result.get("findings", []) if isinstance(value, dict)
+    ]
+    cross_findings: list[dict[str, Any]] = []
+    evidence: list[dict[str, Any]] = []
+    for index, value in enumerate(consistency_result.get("findings", []), start=1):
+        if not isinstance(value, dict):
+            continue
+        finding_evidence = [
+            deepcopy(item) for item in value.get("evidence", []) if isinstance(item, dict)
+        ]
+        evidence.extend(finding_evidence)
+        code = str(value.get("code") or "CROSS_FILE_INCONSISTENCY")
+        cross_findings.append(
+            {
+                "ruleKey": str(value.get("ruleKey") or f"cross-file-{index}"),
+                "code": code,
+                "category": "cross-file-consistency",
+                "severity": str(value.get("severity") or "MEDIUM"),
+                "title": f"跨文件一致性异常：{code}",
+                "detail": str(value.get("detail") or "跨文件字段存在不一致。"),
+                "evidence": {
+                    "items": finding_evidence,
+                    "requiresReview": bool(value.get("requiresReview", True)),
+                },
+            }
+        )
+    requires_review = bool(
+        not result.get("passed", False)
+        or consistency_result.get("reviewRequired", False)
+        or any(
+            bool((finding.get("evidence") or {}).get("requiresReview"))
+            for finding in cross_findings
+        )
+    )
+    checks = dict(result.get("checks") or {})
+    checks["crossFileFindings"] = len(cross_findings)
+    checks["documentsAnalyzed"] = 1 if document_intelligence else 0
+    result.update(
+        {
+            "passed": bool(result.get("passed", False)) and not requires_review,
+            "checks": checks,
+            "findings": [*rule_findings, *cross_findings],
+            "documentIntelligence": [deepcopy(document_intelligence)]
+            if document_intelligence
+            else [],
+            "reviewRequired": requires_review,
+            "evidence": evidence,
+            "approval": deepcopy(approval) if approval else None,
+        }
+    )
+    return result
 
 
 def rule_matches(payload: dict[str, Any], expression: dict[str, Any]) -> bool:

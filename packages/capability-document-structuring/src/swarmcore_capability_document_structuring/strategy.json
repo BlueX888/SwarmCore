@@ -1,7 +1,7 @@
 {
   "apiVersion": "swarmcore.io/v1",
   "kind": "SwarmStrategy",
-  "metadata": {"name": "document-structuring-execute-v1"},
+  "metadata": {"name": "document-structuring-execute-v2"},
   "spec": {
     "inputSchema": {"type": "object"},
     "outputSchema": {"type": "object"},
@@ -83,7 +83,7 @@
             "required": ["decision"],
             "properties": {
               "decision": {
-                "enum": ["CONFIRM", "CORRECT", "REQUEST_REPROCESS", "REJECT"]
+                "enum": ["CONFIRM", "CORRECT", "REQUEST_REPROCESS"]
               },
               "reason": {"type": "string"},
               "fieldCorrections": {"type": "array", "items": {"type": "object"}}
@@ -96,18 +96,124 @@
           "strategy": "all",
           "dependsOn": ["review-router"]
         },
+        "review-converged": {
+          "type": "join",
+          "strategy": "all",
+          "dependsOn": ["manual-review", "auto-continue"]
+        },
+        "review-decision-router": {
+          "type": "router",
+          "dependsOn": ["review-converged"],
+          "routes": [
+            {
+              "when": "tasks.manual-review.output.decision == \"REQUEST_REPROCESS\"",
+              "target": "reprocess-analyze"
+            }
+          ],
+          "default": "direct-review-ready"
+        },
+        "direct-review-ready": {
+          "type": "join",
+          "strategy": "all",
+          "dependsOn": ["review-decision-router"]
+        },
+        "reprocess-analyze": {
+          "type": "agent",
+          "agent": "structurer",
+          "dependsOn": ["review-decision-router"],
+          "input": {
+            "_contextMode": "node_only",
+            "prepared": "{{ tasks.prepare.output.content }}",
+            "configuration": {
+              "base": "{{ input.configuration }}",
+              "previousAnalysis": "{{ tasks.analyze.output.content }}",
+              "humanReview": "{{ tasks.manual-review.output }}",
+              "mode": "REPROCESS_ONCE"
+            }
+          }
+        },
+        "decision-converged": {
+          "type": "join",
+          "strategy": "all",
+          "dependsOn": ["direct-review-ready", "reprocess-analyze"]
+        },
+        "select-analysis": {
+          "type": "tool",
+          "tool": "tool://document/analysis-select@1",
+          "dependsOn": ["decision-converged"],
+          "input": {
+            "original": "{{ tasks.analyze.output.content }}",
+            "reprocessed": "{{ tasks.reprocess-analyze.output.content }}",
+            "review": "{{ tasks.manual-review.output }}"
+          }
+        },
+        "selected-quality-check": {
+          "type": "tool",
+          "tool": "tool://document/quality-check@1",
+          "dependsOn": ["prepare", "select-analysis"],
+          "input": {
+            "prepared": "{{ tasks.prepare.output.content }}",
+            "analysis": "{{ tasks.select-analysis.output.content.analysis }}"
+          }
+        },
+        "post-review-router": {
+          "type": "router",
+          "dependsOn": ["selected-quality-check"],
+          "routes": [
+            {
+              "when": "tasks.select-analysis.output.content.reprocessed == true",
+              "target": "post-reprocess-review"
+            }
+          ],
+          "default": "initial-review-ready"
+        },
+        "initial-review-ready": {
+          "type": "join",
+          "strategy": "all",
+          "dependsOn": ["post-review-router"]
+        },
+        "post-reprocess-review": {
+          "type": "approval",
+          "dependsOn": ["post-review-router"],
+          "prompt": "资料已按复核意见重新处理，请确认修订结果；如仍不可接受，请使用拒绝操作终止运行。",
+          "inputSchema": {
+            "type": "object",
+            "required": ["decision", "reason"],
+            "properties": {
+              "decision": {"enum": ["CONFIRM", "CORRECT"]},
+              "reason": {"type": "string", "minLength": 1},
+              "fieldCorrections": {"type": "array", "items": {"type": "object"}}
+            },
+            "additionalProperties": true
+          }
+        },
+        "approval-converged": {
+          "type": "join",
+          "strategy": "all",
+          "dependsOn": ["post-reprocess-review", "initial-review-ready"]
+        },
+        "selected-approval": {
+          "type": "tool",
+          "tool": "tool://document/review-select@1",
+          "dependsOn": ["approval-converged"],
+          "input": {
+            "initial": "{{ tasks.manual-review.output }}",
+            "reprocessed": "{{ tasks.post-reprocess-review.output }}",
+            "wasReprocessed": "{{ tasks.select-analysis.output.content.reprocessed }}"
+          }
+        },
         "publish": {
           "type": "tool",
           "tool": "tool://document/publish@1",
-          "dependsOn": ["quality-check", "manual-review", "auto-continue"],
+          "dependsOn": ["selected-quality-check", "selected-approval"],
           "input": {
             "evaluationId": "{{ input.evaluationId }}",
-            "result": "{{ tasks.quality-check.output.content }}",
-            "approval": "{{ tasks.manual-review.output }}"
+            "result": "{{ tasks.selected-quality-check.output.content }}",
+            "approval": "{{ tasks.selected-approval.output.content.approval }}"
           }
         }
       },
-      "output": {"result": "{{ tasks.quality-check.output.content }}"}
+      "output": {"result": "{{ tasks.publish.output.content }}"}
     },
     "$defs": {}
   }

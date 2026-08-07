@@ -15,12 +15,12 @@ from swarmcore_spec import SwarmStrategy
 def test_deviation_capability_assets_and_references_are_valid() -> None:
     manifest = CapabilityPackManifest.model_validate(MANIFEST)
     strategy = SwarmStrategy.model_validate(
-        STRATEGIES["strategy://deviation-analysis/execute@6"]
+        STRATEGIES["strategy://deviation-analysis/execute@7"]
     )
     registry = builtin_registry()
 
     assert manifest.metadata.name == "deviation-analysis"
-    assert manifest.metadata.version == "1.0.5"
+    assert manifest.metadata.version == "1.0.6"
     assert strategy.spec.budget.max_agents == 6
     assert strategy.spec.budget.max_parallelism == 4
     assert set(manifest.spec.agents) <= REFERENCES
@@ -39,3 +39,8 @@ def test_deviation_capability_assets_and_references_are_valid() -> None:
         policy_revision="test",
     )
     assert set(plan.resolved_tools) == set(manifest.spec.tools)
+    merge_facts = strategy.spec.graph.nodes.root["merge-facts"]
+    assert merge_facts.input["upstreamEvaluations"] == "{{ input.upstreamEvaluations }}"
+    finalize = strategy.spec.graph.nodes.root["finalize"]
+    assert finalize.input["schemaVersion"] == "schema://deviation-analysis/result@2"
+    assert finalize.input["approvals"] == ["{{ tasks.manual-review.output }}"]

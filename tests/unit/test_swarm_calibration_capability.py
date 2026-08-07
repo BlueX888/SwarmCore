@@ -15,13 +15,14 @@ from swarmcore_spec import SwarmStrategy
 def test_swarm_calibration_assets_compile_and_close_all_dependencies() -> None:
     manifest = CapabilityPackManifest.model_validate(MANIFEST)
     strategy = SwarmStrategy.model_validate(
-        STRATEGIES["strategy://swarm-calibration/assess@4"]
+        STRATEGIES["strategy://swarm-calibration/assess@5"]
     )
     registry = builtin_registry()
 
     assert manifest.metadata.name == "swarm-calibration"
-    assert manifest.metadata.version == "1.0.4"
-    assert strategy.spec.budget.max_cost_usd == 1
+    assert manifest.metadata.version == "1.0.5"
+    assert manifest.spec.input_schema == "schema://swarm-calibration/input@2"
+    assert strategy.spec.budget.max_cost_usd == 3
     assert strategy.spec.budget.max_agents == 4
     assert set(manifest.spec.agents) <= REFERENCES
     assert set(manifest.spec.tools) <= REFERENCES
@@ -29,12 +30,13 @@ def test_swarm_calibration_assets_compile_and_close_all_dependencies() -> None:
     assert all(registry.resolve_tool(ref) is not None for ref in manifest.spec.tools)
     for schema in SCHEMAS.values():
         Draft202012Validator.check_schema(schema)
-    Draft202012Validator(SCHEMAS["schema://swarm-calibration/input@1"]).validate(
+    Draft202012Validator(SCHEMAS["schema://swarm-calibration/input@2"]).validate(
         {
             "workItemId": "00000000-0000-0000-0000-000000000001",
             "workItemRevisionId": "00000000-0000-0000-0000-000000000002",
             "evaluationId": "00000000-0000-0000-0000-000000000003",
             "payload": {
+                "calibrationMode": "GITHUB_ENGINEERING_ISSUE",
                 "title": "Real issue calibration",
                 "issueUrl": "https://github.com/temporalio/sdk-python/issues/782",
                 "objective": "Verify the merged fix.",
@@ -74,3 +76,6 @@ def test_swarm_calibration_assets_compile_and_close_all_dependencies() -> None:
     }
     assert sorted(plan.result_reducer)[-1] == "workflow-result"
     assert plan.budget["maxDuration"] == "PT12M"
+    review = next(node for node in plan.nodes if node.key == "manual-review")
+    assert review.config["requiredRoles"] == ["calibration_reviewer", "tenant_admin"]
+    assert review.config["requiresDistinctApprover"] is True

@@ -46,6 +46,7 @@ class CaseService:
         tenant_id: UUID,
         project_id: UUID,
         scenario_type: str,
+        business_work_key: str | None = None,
         payload: dict[str, Any],
         subjects: list[CaseSubjectInput],
         owner: str | None,
@@ -71,6 +72,7 @@ class CaseService:
             tenant_id=tenant_id,
             project_id=project_id,
             work_item_type=scenario_type,
+            business_work_key=business_work_key,
             payload=enriched_payload,
             owner=owner,
             idempotency_key=idempotency_key,
@@ -379,6 +381,15 @@ def _enrich_case_payload(
     subjects: list[CaseSubjectInput],
 ) -> dict[str, Any]:
     """Fill schema-required identifiers that the workbench derives from subjects."""
+    if scenario_type == "invoice-assurance-case":
+        return {
+            **payload,
+            "fieldConfirmations": list(payload.get("fieldConfirmations") or []),
+            "humanVerification": dict(payload.get("humanVerification") or {}),
+            "enterprisePublicStatusEvidence": dict(
+                payload.get("enterprisePublicStatusEvidence") or {}
+            ),
+        }
     if scenario_type != "contract-performance-case":
         return payload
     existing = payload.get("contractObjectId")

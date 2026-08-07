@@ -23,8 +23,13 @@ from swarmcore_capability_contract_performance import (
     STRATEGIES as CONTRACT_PERFORMANCE_STRATEGIES,
 )
 from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
+from swarmcore_persistence.errors import PersistenceConflictError
 from swarmcore_persistence.models import CapabilityPackVersion
-from swarmcore_registry import CapabilityReferenceCatalog
+from swarmcore_registry import (
+    CapabilityPackManifest,
+    CapabilityReferenceCatalog,
+    hash_manifest,
+)
 
 
 class MissingCapabilities:
@@ -256,7 +261,7 @@ async def test_publish_freezes_every_operation_strategy_and_dependency_union() -
     )
     assert [call.kwargs["reference"] for call in ensure.await_args_list] == [
         "strategy://contract-performance/initialize@13",
-        "strategy://contract-performance/collect@10",
+        "strategy://contract-performance/collect@11",
     ]
 
 
@@ -463,6 +468,9 @@ async def test_ensure_trusted_batches_existing_versions_and_publishes_only_missi
     metadata = MANIFEST["metadata"]
     assert isinstance(metadata, dict)
     existing_version = _version()
+    existing_version.content_hash = hash_manifest(
+        CapabilityPackManifest.model_validate(MANIFEST)
+    )
     session = MagicMock()
     session.scalar = AsyncMock(return_value=uuid4())
     existing_rows = MagicMock()
@@ -482,6 +490,32 @@ async def test_ensure_trusted_batches_existing_versions_and_publishes_only_missi
 
     assert published == [existing_version, missing_version]
     service.publish.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ensure_trusted_rejects_source_drift_without_version_bump() -> None:
+    service = CapabilityPackService(
+        CapabilityReferenceCatalog.from_iterable(()),
+        trusted_manifests=(MANIFEST,),
+    )
+    metadata = MANIFEST["metadata"]
+    existing_version = _version()
+    existing_version.content_hash = "0" * 64
+    existing_rows = MagicMock()
+    existing_rows.tuples.return_value = [
+        (metadata["name"], metadata["version"], existing_version)
+    ]
+    deleted_rows = MagicMock()
+    deleted_rows.__iter__.return_value = iter([])
+    session = MagicMock()
+    session.scalar = AsyncMock(return_value=uuid4())
+    session.execute = AsyncMock(side_effect=[existing_rows, deleted_rows])
+
+    with pytest.raises(
+        PersistenceConflictError,
+        match="source changed without a version bump",
+    ):
+        await service.ensure_trusted(session, tenant_id=uuid4(), project_id=uuid4())
 
 
 @pytest.mark.asyncio

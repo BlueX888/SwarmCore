@@ -12,6 +12,7 @@ from swarmcore_application import (
     calculate_time_deviation,
     compare_content_deviation,
     finalize_deviation_result,
+    upstream_performance_analysis,
     validate_deviation_result,
 )
 from swarmcore_application.capability_tool_executors import deviation_facts_merge
@@ -135,6 +136,19 @@ def test_missing_evm_and_cross_currency_are_not_silently_invented() -> None:
     assert time_result["metrics"]["spi"] is None
     assert time_result["metrics"]["spiUnavailableReason"] == "PV and EV are both required"
     assert cost_result["status"] == "CONFLICTED"
+    assert cost_result["metrics"]["costVarianceRate"] is None
+
+
+def test_insufficient_dimension_outputs_keep_trend_metric_contract() -> None:
+    time_result = calculate_time_deviation({"time": {"milestones": []}})
+    content_result = compare_content_deviation({"content": {"items": []}})
+    cost_result = calculate_cost_deviation(
+        {"cost": {"originalBAC": None, "eac": None}}
+    )
+
+    assert time_result["metrics"]["maximumDelayDays"] is None
+    assert content_result["metrics"]["contentVarianceRate"] is None
+    assert cost_result["metrics"]["costVarianceRate"] is None
 
 
 def test_content_equal_weight_and_first_run_trend_are_explicit() -> None:
@@ -276,3 +290,70 @@ def test_responsibility_is_proposed_and_finalization_preserves_dimension_status(
         assert "must match" in str(exc)
     else:
         raise AssertionError("inconsistent dimension aliases must be rejected")
+
+
+def test_confirmed_performance_is_reused_and_v2_preserves_approval() -> None:
+    upstream = upstream_performance_analysis(
+        [
+            {
+                "evaluationId": "evaluation-1",
+                "resultHash": "a" * 64,
+                "result": {
+                    "schemaVersion": "schema://contract-performance/result@1",
+                    "status": "AT_RISK",
+                    "plan": {
+                        "milestones": [
+                            {"id": "M1", "title": "交付", "dueDate": "2026-06-01"}
+                        ]
+                    },
+                    "performance": {
+                        "milestones": [
+                            {"milestoneId": "M1", "actualFinishDate": "2026-06-05"}
+                        ]
+                    },
+                },
+            }
+        ]
+    )
+
+    assert upstream["payloadPatch"]["time"]["milestones"][0]["actualDate"] == (
+        "2026-06-05"
+    )
+    assert upstream["source"]["evaluationId"] == "evaluation-1"
+
+    result = finalize_deviation_result(
+        payload={"title": "偏差", "dimensions": ["TIME"]},
+        dimensions={
+            "TIME": {
+                "status": "DATA_INSUFFICIENT",
+                "metrics": {"maximumDelayDays": None},
+                "reasons": ["missing"],
+                "evidenceRefs": [],
+            }
+        },
+        root_causes=[],
+        trends={},
+        responsibility={
+            "status": "NO_PROPOSAL",
+            "proposals": [],
+            "decisions": [],
+            "humanConfirmationRequired": False,
+        },
+        coverage={},
+        evidence_review={},
+        narrative={},
+        provenance={
+            "documentContentHash": "d",
+            "attachmentManifestHash": "a",
+            "selectionManifestHash": "s",
+            "baselineHash": "b",
+            "configurationHash": "c",
+            "agents": [],
+        },
+        approvals=[{"approved": True, "comment": "已复核"}],
+        schema_version="schema://deviation-analysis/result@2",
+    )
+    assert result["approvals"] == [{"approved": True, "comment": "已复核"}]
+    Draft202012Validator(
+        SCHEMAS["schema://deviation-analysis/result@2"]
+    ).validate(result)

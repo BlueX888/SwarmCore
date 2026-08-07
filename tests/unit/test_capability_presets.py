@@ -28,6 +28,11 @@ class NotReadyRuntime:
         return AgentRuntimeStatus(False)
 
 
+class ReadyModelRuntime(NotReadyRuntime):
+    async def inspect_model(self, **_: object) -> ModelRuntimeStatus:
+        return ModelRuntimeStatus(True, True, True)
+
+
 class CapturingConfigurations:
     def __init__(self) -> None:
         self.arguments: dict[str, Any] | None = None
@@ -40,6 +45,14 @@ class CapturingConfigurations:
 
 def _center() -> CapabilityCenterService:
     runtime = NotReadyRuntime()
+    return CapabilityCenterService(
+        builtin_registry(),
+        CapabilityReadinessService(tools=runtime, models=runtime, agents=runtime),
+    )
+
+
+def _center_with_ready_models() -> CapabilityCenterService:
+    runtime = ReadyModelRuntime()
     return CapabilityCenterService(
         builtin_registry(),
         CapabilityReadinessService(tools=runtime, models=runtime, agents=runtime),
@@ -87,3 +100,25 @@ async def test_not_ready_capability_can_still_own_a_preset() -> None:
     assert configurations.arguments is not None
     assert configurations.arguments["source_ref"] == "tool://search@1"
     assert configurations.arguments["configuration"] == {"query": "swarm"}
+
+
+@pytest.mark.asyncio
+async def test_model_cannot_own_a_task_parameter_preset() -> None:
+    configurations = CapturingConfigurations()
+    service = CapabilityPresetService(
+        _center_with_ready_models(), cast(ProjectConfigurationService, configurations)
+    )
+
+    with pytest.raises(ValueError, match="define task behavior in an agent"):
+        await service.create(
+            object(),  # type: ignore[arg-type]
+            tenant_id=uuid4(),
+            project_id=uuid4(),
+            environment="development",
+            name="模型任务预设",
+            capability_ref="model://general@1",
+            parameters={"prompt": "summarize"},
+            actor="test",
+        )
+
+    assert configurations.arguments is None

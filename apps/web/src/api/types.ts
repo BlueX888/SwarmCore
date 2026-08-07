@@ -548,6 +548,8 @@ export interface BusinessWorkSnapshot {
   summary: string;
   status: BusinessWorkStatus;
   statusLabel: string;
+  qualificationStatus: "planned" | "unverified" | "local_verified" | "production_verified";
+  qualificationLabel: string;
   packName: string | null;
   packVersionId: string | null;
   packVersion: string | null;
@@ -570,6 +572,7 @@ export interface BusinessWorkSnapshot {
     processingProfile?: string | null;
     extractionSchema?: string | null;
   }>;
+  documentBindingKeys: string[];
   decisionSlots: Array<{
     slot: string;
     required: boolean;
@@ -599,6 +602,57 @@ export interface BusinessWorkSnapshot {
 }
 
 export interface BusinessWorkListResponse { items: BusinessWorkSnapshot[]; }
+
+export interface ProjectOverviewRunSnapshot {
+  runId: string;
+  businessWorkKey: string | null;
+  businessWorkName: string;
+  status: string;
+  strategyVersionId: string;
+  eventCount: number;
+  taskCount: number;
+  operatorName: string;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  failureReason: string | null;
+  cancelReason: string | null;
+}
+
+export interface ProjectOverviewWorkSnapshot {
+  workKey: string;
+  name: string;
+  shortName: string;
+  category: "foundation" | "business" | "governance";
+  status: BusinessWorkStatus;
+  statusLabel: string;
+  qualificationStatus: "planned" | "unverified" | "local_verified" | "production_verified";
+  qualificationLabel: string;
+  blockers: BusinessWorkBlocker[];
+  readiness: {
+    requiredDocuments: number;
+    satisfiedDocuments: number;
+    documentsReady: boolean;
+    readyToStart: boolean;
+  };
+  activeRunId: string | null;
+  latestRun: ProjectOverviewRunSnapshot | null;
+}
+
+export interface ProjectOverviewSnapshot {
+  generatedAt: string;
+  counts: {
+    pendingApprovals: number;
+    pendingInputs: number;
+    documentsAvailable: number;
+    documentsReviewRequired: number;
+    documentsFailed: number;
+    activeRuns: number;
+    waitingRuns: number;
+  };
+  businessWorks: ProjectOverviewWorkSnapshot[];
+  recentRuns: ProjectOverviewRunSnapshot[];
+}
 
 export interface InvoiceAssuranceBatchRequest {
   items: Array<{

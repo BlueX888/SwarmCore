@@ -1,11 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  Activity, ArrowRight, Bot, Boxes, Clock3, Cpu, Inbox, Network, Plus, RefreshCw, Rocket, ScrollText, Workflow, Wrench,
+  Activity,
+  ArrowRight,
+  CheckCircle2,
+  Clock3,
+  FileWarning,
+  FolderOpen,
+  Inbox,
+  Layers3,
+  Play,
+  RefreshCw,
+  Settings2,
 } from "lucide-react";
 import type * as React from "react";
 import { Link } from "react-router";
 import { api } from "@/api/client";
-import type { RunSnapshot } from "@/api/types";
+import type { ProjectOverviewRunSnapshot, ProjectOverviewWorkSnapshot } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -15,195 +25,299 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useWorkspaceScope } from "@/lib/demo-scope";
 
-const activeStatuses = new Set(["RUNNING", "QUEUED", "PAUSING", "CANCELLING"]);
+const workStatusTone: Record<ProjectOverviewWorkSnapshot["status"], string> = {
+  runnable: "bg-success-50 text-success-700 dark:bg-success-500/15 dark:text-success-300",
+  incomplete: "bg-warning-50 text-warning-700 dark:bg-warning-500/15 dark:text-warning-300",
+  not_configured: "bg-warning-50 text-warning-700 dark:bg-warning-500/15 dark:text-warning-300",
+  planned: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300",
+  unavailable: "bg-error-50 text-error-700 dark:bg-error-500/15 dark:text-error-300",
+};
 
 export function OverviewPage() {
   const { tenantId, projectId, workspacePath } = useWorkspaceScope();
-  const runs = useQuery({ queryKey: ["runs", tenantId, projectId], queryFn: () => api.listRuns(tenantId, projectId), refetchInterval: 8000, staleTime: 4000 });
-  const strategies = useQuery({ queryKey: ["strategies", tenantId, projectId], queryFn: () => api.listStrategies(tenantId, projectId), staleTime: 60000 });
-  // approvals/inputs 复用 AppShell 导航 badge 的缓存，不再单独轮询，仅在其失效时跟随
-  const approvals = useQuery({ queryKey: ["approvals", tenantId, projectId, "all"], queryFn: () => api.listApprovals(tenantId, projectId), staleTime: 10000 });
-  const inputs = useQuery({ queryKey: ["inputs", tenantId, projectId, "all"], queryFn: () => api.listInputs(tenantId, projectId), staleTime: 10000 });
-  const capabilities = useQuery({ queryKey: ["capabilities", tenantId, projectId], queryFn: () => api.getCapabilities(tenantId, projectId), staleTime: 60000 });
-  const queries = [runs, strategies, approvals, inputs, capabilities];
-  const refreshing = queries.some((query) => query.isFetching);
-  const hasError = queries.some((query) => query.isError);
-  const activeRuns = runs.data?.items.filter((run) => activeStatuses.has(run.status)).length ?? 0;
-  const publishedStrategies = strategies.data?.items.filter((strategy) => strategy.latestVersion !== null).length ?? 0;
-  const pendingApprovals = approvals.data?.total ?? 0;
-  const pendingInputs = inputs.data?.total ?? 0;
-  const capabilityTotal = capabilities.data
-    ? capabilities.data.agents.length + capabilities.data.tools.length + capabilities.data.models.length
-    : undefined;
-  const refresh = () => void Promise.all(queries.map((query) => query.refetch()));
+  const overview = useQuery({
+    queryKey: ["overview", tenantId, projectId],
+    queryFn: () => api.getProjectOverview(tenantId, projectId),
+    refetchInterval: 10_000,
+    staleTime: 5_000,
+  });
+  const refresh = () => void overview.refetch();
+  const businessWorks = overview.data?.businessWorks.filter((work) => work.category === "business") ?? [];
+  const secondaryWorks = overview.data?.businessWorks.filter((work) => work.category !== "business") ?? [];
 
-  const metrics: MetricProps[] = [
-    { label: "全部运行", value: runs.data?.total, detail: `${activeRuns} 个正在执行`, to: `${workspacePath}/runs`, icon: Activity, tone: "brand" },
-    { label: "项目策略", value: strategies.data?.total, detail: `${publishedStrategies} 个已有发布版本`, to: `${workspacePath}/strategies`, icon: Workflow, tone: "success" },
-    { label: "待办事项", value: pendingApprovals + pendingInputs, detail: `${pendingApprovals} 项审批 · ${pendingInputs} 项输入`, to: `${workspacePath}/actions`, icon: Inbox, tone: "warning" },
-    { label: "能力资源", value: capabilityTotal, detail: capabilities.data ? `${capabilities.data.agents.length} 个智能体 · ${capabilities.data.tools.length} 个工具 · ${capabilities.data.models.length} 个模型` : "正在读取能力目录", to: `${workspacePath}/agents`, icon: Boxes, tone: "brand" },
-  ];
+  return (
+    <div className="min-w-0 space-y-6">
+      <PageHeader
+        eyebrow="项目总览"
+        title="项目工作台"
+        description="聚焦当前未闭环事项、业务工作准备度和最新执行动态。"
+        actions={(
+          <>
+            <Button variant="outline" onClick={refresh} loading={overview.isFetching}>
+              <RefreshCw />刷新
+            </Button>
+            <Button asChild variant="outline"><Link to={`${workspacePath}/documents`}><FolderOpen />业务资料</Link></Button>
+            <Button asChild><Link to={`${workspacePath}/actions`}><Inbox />待办中心</Link></Button>
+          </>
+        )}
+      />
 
-  return <div className="min-w-0 space-y-6">
-    <PageHeader
-      eyebrow="项目总览"
-      title="工作台"
-      description="掌握当前项目状态，并快速进入常用操作。"
-      actions={<><Button variant="outline" onClick={refresh} loading={refreshing}><RefreshCw />刷新数据</Button><Button asChild variant="outline"><Link to={`${workspacePath}/canvas`}><Network />打开画布</Link></Button><Button asChild><Link to={`${workspacePath}/runs/new`}><Plus />新建运行</Link></Button></>}
-    />
-
-    {hasError ? <p role="alert" className="rounded-xl border border-warning-200 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10">部分概览数据暂时无法加载，快捷入口仍可正常使用。</p> : null}
-
-    <section aria-label="项目指标" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}
-    </section>
-
-    <div className="grid min-w-0 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-      <NavigationHub workspacePath={workspacePath} />
-      <RecentRuns runs={runs.data?.items} loading={runs.isPending} error={runs.isError} workspacePath={workspacePath} />
+      {overview.isPending ? <OverviewSkeleton /> : null}
+      {overview.isError && !overview.data ? (
+        <Card>
+          <CardContent className="pt-5">
+            <ErrorState
+              title="项目概览暂时无法加载"
+              message="业务资料和待办中心仍可通过页面头部进入。"
+              onRetry={refresh}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+      {overview.data ? (
+        <>
+          <AttentionSection counts={overview.data.counts} workspacePath={workspacePath} />
+          <section aria-labelledby="business-works-heading" className="space-y-3">
+            <SectionHeading
+              id="business-works-heading"
+              title="业务工作"
+              description="准备就绪后可直接开始处理；存在阻塞时先补齐资料或配置。"
+            />
+            {businessWorks.length ? (
+              <div className="overview-business-grid grid gap-4">
+                {businessWorks.map((work) => <BusinessWorkCard key={work.workKey} work={work} workspacePath={workspacePath} />)}
+              </div>
+            ) : (
+              <Card><CardContent className="pt-5"><EmptyState icon={Layers3} title="暂无业务工作" description="业务工作配置完成后会在这里展示。" /></CardContent></Card>
+            )}
+          </section>
+          <SecondaryWorks works={secondaryWorks} workspacePath={workspacePath} />
+          <RecentRuns runs={overview.data.recentRuns} workspacePath={workspacePath} />
+        </>
+      ) : null}
     </div>
-  </div>;
+  );
 }
 
-interface MetricProps {
-  label: string;
-  value: number | undefined;
+function SectionHeading({ id, title, description }: { id: string; title: string; description: string }) {
+  return (
+    <div>
+      <h2 id={id} className="text-lg font-semibold tracking-[-0.01em] text-gray-900 dark:text-white">{title}</h2>
+      <p className="mt-1 text-sm text-gray-500">{description}</p>
+    </div>
+  );
+}
+
+function OverviewSkeleton() {
+  return (
+    <div aria-label="正在加载项目工作台" className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-3">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-32 rounded-[20px]" />)}</div>
+      <div className="overview-business-grid grid gap-4">{[1, 2, 3, 4, 5, 6].map((item) => <Skeleton key={item} className="h-56 rounded-[20px]" />)}</div>
+      <Skeleton className="h-64 rounded-[20px]" />
+    </div>
+  );
+}
+
+interface OverviewCounts {
+  pendingApprovals: number;
+  pendingInputs: number;
+  documentsReviewRequired: number;
+  documentsFailed: number;
+  activeRuns: number;
+  waitingRuns: number;
+}
+
+function AttentionSection({ counts, workspacePath }: { counts: OverviewCounts; workspacePath: string }) {
+  const human = counts.pendingApprovals + counts.pendingInputs;
+  const documents = counts.documentsReviewRequired + counts.documentsFailed;
+  const clear = human === 0 && documents === 0 && counts.activeRuns === 0;
+  return (
+    <section aria-labelledby="attention-heading" className="space-y-3">
+      <SectionHeading id="attention-heading" title="需要关注" description="只统计当前仍未闭环的事项。" />
+      {clear ? (
+        <Card className="border-success-200 bg-success-50/70 dark:border-success-500/30 dark:bg-success-500/10">
+          <CardContent className="flex items-center gap-3 pt-5 text-success-700 dark:text-success-300">
+            <CheckCircle2 aria-hidden className="size-6 shrink-0" />
+            <div><p className="font-semibold">当前事项已闭环</p><p className="mt-0.5 text-sm">暂无待审批、待输入、异常资料或未结束运行。</p></div>
+          </CardContent>
+        </Card>
+      ) : null}
+      <div className="grid gap-4 md:grid-cols-3">
+        <AttentionCard
+          title="人工待办"
+          value={human}
+          detail={`${counts.pendingApprovals} 项审批 · ${counts.pendingInputs} 项外部输入`}
+          to={`${workspacePath}/actions`}
+          icon={Inbox}
+          alert={human > 0}
+        />
+        <AttentionCard
+          title="资料需处理"
+          value={documents}
+          detail={`${counts.documentsReviewRequired} 份待复核 · ${counts.documentsFailed} 份处理失败`}
+          to={`${workspacePath}/documents?view=failed`}
+          icon={FileWarning}
+          alert={documents > 0}
+        />
+        <AttentionCard
+          title="运行动态"
+          value={counts.activeRuns}
+          detail={`${counts.activeRuns} 个活跃运行 · ${counts.waitingRuns} 个等待人工处理`}
+          to={`${workspacePath}/runs`}
+          icon={Activity}
+          alert={counts.waitingRuns > 0}
+        />
+      </div>
+    </section>
+  );
+}
+
+function AttentionCard({ title, value, detail, to, icon: Icon, alert }: {
+  title: string;
+  value: number;
   detail: string;
   to: string;
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
-  tone: "brand" | "success" | "warning";
-}
-
-const metricTones: Record<MetricProps["tone"], string> = {
-  brand: "bg-brand-50 text-brand-600 dark:bg-brand-500/15",
-  success: "bg-success-50 text-success-600 dark:bg-success-500/15",
-  warning: "bg-warning-50 text-warning-600 dark:bg-warning-500/15",
-};
-
-function MetricCard({ label, value, detail, to, icon: Icon, tone }: MetricProps) {
-  return <Card><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><span className={`grid size-11 shrink-0 place-items-center rounded-xl ${metricTones[tone]}`}><Icon aria-hidden className="size-5" /></span><Button asChild variant="ghost" size="icon"><Link to={to} aria-label={`打开${label}`}><ArrowRight /></Link></Button></div><p className="mt-5 text-sm text-gray-500">{label}</p>{value === undefined ? <Skeleton className="mt-2 h-9 w-16" /> : <p className="mt-1 text-3xl font-semibold text-gray-900 dark:text-white">{value}</p>}<p className="mt-2 text-xs text-gray-500">{detail}</p></CardContent></Card>;
-}
-
-function NavigationHub({ workspacePath }: { workspacePath: string }) {
-  const groups = [
-    { label: "运行", items: [
-      { label: "新建运行", detail: "从已发布策略启动执行", to: `${workspacePath}/runs/new`, icon: Rocket },
-      { label: "运行记录", detail: "查看状态、任务和结果", to: `${workspacePath}/runs`, icon: Activity },
-      { label: "待办中心", detail: "处理审批和外部输入", to: `${workspacePath}/actions`, icon: Inbox },
-    ] },
-    { label: "策略与配置", items: [
-      { label: "策略管理", detail: "维护草稿和发布版本", to: `${workspacePath}/strategies`, icon: Workflow },
-      { label: "编排画布", detail: "可视化设计执行流程", to: `${workspacePath}/canvas`, icon: Network },
-      { label: "智能体", detail: "查看并运行已注册智能体", to: `${workspacePath}/agents`, icon: Bot },
-      { label: "工具", detail: "查看并运行受控工具", to: `${workspacePath}/tools`, icon: Wrench },
-      { label: "模型", detail: "查看并运行逻辑模型", to: `${workspacePath}/models`, icon: Cpu },
-      { label: "策略能力", detail: "查看能力治理策略", to: `${workspacePath}/policies`, icon: Boxes },
-    ] },
-    { label: "治理", items: [
-      { label: "审计日志", detail: "查询并导出项目活动记录", to: `${workspacePath}/audit-logs`, icon: ScrollText },
-    ] },
-  ];
-  return <Card className="min-w-0"><CardHeader><div><CardTitle>功能导航</CardTitle><p className="mt-1 text-sm text-gray-500">按任务快速进入项目功能。</p></div></CardHeader><CardContent className="space-y-5">{groups.map((group) => <section key={group.label} aria-labelledby={`nav-${group.label}`}><h3 id={`nav-${group.label}`} className="mb-2 text-xs font-semibold text-gray-400">{group.label}</h3><div className="grid gap-2 sm:grid-cols-2">{group.items.map((item) => <NavigationCard key={item.label} {...item} />)}</div></section>)}</CardContent></Card>;
-}
-
-function NavigationCard({ label, detail, to, icon: Icon }: { label: string; detail: string; to: string; icon: MetricProps["icon"] }) {
-  return <Link to={to} className="group flex min-w-0 items-center gap-3 rounded-xl border border-gray-200 p-3 transition hover:border-brand-300 hover:bg-brand-50/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 dark:border-gray-800 dark:hover:border-brand-500/50 dark:hover:bg-brand-500/5"><span className="grid size-10 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-600 group-hover:bg-white group-hover:text-brand-600 dark:bg-gray-800 dark:text-gray-300 dark:group-hover:bg-gray-900"><Icon aria-hidden className="size-5" /></span><span className="min-w-0 flex-1"><span className="block text-sm font-medium text-gray-900 dark:text-white">{label}</span><span className="mt-0.5 block truncate text-xs text-gray-500">{detail}</span></span><ArrowRight aria-hidden className="size-4 shrink-0 text-gray-400 group-hover:text-brand-500" /></Link>;
-}
-
-function RecentRuns({ runs, loading, error, workspacePath }: { runs: RunSnapshot[] | undefined; loading: boolean; error: boolean; workspacePath: string }) {
-  return <Card className="min-w-0"><CardHeader><div><CardTitle>最近运行</CardTitle><p className="mt-1 text-sm text-gray-500">快速查看最新执行状态。</p></div><Button asChild variant="ghost" size="sm"><Link to={`${workspacePath}/runs`}>查看全部 <ArrowRight /></Link></Button></CardHeader><CardContent>{loading ? <div className="space-y-3">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-16" />)}</div> : null}{error ? <ErrorState compact title="无法加载最近运行" /> : null}{!loading && !error && !runs?.length ? <EmptyState icon={Rocket} title="还没有运行记录" description="发布策略后即可启动第一次运行。" action={<Button asChild size="sm"><Link to={`${workspacePath}/runs/new`}>新建运行</Link></Button>} /> : null}{runs?.length ? <div className="divide-y divide-gray-100 dark:divide-gray-800">{runs.slice(0, 5).map((run) => <RunRow key={run.runId} run={run} workspacePath={workspacePath} />)}</div> : null}</CardContent></Card>;
-}
-
-/** 单条运行摘要：状态、任务进度条、开始时间和耗时。 */
-function RunRow({ run, workspacePath }: { run: RunSnapshot; workspacePath: string }) {
-  const summary = summarizeTasks(run.taskCounts);
-  const startedAt = formatShortTime(run.startedAt);
-  const duration = formatDuration(run.startedAt, run.completedAt);
+  alert: boolean;
+}) {
   return (
     <Link
-      to={`${workspacePath}/runs/${run.runId}`}
-      className="group block py-3 first:pt-0 last:pb-0"
+      to={to}
+      aria-label={`${title}：${detail}`}
+      className="group rounded-[20px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
     >
-      <span className="flex min-w-0 items-center justify-between gap-3">
-        <span className="min-w-0">
-          <span className="block truncate font-mono text-xs font-medium text-gray-800 group-hover:text-brand-600 dark:text-gray-200">
-            {run.runId}
-          </span>
-          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500">
-            {startedAt ? (
-              <span className="inline-flex items-center gap-1">
-                <Clock3 aria-hidden className="size-3" />
-                {startedAt}
-              </span>
-            ) : null}
-            {duration ? <span>耗时 {duration}</span> : null}
-            <span>{summary.total} 个任务 · {run.snapshotSeq} 个事件</span>
-          </span>
-        </span>
-        <StatusBadge status={run.status} />
-      </span>
-      {summary.total > 0 ? <TaskProgressBar summary={summary} className="mt-2" /> : null}
+      <Card className="h-full transition group-hover:border-brand-300 group-hover:bg-brand-50/30 dark:group-hover:border-brand-500/50 dark:group-hover:bg-brand-500/5">
+        <CardContent className="pt-5">
+          <div className="flex items-start justify-between gap-4">
+            <span className={`grid size-11 place-items-center rounded-xl ${alert ? "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-300" : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-300"}`}>
+              <Icon aria-hidden className="size-5" />
+            </span>
+            <ArrowRight aria-hidden className="size-4 text-gray-400 transition group-hover:translate-x-0.5 group-hover:text-brand-500" />
+          </div>
+          <p className="mt-4 text-sm font-medium text-gray-600 dark:text-gray-300">{title}</p>
+          <p className="mt-1 text-3xl font-semibold text-gray-900 dark:text-white">{value}</p>
+          <p className="mt-2 text-xs text-gray-500">{detail}</p>
+        </CardContent>
+      </Card>
     </Link>
   );
 }
 
-interface TaskSummary {
-  total: number;
-  succeeded: number;
-  failed: number;
-  running: number;
-  pending: number;
-}
-
-function summarizeTasks(taskCounts: Record<string, number>): TaskSummary {
-  let succeeded = 0;
-  let failed = 0;
-  let running = 0;
-  let pending = 0;
-  for (const [status, count] of Object.entries(taskCounts)) {
-    if (status === "SUCCEEDED") succeeded += count;
-    else if (status === "FAILED" || status === "TIMED_OUT" || status === "CANCELLED") failed += count;
-    else if (status === "RUNNING" || status === "QUEUED") running += count;
-    else pending += count;
-  }
-  return { total: succeeded + failed + running + pending, succeeded, failed, running, pending };
-}
-
-/** 分段进度条：成功绿 / 失败红 / 运行蓝 / 待处理灰。 */
-function TaskProgressBar({ summary, className }: { summary: TaskSummary; className?: string }) {
-  if (summary.total === 0) return null;
-  const segments = [
-    { value: summary.succeeded, className: "bg-success-500", label: `${summary.succeeded} 成功` },
-    { value: summary.failed, className: "bg-error-500", label: `${summary.failed} 失败` },
-    { value: summary.running, className: "bg-brand-500", label: `${summary.running} 运行` },
-    { value: summary.pending, className: "bg-gray-300 dark:bg-gray-700", label: `${summary.pending} 待处理` },
-  ].filter((segment) => segment.value > 0);
-  const title = segments.map((segment) => segment.label).join(" · ");
+function BusinessWorkCard({ work, workspacePath }: { work: ProjectOverviewWorkSnapshot; workspacePath: string }) {
+  const action = businessWorkAction(work, workspacePath);
+  const documentsText = work.readiness.requiredDocuments === 0
+    ? "无需必需资料"
+    : `${work.readiness.satisfiedDocuments}/${work.readiness.requiredDocuments} 份必需资料`;
   return (
-    <div
-      role="img"
-      aria-label={`任务进度：${title}`}
-      title={title}
-      className={`flex h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800 ${className ?? ""}`}
-    >
-      {segments.map((segment, index) => (
-        <span
-          key={index}
-          className={segment.className}
-          style={{ width: `${(segment.value / summary.total) * 100}%` }}
-        />
-      ))}
-    </div>
+    <Card className="flex min-h-56 flex-col">
+      <CardHeader className="items-start">
+        <div className="min-w-0">
+          <CardTitle className="text-base">{work.name}</CardTitle>
+          <p className="mt-1 text-xs text-gray-500">{work.shortName}</p>
+        </div>
+        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${workStatusTone[work.status]}`}>{work.statusLabel}</span>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col">
+        <dl className="space-y-2 text-sm">
+          <div className="flex items-center justify-between gap-3"><dt className="text-gray-500">资料准备</dt><dd className={work.readiness.documentsReady ? "text-success-700 dark:text-success-300" : "text-warning-700 dark:text-warning-300"}>{documentsText}</dd></div>
+          <div className="flex items-center justify-between gap-3"><dt className="text-gray-500">最近运行</dt><dd>{work.latestRun ? <StatusBadge status={work.latestRun.status} /> : <span className="text-gray-400">暂无运行</span>}</dd></div>
+          <div className="flex items-center justify-between gap-3"><dt className="text-gray-500">生产准入</dt><dd className="text-right text-xs">{work.qualificationLabel}</dd></div>
+        </dl>
+        {!work.readiness.documentsReady ? <p className="mt-3 line-clamp-2 text-xs text-warning-700 dark:text-warning-300">必需资料未齐，请先查看缺失项。</p> : null}
+        {work.status !== "runnable" && work.blockers[0] ? <p className="mt-3 line-clamp-2 text-xs text-error-600 dark:text-error-300">{work.blockers[0].message}</p> : null}
+        <div className="mt-auto flex justify-end pt-5">
+          <Button asChild size="sm" variant={action.variant}>
+            <Link to={action.to} aria-label={`${work.name}：${action.label}`}>{action.icon}{action.label}</Link>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
-function formatShortTime(value?: string | null): string | null {
-  if (!value) return null;
+function businessWorkAction(work: ProjectOverviewWorkSnapshot, workspacePath: string) {
+  if (work.activeRunId) {
+    return { label: "查看运行", to: `${workspacePath}/runs/${work.activeRunId}`, icon: <Activity />, variant: "outline" as const };
+  }
+  if (work.status !== "runnable") {
+    return { label: "完成配置", to: `${workspacePath}/business-works/${work.workKey}/settings`, icon: <Settings2 />, variant: "outline" as const };
+  }
+  if (!work.readiness.documentsReady) {
+    return { label: "查看缺失项", to: `${workspacePath}/business-works/${work.workKey}`, icon: <FolderOpen />, variant: "outline" as const };
+  }
+  return { label: "开始处理", to: `${workspacePath}/business-works/${work.workKey}/workbench`, icon: <Play />, variant: "primary" as const };
+}
+
+function SecondaryWorks({ works, workspacePath }: { works: ProjectOverviewWorkSnapshot[]; workspacePath: string }) {
+  return (
+    <section aria-labelledby="secondary-works-heading" className="space-y-3">
+      <SectionHeading id="secondary-works-heading" title="基础与治理" description="支撑业务处理的基础能力和调度治理状态。" />
+      {works.length ? (
+        <div className="grid gap-3 md:grid-cols-3">
+          {works.map((work) => (
+            <Card key={work.workKey}>
+              <CardContent className="flex items-center gap-3 pt-5">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-300"><Layers3 aria-hidden className="size-5" /></span>
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{work.name}</p><p className="mt-1 flex items-center gap-2 text-xs text-gray-500"><span>{work.statusLabel}</span><span aria-hidden>·</span><span>{work.latestRun ? `最近 ${statusText(work.latestRun.status)}` : "暂无运行"}</span></p></div>
+                <Button asChild variant="ghost" size="icon"><Link to={`${workspacePath}/business-works/${work.workKey}`} aria-label={`查看${work.name}详情`}><ArrowRight /></Link></Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : <Card><CardContent className="pt-5"><EmptyState icon={Layers3} title="暂无基础与治理工作" /></CardContent></Card>}
+    </section>
+  );
+}
+
+function RecentRuns({ runs, workspacePath }: { runs: ProjectOverviewRunSnapshot[]; workspacePath: string }) {
+  return (
+    <section aria-labelledby="recent-runs-heading">
+      <Card>
+        <CardHeader>
+          <div><CardTitle id="recent-runs-heading">最近动态</CardTitle><p className="mt-1 text-sm text-gray-500">最近 5 条业务执行摘要。</p></div>
+          <Button asChild variant="ghost" size="sm"><Link to={`${workspacePath}/runs`}>查看全部 <ArrowRight /></Link></Button>
+        </CardHeader>
+        <CardContent>
+          {!runs.length ? <EmptyState icon={Activity} title="暂无运行动态" description="开始业务处理后，运行摘要会显示在这里。" /> : null}
+          {runs.length ? <div className="divide-y divide-gray-100 dark:divide-gray-800">{runs.map((run) => <RunRow key={run.runId} run={run} workspacePath={workspacePath} />)}</div> : null}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function RunRow({ run, workspacePath }: { run: ProjectOverviewRunSnapshot; workspacePath: string }) {
+  const reason = run.failureReason || run.cancelReason;
+  return (
+    <Link to={`${workspacePath}/runs/${run.runId}`} aria-label={`${run.businessWorkName}，运行 ${run.runId}`} className="group block py-4 first:pt-0 last:pb-0">
+      <span className="flex min-w-0 items-start justify-between gap-4">
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-semibold text-gray-900 group-hover:text-brand-600 dark:text-white">{run.businessWorkName}</span>
+          <span className="mt-0.5 block truncate font-mono text-[11px] text-gray-400">{run.runId}</span>
+          <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+            <span className="inline-flex items-center gap-1"><Clock3 aria-hidden className="size-3" />{formatShortTime(run.createdAt)}</span>
+            {formatDuration(run.startedAt, run.completedAt) ? <span>耗时 {formatDuration(run.startedAt, run.completedAt)}</span> : null}
+            <span>{run.taskCount} 个任务 · {run.eventCount} 个事件</span>
+            <span>操作人 {run.operatorName}</span>
+          </span>
+          {reason ? <span className="mt-2 block line-clamp-1 text-xs text-error-600 dark:text-error-300">{reason}</span> : null}
+        </span>
+        <StatusBadge status={run.status} />
+      </span>
+    </Link>
+  );
+}
+
+function statusText(status: string) {
+  const labels: Record<string, string> = { SUCCEEDED: "已成功", FAILED: "失败", RUNNING: "运行中", WAITING_APPROVAL: "待审批", WAITING_INPUT: "待输入", CANCELLED: "已取消" };
+  return labels[status] ?? status;
+}
+
+function formatShortTime(value: string): string {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
+  if (Number.isNaN(date.getTime())) return "时间未知";
   const now = new Date();
-  const sameDay = date.toDateString() === now.toDateString();
-  return sameDay
+  return date.toDateString() === now.toDateString()
     ? date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
     : date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
@@ -211,12 +325,11 @@ function formatShortTime(value?: string | null): string | null {
 function formatDuration(start?: string | null, end?: string | null): string | null {
   if (!start) return null;
   const startMs = new Date(start).getTime();
-  if (Number.isNaN(startMs)) return null;
   const endMs = end ? new Date(end).getTime() : Date.now();
-  if (Number.isNaN(endMs) || endMs < startMs) return null;
+  if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs < startMs) return null;
   const ms = endMs - startMs;
-  if (ms < 1000) return `${ms} 毫秒`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} 秒`;
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} 分 ${Math.round((ms % 60_000) / 1000)} 秒`;
+  if (ms < 1_000) return `${ms} 毫秒`;
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)} 秒`;
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} 分 ${Math.round((ms % 60_000) / 1_000)} 秒`;
   return `${(ms / 3_600_000).toFixed(1)} 小时`;
 }

@@ -247,6 +247,33 @@ def test_only_approved_effective_change_updates_current_baseline() -> None:
     assert result["unapprovedChangeRisks"][0]["changeId"] == "chg-2"
 
 
+def test_invalid_change_path_is_rejected_atomically() -> None:
+    plan = normalize_plan(_candidate_plan())
+    original_due_date = plan["milestones"][0]["dueDate"]
+
+    result = apply_approved_changes(
+        plan,
+        [
+            {
+                "id": "chg-invalid",
+                "status": "APPROVED",
+                "effectiveAt": "2026-02-01",
+                "changedPaths": [
+                    {"path": "/milestones/0/dueDate", "after": "2026-03-01"},
+                    {"path": "/milestones/99/dueDate", "after": "2026-04-01"},
+                ],
+            }
+        ],
+        as_of="2026-02-10",
+    )
+
+    assert result["currentBaseline"]["milestones"][0]["dueDate"] == original_due_date
+    assert result["appliedChanges"] == []
+    assert result["differences"] == []
+    assert result["unapprovedChangeRisks"][0]["code"] == "INVALID_CHANGE_PATH"
+    assert result["unapprovedChangeRisks"][0]["path"] == "/milestones/99/dueDate"
+
+
 def test_approved_contract_value_change_flags_unreconciled_payment_schedule() -> None:
     candidate = _candidate_plan()
     candidate["contract"] = {

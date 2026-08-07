@@ -2,8 +2,10 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 from swarmcore_application.workbench import WorkbenchService
+from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2_1
 from swarmcore_capability_contract_integrity import SCHEMAS as INTEGRITY_SCHEMAS
 from swarmcore_capability_contract_post_evaluation import SCHEMAS
+from swarmcore_registry import CapabilityPackManifest
 
 
 def test_schema_requires_non_empty_documents_for_post_evaluation_input() -> None:
@@ -28,6 +30,29 @@ def test_selection_provenance_is_frozen_for_invoice_and_deviation_runs() -> None
         "procurement-supplier-risk"
     )
     assert not WorkbenchService._requires_selection_provenance("contract-integrity")
+
+
+def test_manifest_execution_permission_matches_case_contract() -> None:
+    assert WorkbenchService._required_execution_permission(
+        CapabilityPackManifest.model_validate(MANIFEST)
+    ) == "work-item.execute"
+    assert WorkbenchService._required_execution_permission(
+        CapabilityPackManifest.model_validate(MANIFEST_V2_1)
+    ) == "case.assess"
+
+
+def test_invoice_execution_materializes_optional_template_inputs() -> None:
+    payload = {"title": "发票一致性校验"}
+
+    execution_payload = WorkbenchService._execution_payload("invoice-assurance", payload)
+
+    assert execution_payload == {
+        "title": "发票一致性校验",
+        "fieldConfirmations": [],
+        "humanVerification": {},
+        "enterprisePublicStatusEvidence": {},
+    }
+    assert payload == {"title": "发票一致性校验"}
 
 
 def test_v2_contract_integrity_runtime_fields_follow_the_declared_schema() -> None:

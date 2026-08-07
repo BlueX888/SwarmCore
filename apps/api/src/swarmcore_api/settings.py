@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     temporal_namespace: str = "default"
     event_poll_interval_seconds: float = Field(default=0.5, gt=0, le=5)
     event_heartbeat_seconds: float = Field(default=15, ge=5, le=60)
+    sse_max_connections_per_actor: int = Field(default=5, ge=1, le=100)
+    sse_max_connections_per_project: int = Field(default=100, ge=1, le=10_000)
+    sse_max_lifetime_seconds: int = Field(default=3600, ge=30, le=86_400)
     otlp_endpoint: str = "http://localhost:4317"
     telemetry_enabled: bool = True
     capability_center_v2: bool = True

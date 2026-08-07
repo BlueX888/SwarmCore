@@ -25,8 +25,6 @@ from swarmcore_persistence.models import (
     ProjectCapabilityDecisionBinding,
     Report,
     RuleSetVersion,
-    Run,
-    RunCommand,
     WorkItem,
     WorkItemAttachment,
     WorkItemRevision,
@@ -36,9 +34,9 @@ from swarmcore_persistence.repositories import canonical_hash
 from swarmcore_registry import CapabilityPackManifest
 
 from .capability_packs import CapabilityPackService
-from .decision_assets import DecisionExecutionService, normalize_decision
+from .decision_assets import DecisionExecutionService
 from .document_library import DocumentLibraryService
-from .integrity import AttachmentInput, IntegrityResult, IntegrityRuleDocument, evaluate_integrity
+from .integrity import IntegrityResult
 from .rule_sets import RuleSetService
 from .services import RunService
 
@@ -199,6 +197,7 @@ class WorkbenchService:
         tenant_id: UUID,
         project_id: UUID,
         work_item_type: str,
+        business_work_key: str | None = None,
         payload: dict[str, Any],
         owner: str | None,
         idempotency_key: str,
@@ -218,7 +217,12 @@ class WorkbenchService:
             schema_ref = manifest.spec.case.schema_ref
         self._validate_schema(schema_ref, payload)
         request_hash = canonical_hash(
-            {"workItemType": work_item_type, "payload": payload, "owner": owner}
+            {
+                "workItemType": work_item_type,
+                "businessWorkKey": business_work_key,
+                "payload": payload,
+                "owner": owner,
+            }
         )
         existing = await self._idempotent_response(
             session,
@@ -238,6 +242,7 @@ class WorkbenchService:
             tenant_id=tenant_id,
             project_id=project_id,
             work_item_type=work_item_type,
+            business_work_key=business_work_key,
             schema_version=schema_ref,
             payload=payload,
             status="DRAFT",
@@ -542,6 +547,13 @@ class WorkbenchService:
             project_id=project_id,
             work_item_type=item.work_item_type,
         )
+        execution_permission = self._required_execution_permission(manifest)
+        if execution_permission not in manifest.spec.permissions:
+            raise ValueError(f"CAPABILITY_PERMISSION_MISSING: {execution_permission}")
+        execution_payload = self._execution_payload(
+            manifest.metadata.name,
+            revision.payload,
+        )
         existing = await session.scalar(
             select(Evaluation).where(
                 Evaluation.project_id == project_id,
@@ -583,16 +595,7 @@ class WorkbenchService:
             business_work_keys=business_work_keys,
             business_object_ids=tuple(value.business_object_id for value in subjects),
         )
-        # Workbench creates ephemeral subjects; fall back to work-scoped bindings
-        # when no document is linked to those object ids yet.
-        if not document_versions and subjects:
-            document_versions = await self._documents.current_versions_for_work(
-                session,
-                tenant_id=tenant_id,
-                project_id=project_id,
-                business_work_keys=business_work_keys,
-            )
-        selection = revision.payload.get("documentSelection", {})
+        selection = execution_payload.get("documentSelection", {})
         if not isinstance(selection, dict):
             selection = {}
         include_ids = {str(value) for value in selection.get("includeVersionIds", [])}
@@ -690,7 +693,7 @@ class WorkbenchService:
         )
         selection_hash = canonical_hash(
             {
-                "algorithm": "deviation-analysis-selection@1",
+                "algorithm": f"{manifest.metadata.name}-document-selection@1",
                 "includeVersionIds": sorted(include_ids),
                 "excludeVersionIds": sorted(exclude_ids),
                 "baselineVersionIds": sorted(baseline_ids),
@@ -713,12 +716,12 @@ class WorkbenchService:
         configuration_hash = canonical_hash(
             {
                 "binding": binding.configuration,
-                "currency": revision.payload.get("currency", "CNY"),
-                "timezone": revision.payload.get("timezone", "Asia/Shanghai"),
-                "dimensions": revision.payload.get("dimensions", ["TIME", "CONTENT", "COST"]),
-                "thresholds": revision.payload.get("thresholds", {}),
-                "approval": revision.payload.get("approval", {}),
-                "approvalRules": revision.payload.get("approvalRules", {}),
+                "currency": execution_payload.get("currency", "CNY"),
+                "timezone": execution_payload.get("timezone", "Asia/Shanghai"),
+                "dimensions": execution_payload.get("dimensions", ["TIME", "CONTENT", "COST"]),
+                "thresholds": execution_payload.get("thresholds", {}),
+                "approval": execution_payload.get("approval", {}),
+                "approvalRules": execution_payload.get("approvalRules", {}),
             }
         )
         rule_version = None
@@ -727,7 +730,7 @@ class WorkbenchService:
                 session,
                 tenant_id=tenant_id,
                 project_id=project_id,
-                payload=revision.payload,
+                payload=execution_payload,
             )
         elif decision_bindings:
             rule_version = await session.get(
@@ -759,7 +762,7 @@ class WorkbenchService:
             "workItemId": str(item.id),
             "workItemRevisionId": str(revision.id),
             "evaluationId": str(evaluation_id),
-            "payload": revision.payload,
+            "payload": execution_payload,
             "attachments": attachment_payloads,
             "attachmentManifestHash": attachment_hash,
             "configuration": dict(binding.configuration),
@@ -793,16 +796,24 @@ class WorkbenchService:
                     "rules": dict(rule_version.rules),
                 }
             )
+        if self._schema_has_property(manifest.spec.input_schema, "upstreamEvaluations"):
+            input_data["upstreamEvaluations"] = await self._upstream_evaluations(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                current_work_item_id=item.id,
+                subjects=subjects,
+            )
         self._validate_schema(manifest.spec.input_schema, input_data)
         strategy_snapshot = self._select_strategy_snapshot(
             manifest,
             pack_version.dependency_snapshot,
-            revision.payload,
+            execution_payload,
         )
         strategy_version_id = strategy_snapshot.get("strategyVersionId")
         if not isinstance(strategy_version_id, str):
             raise RuntimeError("capability pack strategy version snapshot is missing")
-        run, command = await self._runs.create(
+        run, _ = await self._runs.create(
             session,
             tenant_id=tenant_id,
             project_id=project_id,
@@ -839,6 +850,9 @@ class WorkbenchService:
             registry_snapshot={
                 **dict(pack_version.dependency_snapshot),
                 "selectedStrategy": dict(strategy_snapshot),
+                "businessWorkKey": item.business_work_key,
+                "manifestPermissions": list(manifest.spec.permissions),
+                "executionPermission": execution_permission,
                 "bindingConfiguration": dict(binding.configuration),
                 "bindingConfigurationHash": canonical_hash(binding.configuration),
             },
@@ -850,7 +864,7 @@ class WorkbenchService:
         )
         session.add(evaluation)
         await session.flush()
-        frozen_decisions = [
+        _ = [
             await self._decision_executions.freeze(
                 session,
                 tenant_id=tenant_id,
@@ -865,69 +879,9 @@ class WorkbenchService:
             tenant_id=tenant_id,
             project_id=project_id,
             evaluation=evaluation,
-            business_work_key=manifest.metadata.name,
+            business_work_key=item.business_work_key or manifest.metadata.name,
             documents=document_versions,
         )
-        if rule_version is not None and manifest.spec.rules is not None:
-            result = evaluate_integrity(
-                rule_set_version_id=str(rule_version.id),
-                document=IntegrityRuleDocument.model_validate(rule_version.rules),
-                attachments=[
-                    AttachmentInput.model_validate(value) for value in attachment_payloads
-                ],
-                attachment_manifest_hash=attachment_hash,
-            )
-            await self._record_result(
-                session,
-                item=item,
-                evaluation=evaluation,
-                result=result,
-                actor=actor,
-            )
-            await self._complete_inline_run(
-                session,
-                run=run,
-                command=command,
-                output=result.model_dump(mode="json", by_alias=True),
-            )
-        elif frozen_decisions:
-            frozen = frozen_decisions[0]
-            decision_version = await session.get(RuleSetVersion, frozen.rule_set_version_id)
-            if decision_version is None:
-                raise RuntimeError("frozen decision version is missing")
-            envelope = normalize_decision(decision_version.rules)
-            if envelope.type == "CHECKLIST":
-                result = evaluate_integrity(
-                    rule_set_version_id=str(decision_version.id),
-                    document=IntegrityRuleDocument.model_validate(envelope.definition),
-                    attachments=[
-                        AttachmentInput.model_validate(value) for value in attachment_payloads
-                    ],
-                    attachment_manifest_hash=attachment_hash,
-                )
-                output = result.model_dump(mode="json", by_alias=True)
-                await self._decision_executions.record(
-                    session,
-                    tenant_id=tenant_id,
-                    project_id=project_id,
-                    evaluation_decision_id=frozen.id,
-                    execution_key=f"assessment:{evaluation.id}:{frozen.slot}",
-                    attempt=1,
-                    status="SUCCEEDED",
-                    input_value=input_data,
-                    output=output,
-                    matched_rule_ids=[value.rule_key for value in result.findings],
-                    duration_ms=0,
-                    run_id=run.id,
-                )
-                await self._record_result(
-                    session,
-                    item=item,
-                    evaluation=evaluation,
-                    result=result,
-                    actor=actor,
-                )
-                await self._complete_inline_run(session, run=run, command=command, output=output)
         await self._audit.append(
             session,
             tenant_id=tenant_id,
@@ -950,49 +904,77 @@ class WorkbenchService:
             "procurement-supplier-risk",
         }
 
-    async def _complete_inline_run(
-        self,
+    @staticmethod
+    def _required_execution_permission(manifest: CapabilityPackManifest) -> str:
+        return "case.assess" if manifest.spec.case is not None else "work-item.execute"
+
+    @staticmethod
+    async def _upstream_evaluations(
         session: AsyncSession,
         *,
-        run: Run,
-        command: RunCommand,
-        output: dict[str, Any],
-    ) -> None:
-        now = datetime.now(UTC)
-        temporal_outbox = await session.scalar(
-            select(OutboxEvent)
+        tenant_id: UUID,
+        project_id: UUID,
+        current_work_item_id: UUID,
+        subjects: list[WorkItemSubject],
+    ) -> list[dict[str, Any]]:
+        subject_ids = tuple(dict.fromkeys(value.business_object_id for value in subjects))
+        if not subject_ids:
+            return []
+        rows = await session.execute(
+            select(Evaluation, WorkItem.business_work_key, WorkItem.work_item_type)
+            .join(WorkItem, WorkItem.id == Evaluation.work_item_id)
+            .join(
+                WorkItemSubject,
+                WorkItemSubject.work_item_revision_id == Evaluation.work_item_revision_id,
+            )
             .where(
-                OutboxEvent.destination == "temporal",
-                OutboxEvent.source_id == command.id,
+                Evaluation.tenant_id == tenant_id,
+                Evaluation.project_id == project_id,
+                Evaluation.status == "SUCCEEDED",
+                Evaluation.result.is_not(None),
+                WorkItem.id != current_work_item_id,
+                WorkItemSubject.business_object_id.in_(subject_ids),
             )
-            .with_for_update()
+            .order_by(Evaluation.created_at.desc(), Evaluation.id.desc())
+            .limit(100)
         )
-        if temporal_outbox is None:
-            raise RuntimeError("inline run command outbox is missing")
-        temporal_outbox.status = "DELIVERED"
-        temporal_outbox.delivered_at = now
-        temporal_outbox.locked_by = None
-        temporal_outbox.locked_until = None
-        command.status = "APPLIED"
-        command.applied_at = now
-        command.result = {"mode": "inline"}
-        for event_type, payload in (
-            ("run.validating", {}),
-            ("run.queued", {}),
-            ("run.started", {}),
-            ("run.completed", {"output": output}),
-        ):
-            await self._runs.events.append(
-                session,
-                tenant_id=run.tenant_id,
-                project_id=run.project_id,
-                run_id=run.id,
-                transition_id=uuid7(),
-                event_type=event_type,
-                payload=payload,
-                occurred_at=now,
+        upstream: list[dict[str, Any]] = []
+        seen_work_keys: set[str] = set()
+        for evaluation, business_work_key, work_item_type in rows:
+            key = str(business_work_key or work_item_type)
+            if key in {"contract-post-evaluation", "contract-post-evaluation-case"}:
+                continue
+            if key in seen_work_keys or not isinstance(evaluation.result, dict):
+                continue
+            seen_work_keys.add(key)
+            upstream.append(
+                {
+                    "evaluationId": str(evaluation.id),
+                    "businessWorkKey": key,
+                    "outputSchemaVersion": evaluation.output_schema_version,
+                    "resultHash": canonical_hash(evaluation.result),
+                    "result": dict(evaluation.result),
+                }
             )
-        run.output = output
+            if len(upstream) == 20:
+                break
+        return upstream
+
+    @staticmethod
+    def _execution_payload(
+        manifest_name: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if manifest_name != "invoice-assurance":
+            return payload
+        return {
+            **payload,
+            "fieldConfirmations": list(payload.get("fieldConfirmations") or []),
+            "humanVerification": dict(payload.get("humanVerification") or {}),
+            "enterprisePublicStatusEvidence": dict(
+                payload.get("enterprisePublicStatusEvidence") or {}
+            ),
+        }
 
     async def act_on_finding(
         self,

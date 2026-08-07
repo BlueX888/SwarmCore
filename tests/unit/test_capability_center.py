@@ -184,7 +184,6 @@ async def test_verified_project_provider_recovers_hidden_builtin_model_and_agent
     [
         ("tool://search@1", "tool"),
         ("agent://builtin/researcher@1", "agent"),
-        ("model://general@1", "agent"),
     ],
 )
 @pytest.mark.asyncio
@@ -205,6 +204,38 @@ async def test_direct_capability_builds_compilable_single_node_spec(
     )
     assert len(spec.spec.graph.nodes.root) == 1
     assert spec.spec.graph.nodes.root["capability"].type == expected_type
+
+
+@pytest.mark.asyncio
+async def test_model_cannot_be_wrapped_as_a_direct_capability() -> None:
+    center = _center(ReadyRuntime())
+    summaries = await center.list(
+        tenant_id=uuid4(), project_id=uuid4(), environment="development"
+    )
+    summary = next(item for item in summaries if item.ref == "model://general@1")
+
+    with pytest.raises(ValueError, match="capability kind cannot run directly: model"):
+        center.build_spec(summary, input_data={"query": "swarm"})
+
+
+@pytest.mark.asyncio
+async def test_model_direct_run_requires_an_agent_definition() -> None:
+    center = _center(ReadyRuntime())
+
+    with pytest.raises(ValueError, match="MODEL_DIRECT_RUN_NOT_SUPPORTED"):
+        await center.run(
+            object(),  # type: ignore[arg-type]
+            tenant_id=uuid4(),
+            project_id=uuid4(),
+            environment="development",
+            capability_ref="model://general@1",
+            input_data={"query": "swarm"},
+            preset_id=None,
+            idempotency_key="direct-model",
+            initiated_by="test",
+            submitted_scopes=(),
+            auth_context_hash="test",
+        )
 
 
 @pytest.mark.asyncio

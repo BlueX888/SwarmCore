@@ -13,6 +13,7 @@ from swarmcore_persistence.models import (
     CapabilityPackVersion,
     Evaluation,
     ProjectCapabilityBinding,
+    Run,
     Strategy,
     StrategyVersion,
     WorkItem,
@@ -37,11 +38,76 @@ STATUS_LABELS: dict[BusinessWorkStatus, str] = {
     "planned": "规划中",
     "not_configured": "未配置",
     "incomplete": "配置不完整",
-    "runnable": "可运行",
+    "runnable": "本地可运行",
     "unavailable": "暂不可用",
 }
 
 BusinessWorkCategory = Literal["foundation", "business", "governance"]
+BusinessWorkQualification = Literal[
+    "planned",
+    "unverified",
+    "local_verified",
+    "production_verified",
+]
+
+QUALIFICATION_LABELS: dict[BusinessWorkQualification, str] = {
+    "planned": "尚未实现",
+    "unverified": "尚无有效验证证据",
+    "local_verified": "本地验证，待生产准入",
+    "production_verified": "生产验证通过",
+}
+
+
+def _result_is_production_qualified(result: dict[str, Any] | None) -> bool:
+    if not isinstance(result, dict):
+        return False
+    qualification = result.get("qualificationEvidence")
+    if not isinstance(qualification, dict):
+        return False
+    if (
+        qualification.get("level") != "PRODUCTION"
+        or qualification.get("status") != "PASSED"
+        or qualification.get("environment") != "production"
+        or not isinstance(qualification.get("evidenceRef"), str)
+        or not qualification["evidenceRef"].strip()
+        or not isinstance(qualification.get("imageDigest"), str)
+        or not qualification["imageDigest"].startswith("sha256:")
+        or len(qualification["imageDigest"]) != 71
+        or any(
+            char not in "0123456789abcdef"
+            for char in qualification["imageDigest"][7:]
+        )
+    ):
+        return False
+    if result.get("reviewRequired") is True:
+        return False
+    report_quality = result.get("reportQuality")
+    if isinstance(report_quality, dict):
+        return bool(report_quality.get("passed"))
+    quality = result.get("quality")
+    if isinstance(quality, dict):
+        return (
+            quality.get("decision") == "PASS"
+            and result.get("status") in {"COMPLETED", "COMPLETED_DEGRADED"}
+            and (
+                not isinstance(result.get("sandbox"), dict)
+                or result["sandbox"].get("status") == "PASSED"
+            )
+        )
+    if isinstance(result.get("passed"), bool):
+        return result["passed"] is True
+    if result.get("qualityStatus") is not None:
+        return result.get("qualityStatus") == "READY"
+    if result.get("outcome") is not None:
+        return result.get("outcome") == "PAYMENT_READY"
+    if result.get("decision") is not None:
+        return result.get("decision") == "PASS"
+    if result.get("collectionStatus") is not None:
+        return result.get("collectionStatus") == "COMPLETE" and result.get("status") in {
+            "ON_TRACK",
+            "COMPLETED",
+        }
+    return result.get("status") == "READY"
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +143,8 @@ class BusinessWorkSummary:
     summary: str
     status: BusinessWorkStatus
     status_label: str
+    qualification_status: BusinessWorkQualification
+    qualification_label: str
     pack_name: str | None
     pack_version_id: UUID | None
     pack_version: str | None
@@ -87,6 +155,7 @@ class BusinessWorkSummary:
     tools: tuple[str, ...] = ()
     models: tuple[str, ...] = ()
     document_requirements: tuple[dict[str, Any], ...] = ()
+    document_binding_keys: tuple[str, ...] = ()
     decision_slots: tuple[dict[str, Any], ...] = ()
     functions: tuple[BusinessWorkFunction, ...] = ()
     configuration: dict[str, Any] = field(default_factory=dict)
@@ -106,7 +175,7 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         short_name="AI 基础与评测",
         category="foundation",
         summary="统一接入基础 AI 能力，并用样本、规则、置信度和人工复核建立质量闭环。",
-        pack_name="swarm-calibration",
+        pack_name="ai-foundation-quality",
         functions=(
             BusinessWorkFunction(
                 "基础能力接入", "封装 LLM、Embedding、Vision、OCR、NLP、文档解析和结构化抽取。"
@@ -220,7 +289,7 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
         short_name="报告生成",
         category="business",
         summary="聚合文件、履约、偏差、发票和风险事实，生成可追溯的后评价报告。",
-        pack_name="contract-post-evaluation",
+        pack_name="report-generation",
         functions=(
             BusinessWorkFunction("多源结果聚合", "汇总结构化事实、规则结论、风险、问题和证据。"),
             BusinessWorkFunction("七维评价", "按七大评价维度计算指标、分值、结论和改进项。"),
@@ -248,10 +317,13 @@ BUSINESS_WORK_DEFINITIONS: tuple[BusinessWorkDefinition, ...] = (
     ),
     BusinessWorkDefinition(
         key="swarm-calibration",
-        name="智能体调度校准智能体",
-        short_name="调度校准",
+        name="GitHub 工程问题调度校准智能体",
+        short_name="工程问题调度校准",
         category="governance",
-        summary="监督多智能体任务的数据流和输出质量，为调度、降级与切换提供校准建议。",
+        summary=(
+            "基于冻结的公开 GitHub Issue、讨论、合并提交与沙箱验证，"
+            "校准工程问题诊断的调度、降级与切换。"
+        ),
         pack_name="swarm-calibration",
         functions=(
             BusinessWorkFunction("任务编排", "定义任务依赖、并行关系、输入输出和人工等待节点。"),
@@ -442,6 +514,7 @@ class BusinessWorkService:
             tenant_id=tenant_id,
             project_id=project_id,
             work_item_type=summary.work_item_type,
+            business_work_key=work_key,
             payload=payload,
             owner=owner,
             idempotency_key=idempotency_key,
@@ -465,6 +538,14 @@ class BusinessWorkService:
             session, tenant_id=tenant_id, project_id=project_id, work_key=work_key
         )
         self._require_runnable(summary)
+        item, _ = await self._workbench.get_work_item(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            work_item_id=work_item_id,
+        )
+        if item.business_work_key not in {None, work_key}:
+            raise ValueError("BUSINESS_WORK_IDENTITY_MISMATCH")
         return await self._workbench.execute(
             session,
             tenant_id=tenant_id,
@@ -499,6 +580,7 @@ class BusinessWorkService:
             tenant_id=tenant_id,
             project_id=project_id,
             scenario_type=summary.work_item_type,
+            business_work_key=work_key,
             payload=payload,
             subjects=subjects,
             owner=owner,
@@ -523,6 +605,14 @@ class BusinessWorkService:
             session, tenant_id=tenant_id, project_id=project_id, work_key=work_key
         )
         self._require_runnable(summary)
+        item, _, _ = await self._cases.get(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            case_id=case_id,
+        )
+        if item.business_work_key not in {None, work_key}:
+            raise ValueError("BUSINESS_WORK_IDENTITY_MISMATCH")
         return await self._cases.assess(
             session,
             tenant_id=tenant_id,
@@ -723,6 +813,8 @@ class BusinessWorkService:
                 summary=definition.summary,
                 status="planned",
                 status_label=STATUS_LABELS["planned"],
+                qualification_status="planned",
+                qualification_label=QUALIFICATION_LABELS["planned"],
                 pack_name=None,
                 pack_version_id=None,
                 pack_version=None,
@@ -742,6 +834,8 @@ class BusinessWorkService:
                 summary=definition.summary,
                 status="not_configured",
                 status_label=STATUS_LABELS["not_configured"],
+                qualification_status="unverified",
+                qualification_label=QUALIFICATION_LABELS["unverified"],
                 pack_name=definition.pack_name,
                 pack_version_id=None,
                 pack_version=None,
@@ -800,7 +894,7 @@ class BusinessWorkService:
             has_binding=binding is not None,
             blockers=blockers,
         )
-        models = self._models_from_manifest(manifest)
+        models = self._models_from_dependency_snapshot(version.dependency_snapshot)
         (
             bound_strategy_version_id,
             bound_strategy_name,
@@ -810,6 +904,14 @@ class BusinessWorkService:
             tenant_id=tenant_id,
             version=version,
         )
+        qualification_status = await self._qualification_status(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            version=version,
+            enabled=enabled,
+            dependency_blockers=dependency_blockers,
+        )
         return BusinessWorkSummary(
             work_key=definition.key,
             name=definition.name,
@@ -818,6 +920,8 @@ class BusinessWorkService:
             summary=definition.summary,
             status=status,
             status_label=STATUS_LABELS[status],
+            qualification_status=qualification_status,
+            qualification_label=QUALIFICATION_LABELS[qualification_status],
             pack_name=definition.pack_name,
             pack_version_id=version.id,
             pack_version=version.version,
@@ -844,6 +948,9 @@ class BusinessWorkService:
                 }
                 for item in manifest.spec.document_requirements()
             ),
+            document_binding_keys=document_binding_keys(
+                definition.pack_name, manifest.case_type
+            ),
             decision_slots=tuple(
                 {
                     "slot": item.slot,
@@ -867,6 +974,46 @@ class BusinessWorkService:
             bound_strategy_name=bound_strategy_name,
             bound_strategy_version=bound_strategy_version,
         )
+
+    @staticmethod
+    async def _qualification_status(
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        project_id: UUID,
+        version: CapabilityPackVersion,
+        enabled: bool,
+        dependency_blockers: list[dict[str, Any]],
+    ) -> BusinessWorkQualification:
+        strategy = version.dependency_snapshot.get("strategy", {})
+        local_evidence = (
+            enabled
+            and not dependency_blockers
+            and isinstance(strategy, dict)
+            and all(
+                isinstance(strategy.get(key), str) and bool(strategy[key])
+                for key in ("strategyVersionId", "specHash", "planHash")
+            )
+        )
+        if not local_evidence:
+            return "unverified"
+        latest = await session.scalar(
+            select(Evaluation)
+            .join(Run, Run.id == Evaluation.run_id)
+            .where(
+                Evaluation.tenant_id == tenant_id,
+                Evaluation.project_id == project_id,
+                Evaluation.capability_pack_version_id == version.id,
+                Evaluation.status == "SUCCEEDED",
+                Run.status == "SUCCEEDED",
+                Evaluation.result.is_not(None),
+            )
+            .order_by(Evaluation.created_at.desc(), Evaluation.id.desc())
+            .limit(1)
+        )
+        if isinstance(latest, Evaluation) and _result_is_production_qualified(latest.result):
+            return "production_verified"
+        return "local_verified"
 
     async def _readiness_projection(
         self,
@@ -945,10 +1092,10 @@ class BusinessWorkService:
 
         def sort_key(
             row: tuple[CapabilityPack, CapabilityPackVersion, ProjectCapabilityBinding | None],
-        ) -> tuple[int, str]:
+        ) -> tuple[int, tuple[int, int, int, str]]:
             _, version, binding = row
             enabled = 1 if binding is not None and binding.status in {"ENABLED", "DEGRADED"} else 0
-            return (enabled, version.version)
+            return (enabled, BusinessWorkService._semantic_version_key(version.version))
 
         return sorted(candidates, key=sort_key, reverse=True)[0]
 
@@ -968,7 +1115,7 @@ class BusinessWorkService:
 
         def sort_key(
             row: tuple[CapabilityPack, CapabilityPackVersion, ProjectCapabilityBinding | None],
-        ) -> tuple[int, str]:
+        ) -> tuple[int, tuple[int, int, int, str]]:
             _, version, _ = row
             spec = version.manifest.get("spec") if isinstance(version.manifest, dict) else None
             documents = spec.get("documents") if isinstance(spec, dict) else None
@@ -977,7 +1124,10 @@ class BusinessWorkService:
                 has_documents = 1 if isinstance(requirements, list) and len(requirements) > 0 else 0
             else:
                 has_documents = 1 if isinstance(documents, list) and len(documents) > 0 else 0
-            return (has_documents, version.version)
+            return (
+                has_documents,
+                BusinessWorkService._semantic_version_key(version.version),
+            )
 
         return sorted(candidates, key=sort_key, reverse=True)[0]
 
@@ -1000,13 +1150,31 @@ class BusinessWorkService:
         return "runnable"
 
     @staticmethod
-    def _models_from_manifest(manifest: CapabilityPackManifest) -> tuple[str, ...]:
-        raw = getattr(manifest.spec, "models", None)
-        if raw is None:
-            return ()
-        if isinstance(raw, list | tuple):
-            return tuple(str(item) for item in raw)
-        return ()
+    def _models_from_dependency_snapshot(snapshot: dict[str, Any]) -> tuple[str, ...]:
+        """Project the immutable model dependencies frozen with the pack version."""
+        model_refs: set[str] = set()
+        candidates: list[Any] = [snapshot.get("strategy")]
+        strategies = snapshot.get("strategies")
+        if isinstance(strategies, dict):
+            candidates.extend(strategies.values())
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            models = candidate.get("models")
+            if isinstance(models, list | tuple):
+                model_refs.update(str(value) for value in models if value)
+        return tuple(sorted(model_refs))
+
+    @staticmethod
+    def _semantic_version_key(value: str) -> tuple[int, int, int, str]:
+        """Order strict release SemVer numerically and keep invalid values deterministic."""
+        release, separator, suffix = value.partition("-")
+        parts = release.split(".")
+        if len(parts) == 3 and all(part.isdigit() for part in parts):
+            # A release sorts after its pre-release variants.
+            stability = "~" if not separator else suffix
+            return int(parts[0]), int(parts[1]), int(parts[2]), stability
+        return -1, -1, -1, value
 
     @staticmethod
     def _blocker_message(item: dict[str, Any]) -> str:

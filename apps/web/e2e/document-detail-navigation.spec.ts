@@ -48,6 +48,7 @@ test("opens an external file directly from business work details", async ({ page
       decisionSlots: [],
       functions: [],
       configuration: {},
+      documentBindingKeys: ["document-integrity"],
       workItemType: null,
       caseBased: false,
       boundStrategyVersionId: null,
@@ -58,7 +59,7 @@ test("opens an external file directly from business work details", async ({ page
   await page.route(`**/api/v1/projects/*/documents/${documentId}`, (route) => route.fulfill({
     json: document,
   }));
-  await page.route("**/api/v1/projects/*/documents", (route) => route.fulfill({
+  await page.route("**/api/v1/projects/*/documents**", (route) => route.fulfill({
     json: { items: [document] },
   }));
 

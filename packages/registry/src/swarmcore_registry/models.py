@@ -273,6 +273,10 @@ _INTEGRITY_RESULT_SCHEMA = _object_schema(
         "attachmentManifestHash": {"type": "string"},
         "checks": {"type": "object", "additionalProperties": {"type": "integer"}},
         "findings": {"type": "array", "items": _INTEGRITY_FINDING_SCHEMA},
+        "documentIntelligence": {"type": "array", "items": _AGENT_EXTRACTION_SCHEMA},
+        "reviewRequired": {"type": "boolean"},
+        "evidence": {"type": "array", "items": {"type": "object"}},
+        "approval": {"anyOf": [{"type": "object"}, {"type": "null"}]},
     },
 )
 
@@ -1960,6 +1964,71 @@ def calibration_tool_registrations() -> tuple[ToolRegistration, ...]:
     return tuple(registrations)
 
 
+def quality_and_report_tool_registrations() -> tuple[ToolRegistration, ...]:
+    return (
+        ToolRegistration(
+            ref="tool://ai/quality-benchmark@1",
+            version="1",
+            operation="ai.quality_benchmark",
+            description="按冻结样本和权重确定性计算基础 AI 能力质量门槛。",
+            risk=ToolRisk.LOW,
+            inputSchema={"type": "object"},
+            outputSchema={"type": "object"},
+            idempotent=True,
+            sideEffecting=False,
+            recoveryPolicy="idempotent",
+        ),
+        ToolRegistration(
+            ref="tool://ai/quality-finalize@1",
+            version="1",
+            operation="ai.quality_finalize",
+            description="合并基准计算和人工复核快照，冻结质量评价结果。",
+            risk=ToolRisk.LOW,
+            inputSchema={"type": "object"},
+            outputSchema={"type": "object"},
+            idempotent=True,
+            sideEffecting=False,
+            recoveryPolicy="idempotent",
+        ),
+        ToolRegistration(
+            ref="tool://report/render-ai-quality@1",
+            version="1",
+            operation="report.render_ai_quality",
+            description="根据冻结质量评价确定性渲染 PDF 报告。",
+            risk=ToolRisk.LOW,
+            inputSchema={"type": "object"},
+            outputSchema=_PDF_REPORT_SCHEMA,
+            idempotent=True,
+            sideEffecting=False,
+            recoveryPolicy="idempotent",
+        ),
+        ToolRegistration(
+            ref="tool://workbench/record-ai-quality@1",
+            version="1",
+            operation="workbench.record_ai_quality",
+            description="幂等持久化质量评价、JSON/PDF 报告、审计和完成事件。",
+            risk=ToolRisk.HIGH,
+            inputSchema={"type": "object"},
+            outputSchema={"type": "object"},
+            idempotent=True,
+            sideEffecting=True,
+            recoveryPolicy="idempotent",
+        ),
+        ToolRegistration(
+            ref="tool://report/generate-confirmed@1",
+            version="1",
+            operation="report.generate_confirmed",
+            description="仅从已成功且无需复核的评价幂等生成或复用 JSON/PDF 报告。",
+            risk=ToolRisk.HIGH,
+            inputSchema={"type": "object"},
+            outputSchema={"type": "object"},
+            idempotent=True,
+            sideEffecting=True,
+            recoveryPolicy="idempotent",
+        ),
+    )
+
+
 def document_structuring_agent_registrations() -> tuple[AgentRegistration, ...]:
     return (
         AgentRegistration(
@@ -2092,6 +2161,25 @@ def document_structuring_tool_registrations() -> tuple[ToolRegistration, ...]:
             recoveryPolicy="idempotent",
         ),
         ToolRegistration(
+            ref="tool://document/analysis-select@1",
+            version="1",
+            operation="document.analysis_select",
+            description="按人工复核决定确定性选择原始或单次重处理分析结果。",
+            risk=ToolRisk.LOW,
+            inputSchema=_object_schema(
+                required=("original",),
+                properties={
+                    "original": {"type": "object"},
+                    "reprocessed": {"type": ["object", "null"]},
+                    "review": {"type": ["object", "null"]},
+                },
+            ),
+            outputSchema={"type": "object"},
+            idempotent=True,
+            sideEffecting=False,
+            recoveryPolicy="idempotent",
+        ),
+        ToolRegistration(
             ref="tool://document/quality-check@1",
             version="1",
             operation="document.quality_check",
@@ -2102,6 +2190,25 @@ def document_structuring_tool_registrations() -> tuple[ToolRegistration, ...]:
                 properties={
                     "prepared": {"type": "object"},
                     "analysis": {"type": "object"},
+                },
+            ),
+            outputSchema={"type": "object"},
+            idempotent=True,
+            sideEffecting=False,
+            recoveryPolicy="idempotent",
+        ),
+        ToolRegistration(
+            ref="tool://document/review-select@1",
+            version="1",
+            operation="document.review_select",
+            description="确定性选择首次复核或重处理后的新复核快照。",
+            risk=ToolRisk.LOW,
+            inputSchema=_object_schema(
+                required=("wasReprocessed",),
+                properties={
+                    "initial": {"type": ["object", "null"]},
+                    "reprocessed": {"type": ["object", "null"]},
+                    "wasReprocessed": {"type": "boolean"},
                 },
             ),
             outputSchema={"type": "object"},
@@ -3446,6 +3553,7 @@ def builtin_registry() -> RegistrySnapshot:
         ),
         tools=(
             *calibration_tool_registrations(),
+            *quality_and_report_tool_registrations(),
             *contract_performance_tool_registrations(),
             *procurement_supplier_risk_tool_registrations(),
             *document_structuring_tool_registrations(),
@@ -3699,6 +3807,37 @@ def builtin_registry() -> RegistrySnapshot:
                     },
                 ),
                 outputSchema=_EVIDENCE_SEARCH_RESULT_SCHEMA,
+                idempotent=True,
+                sideEffecting=False,
+                recoveryPolicy="idempotent",
+            ),
+            ToolRegistration(
+                ref="tool://contract/integrity-finalize@1",
+                version="1",
+                operation="contract.integrity_finalize",
+                description="合并清单规则、跨文件一致性、抽取证据和人工复核快照。",
+                risk=ToolRisk.LOW,
+                inputSchema=_object_schema(
+                    required=("ruleResult", "consistencyResult", "documentIntelligence"),
+                    properties={
+                        "ruleResult": _INTEGRITY_RESULT_SCHEMA,
+                        "consistencyResult": _object_schema(
+                            required=("findings", "reviewRequired"),
+                            properties={
+                                "findings": {
+                                    "type": "array",
+                                    "items": _CROSS_FILE_FINDING_SCHEMA,
+                                },
+                                "reviewRequired": {"type": "boolean"},
+                            },
+                        ),
+                        "documentIntelligence": _AGENT_EXTRACTION_SCHEMA,
+                        "approval": {
+                            "anyOf": [{"type": "object"}, {"type": "null"}]
+                        },
+                    },
+                ),
+                outputSchema=_INTEGRITY_RESULT_SCHEMA,
                 idempotent=True,
                 sideEffecting=False,
                 recoveryPolicy="idempotent",
@@ -4106,7 +4245,10 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/check-post-evaluation-quality@1",
                 version="1",
                 operation="report.check_post_evaluation_quality",
-                description="应用确定性正式报告完整性、分数、引用与业务用语门槛，并输出第 3 版冻结结果。",
+                description=(
+                    "应用确定性正式报告完整性、分数、引用与业务用语门槛，"
+                    "并输出第 3 版冻结结果。"
+                ),
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=(
@@ -4133,7 +4275,10 @@ def builtin_registry() -> RegistrySnapshot:
                 ref="tool://report/render-post-evaluation@4",
                 version="4",
                 operation="report.render_post_evaluation_v4",
-                description="渲染经质量门槛把关的多章节中文合同后评价 PDF，含封面、得分图、表格、证据、整改与审批。",
+                description=(
+                    "渲染经质量门槛把关的多章节中文合同后评价 PDF，"
+                    "含封面、得分图、表格、证据、整改与审批。"
+                ),
                 risk=ToolRisk.LOW,
                 inputSchema=_object_schema(
                     required=("result",),

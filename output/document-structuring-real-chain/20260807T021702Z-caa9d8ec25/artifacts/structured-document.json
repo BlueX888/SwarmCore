@@ -1,0 +1,840 @@
+{
+  "artifacts": [
+    {
+      "artifactId": "019fda04-9c16-79b9-b6b5-bb1033d57191",
+      "downloadRef": "artifact://019fda04-9c16-79b9-b6b5-bb1033d57191",
+      "filename": "structured-document.json"
+    },
+    {
+      "artifactId": "019fda04-9c16-7e73-bafd-070f86591dea",
+      "downloadRef": "artifact://019fda04-9c16-7e73-bafd-070f86591dea",
+      "filename": "content.md"
+    },
+    {
+      "artifactId": "019fda04-9c16-756d-ad95-ec09ede6f10c",
+      "downloadRef": "artifact://019fda04-9c16-756d-ad95-ec09ede6f10c",
+      "filename": "evidence-manifest.json"
+    },
+    {
+      "artifactId": "019fda04-9c16-7210-9e2b-a8e8a64bf32c",
+      "downloadRef": "artifact://019fda04-9c16-7210-9e2b-a8e8a64bf32c",
+      "filename": "review-log.json"
+    }
+  ],
+  "contentHash": "f263ac6a81670f563147f29e194a14ea54a9fe0ea1aab79938978703fb3da278",
+  "crossFormatConsistency": {
+    "checkedFields": [
+      "document.title",
+      "contract.reference"
+    ],
+    "conflicts": [],
+    "status": "CONSISTENT",
+    "values": {
+      "contract.reference": {
+        "rm1043.6": [
+          "019fa704-bd47-7def-970f-a92796a1a20c"
+        ]
+      },
+      "document.title": {
+        "digital outcomes and specialists 4 framework agreement call-off contract": [
+          "019fa704-bd47-7def-970f-a92796a1a20c"
+        ]
+      }
+    }
+  },
+  "documents": [
+    {
+      "chunks": [],
+      "classification": {
+        "confidence": 0.9,
+        "evidence": [
+          {
+            "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+            "evidenceType": "PATTERN_MATCH",
+            "page": 1,
+            "text": "Digital Outcomes and Specialists 4 Framework Agreement\nCall-Off Contract"
+          }
+        ],
+        "type": "CONTRACT"
+      },
+      "contentArtifactRef": "blob://019fa706-5b1d-780e-b408-6cb33f022ece",
+      "documentId": "019fa704-bad2-7976-b181-99a51e806689",
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fields": [
+        {
+          "confidence": 0.95,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "Digital Outcomes and Specialists 4 Framework Agreement\nCall-Off Contract",
+          "evidenceRefs": [],
+          "fieldPath": "document.title",
+          "machineValue": "Digital Outcomes and Specialists 4 Framework Agreement\nCall-Off Contract",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.95,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "RM1043.6",
+          "evidenceRefs": [],
+          "fieldPath": "contract.reference",
+          "machineValue": "RM1043.6",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.95,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "Part A - Order Form",
+          "evidenceRefs": [],
+          "fieldPath": "contract.partA",
+          "machineValue": "Part A - Order Form",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.95,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "Part B – Terms and conditions",
+          "evidenceRefs": [],
+          "fieldPath": "contract.partB",
+          "machineValue": "Part B – Terms and conditions",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        }
+      ],
+      "filename": "dos-4-call-off-contract.odt",
+      "mediaType": "application/vnd.oasis.opendocument.text",
+      "organization": {},
+      "provenance": {
+        "agentRef": "agent://document/structurer@1",
+        "agentSchemaVersion": "schema://document-structuring/agent-result@1",
+        "effectId": "be97b448-6493-47d0-b022-53cb46dcff39",
+        "evaluationId": "019fa711-c26c-77f2-ab1d-bb38b953d60c",
+        "preparedContentHash": "3ed6c1d12227c850b8f18ada0013599407380e93c71259c04a4868b6a7b924b2",
+        "publishedInputHash": "09ea9e1818e3b5d27ec98eef751b76a97e3ad552baab2d5a3ec237cb9b16c580",
+        "runId": "019fa711-c272-75e1-8a18-783c5ce315a7",
+        "toolRefs": [
+          "tool://document/read-versions@1",
+          "tool://document/structure-prepare@1",
+          "tool://document/quality-check@1",
+          "tool://document/publish@1"
+        ]
+      },
+      "qualityFlags": [
+        "AGENT_DOCUMENT_RESULT_MISSING",
+        "AGENT_OUTPUT_SCHEMA_INVALID",
+        "MISSING_BUYER",
+        "MISSING_SUPPLIER",
+        "MISSING_CONTRACT_VALUE",
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "sections": [],
+      "sha256": "022e406c0d3f5ed3dc7968dcf8bb0e98b5665b0aaff8e7772a15b56688ad024d",
+      "tables": []
+    },
+    {
+      "chunks": [
+        {
+          "chunkId": "04f8e3c1f00a79010fe023437b4502cb",
+          "contentHash": "462beafedcb94930d6e944536dbf299bc7ddb7e5a6d35b3379fc042f562200b2",
+          "evidenceRefs": [
+            {
+              "page": 1,
+              "sourceKind": "OCR",
+              "text": "SWARMCORE OCR QUALIFICATION DOCUMENT\nDocument ID: OCR-QUAL-2026-0807\nSupplier: Northwind Components Ltd.\nInvoice Number: INV-2026-1842\nInvoice Date: 2026-08-07\nPurchase Order: PO-88421\nAmount: USD 12,480.75\nTax: USD 748.85\nTotal Due: USD 13,229.60\nApproval Status: PENDING REVIEW\nSynthetic non-sensitive image-only test fixture."
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": 1,
+          "pageStart": 1,
+          "sectionPath": [],
+          "text": "SWARMCORE OCR QUALIFICATION DOCUMENT\nDocument ID: OCR-QUAL-2026-0807\nSupplier: Northwind Components Ltd.\nInvoice Number: INV-2026-1842\nInvoice Date: 2026-08-07\nPurchase Order: PO-88421\nAmount: USD 12,480.75\nTax: USD 748.85\nTotal Due: USD 13,229.60\nApproval Status: PENDING REVIEW\nSynthetic non-sensitive image-only test fixture.",
+          "tokenCount": 80
+        }
+      ],
+      "classification": {
+        "confidence": 0.75,
+        "evidence": [
+          {
+            "chunk": "04f8e3c1f00a79010fe023437b4502cb",
+            "documentVersionId": "019fd9fb-b6cf-7e3d-b159-a310cad7f13a",
+            "evidenceType": "TEXT",
+            "page": 1,
+            "text": "Invoice Number: INV-2026-1842"
+          }
+        ],
+        "type": "INVOICE"
+      },
+      "contentArtifactRef": null,
+      "documentId": "019fd9fb-b407-78d7-816b-49b7700d85d9",
+      "documentVersionId": "019fd9fb-b6cf-7e3d-b159-a310cad7f13a",
+      "fields": [
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "OCR-QUAL-2026-0807",
+          "evidenceRefs": [],
+          "fieldPath": "document.id",
+          "machineValue": "OCR-QUAL-2026-0807",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "INV-2026-1842",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.number",
+          "machineValue": "INV-2026-1842",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "2026-08-07",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.date",
+          "machineValue": "2026-08-07",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "USD 12,480.75",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.amount",
+          "machineValue": "USD 12,480.75",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "USD 748.85",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.tax",
+          "machineValue": "USD 748.85",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "USD 13,229.60",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.total",
+          "machineValue": "USD 13,229.60",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "PO-88421",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.purchaseOrder",
+          "machineValue": "PO-88421",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "Northwind Components Ltd.",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.supplier",
+          "machineValue": "Northwind Components Ltd.",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "PENDING REVIEW",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.status",
+          "machineValue": "PENDING REVIEW",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        }
+      ],
+      "filename": "synthetic-scan.png",
+      "mediaType": "image/png",
+      "organization": {
+        "supplier": {
+          "name": "Northwind Components Ltd."
+        }
+      },
+      "provenance": {
+        "agentRef": "agent://document/structurer@1",
+        "attempt": 1,
+        "chunkerRef": "chunker://structure-aware@1",
+        "classifierRef": "classifier://label-candidates@1",
+        "detectedMediaType": "image/png",
+        "extractorRefs": [
+          "extractor://schema-rules@2"
+        ],
+        "parserRef": "parser://image-metadata@1",
+        "processingPlan": {
+          "largeDocument": false,
+          "pageBatchSize": 10,
+          "pageBatches": [
+            [
+              1
+            ]
+          ]
+        },
+        "processingRunId": "019fd9fb-b6e9-78fb-9bdc-8df83a289e03",
+        "profileRef": "document-profile://business-structuring@1",
+        "qualityRef": "quality://document-structure-gates@1"
+      },
+      "qualityFlags": [
+        "CLASSIFICATION_REVIEW_REQUIRED",
+        "EXTRACTION_REVIEW_REQUIRED",
+        "OCR_CONFIDENCE_MISSING",
+        "OCR_REVIEW_REQUIRED",
+        "OCR_UNCERTAINTY",
+        "LOW_CLASSIFICATION_CONFIDENCE",
+        "MISSING_BUYER",
+        "DUPLICATE_DOCUMENT",
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "sections": [],
+      "sha256": "72d03ce17d4e07d7c45c70540965f23582467e30b0a9985ef1a162f6468e1a13",
+      "tables": []
+    },
+    {
+      "chunks": [
+        {
+          "chunkId": "04f8e3c1f00a79010fe023437b4502cb",
+          "contentHash": "462beafedcb94930d6e944536dbf299bc7ddb7e5a6d35b3379fc042f562200b2",
+          "evidenceRefs": [
+            {
+              "page": 1,
+              "sourceKind": "OCR",
+              "text": "SWARMCORE OCR QUALIFICATION DOCUMENT\nDocument ID: OCR-QUAL-2026-0807\nSupplier: Northwind Components Ltd.\nInvoice Number: INV-2026-1842\nInvoice Date: 2026-08-07\nPurchase Order: PO-88421\nAmount: USD 12,480.75\nTax: USD 748.85\nTotal Due: USD 13,229.60\nApproval Status: PENDING REVIEW\nSynthetic non-sensitive image-only test fixture."
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": 1,
+          "pageStart": 1,
+          "sectionPath": [],
+          "text": "SWARMCORE OCR QUALIFICATION DOCUMENT\nDocument ID: OCR-QUAL-2026-0807\nSupplier: Northwind Components Ltd.\nInvoice Number: INV-2026-1842\nInvoice Date: 2026-08-07\nPurchase Order: PO-88421\nAmount: USD 12,480.75\nTax: USD 748.85\nTotal Due: USD 13,229.60\nApproval Status: PENDING REVIEW\nSynthetic non-sensitive image-only test fixture.",
+          "tokenCount": 80
+        }
+      ],
+      "classification": {
+        "confidence": 0.75,
+        "evidence": [
+          {
+            "chunk": "04f8e3c1f00a79010fe023437b4502cb",
+            "documentVersionId": "019fda00-f918-7c60-aeef-b39aa0e3d3d1",
+            "evidenceType": "TEXT",
+            "page": 1,
+            "text": "Invoice Number: INV-2026-1842"
+          }
+        ],
+        "type": "INVOICE"
+      },
+      "contentArtifactRef": null,
+      "documentId": "019fda00-f62d-772e-a3bb-8f4c910297d5",
+      "documentVersionId": "019fda00-f918-7c60-aeef-b39aa0e3d3d1",
+      "fields": [
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "OCR-QUAL-2026-0807",
+          "evidenceRefs": [],
+          "fieldPath": "document.id",
+          "machineValue": "OCR-QUAL-2026-0807",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "INV-2026-1842",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.number",
+          "machineValue": "INV-2026-1842",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "2026-08-07",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.date",
+          "machineValue": "2026-08-07",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "USD 12,480.75",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.amount",
+          "machineValue": "USD 12,480.75",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "USD 748.85",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.tax",
+          "machineValue": "USD 748.85",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "USD 13,229.60",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.total",
+          "machineValue": "USD 13,229.60",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "PO-88421",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.purchaseOrder",
+          "machineValue": "PO-88421",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "Northwind Components Ltd.",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.supplier",
+          "machineValue": "Northwind Components Ltd.",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "PENDING REVIEW",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.status",
+          "machineValue": "PENDING REVIEW",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        }
+      ],
+      "filename": "synthetic-scan.png",
+      "mediaType": "image/png",
+      "organization": {
+        "supplier": {
+          "name": "Northwind Components Ltd."
+        }
+      },
+      "provenance": {
+        "agentRef": "agent://document/structurer@1",
+        "attempt": 1,
+        "chunkerRef": "chunker://structure-aware@1",
+        "classifierRef": "classifier://label-candidates@1",
+        "detectedMediaType": "image/png",
+        "extractorRefs": [
+          "extractor://schema-rules@2"
+        ],
+        "parserRef": "parser://image-metadata@1",
+        "processingPlan": {
+          "largeDocument": false,
+          "pageBatchSize": 10,
+          "pageBatches": [
+            [
+              1
+            ]
+          ]
+        },
+        "processingRunId": "019fda00-f92e-776c-b376-414e236be672",
+        "profileRef": "document-profile://business-structuring@1",
+        "qualityRef": "quality://document-structure-gates@1"
+      },
+      "qualityFlags": [
+        "CLASSIFICATION_REVIEW_REQUIRED",
+        "EXTRACTION_REVIEW_REQUIRED",
+        "OCR_CONFIDENCE_MISSING",
+        "OCR_REVIEW_REQUIRED",
+        "OCR_UNCERTAINTY",
+        "LOW_CLASSIFICATION_CONFIDENCE",
+        "MISSING_BUYER",
+        "DUPLICATE_DOCUMENT",
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "sections": [],
+      "sha256": "72d03ce17d4e07d7c45c70540965f23582467e30b0a9985ef1a162f6468e1a13",
+      "tables": []
+    },
+    {
+      "chunks": [
+        {
+          "chunkId": "04f8e3c1f00a79010fe023437b4502cb",
+          "contentHash": "462beafedcb94930d6e944536dbf299bc7ddb7e5a6d35b3379fc042f562200b2",
+          "evidenceRefs": [
+            {
+              "page": 1,
+              "sourceKind": "OCR",
+              "text": "SWARMCORE OCR QUALIFICATION DOCUMENT\nDocument ID: OCR-QUAL-2026-0807\nSupplier: Northwind Components Ltd.\nInvoice Number: INV-2026-1842\nInvoice Date: 2026-08-07\nPurchase Order: PO-88421\nAmount: USD 12,480.75\nTax: USD 748.85\nTotal Due: USD 13,229.60\nApproval Status: PENDING REVIEW\nSynthetic non-sensitive image-only test fixture."
+            }
+          ],
+          "kind": "TEXT",
+          "pageEnd": 1,
+          "pageStart": 1,
+          "sectionPath": [],
+          "text": "SWARMCORE OCR QUALIFICATION DOCUMENT\nDocument ID: OCR-QUAL-2026-0807\nSupplier: Northwind Components Ltd.\nInvoice Number: INV-2026-1842\nInvoice Date: 2026-08-07\nPurchase Order: PO-88421\nAmount: USD 12,480.75\nTax: USD 748.85\nTotal Due: USD 13,229.60\nApproval Status: PENDING REVIEW\nSynthetic non-sensitive image-only test fixture.",
+          "tokenCount": 80
+        }
+      ],
+      "classification": {
+        "confidence": 0.75,
+        "evidence": [
+          {
+            "chunk": "04f8e3c1f00a79010fe023437b4502cb",
+            "documentVersionId": "019fda02-7b91-7fec-94e4-12b278f63c82",
+            "evidenceType": "TEXT",
+            "page": 1,
+            "text": "Invoice Number: INV-2026-1842"
+          }
+        ],
+        "type": "INVOICE"
+      },
+      "contentArtifactRef": null,
+      "documentId": "019fda02-7929-7391-b08c-acae0a706b1b",
+      "documentVersionId": "019fda02-7b91-7fec-94e4-12b278f63c82",
+      "fields": [
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "OCR-QUAL-2026-0807",
+          "evidenceRefs": [],
+          "fieldPath": "document.id",
+          "machineValue": "OCR-QUAL-2026-0807",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "INV-2026-1842",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.number",
+          "machineValue": "INV-2026-1842",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "2026-08-07",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.date",
+          "machineValue": "2026-08-07",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "USD 12,480.75",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.amount",
+          "machineValue": "USD 12,480.75",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "USD 748.85",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.tax",
+          "machineValue": "USD 748.85",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "USD 13,229.60",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.total",
+          "machineValue": "USD 13,229.60",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "PO-88421",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.purchaseOrder",
+          "machineValue": "PO-88421",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "Northwind Components Ltd.",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.supplier",
+          "machineValue": "Northwind Components Ltd.",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        },
+        {
+          "confidence": 0.92,
+          "confirmedValue": null,
+          "critical": false,
+          "displayName": "",
+          "effectiveValue": "PENDING REVIEW",
+          "evidenceRefs": [],
+          "fieldPath": "invoice.status",
+          "machineValue": "PENDING REVIEW",
+          "qualityFlags": [
+            "EXTRACTION_EVIDENCE_MISSING"
+          ],
+          "reviewStatus": "PENDING",
+          "valueType": "string"
+        }
+      ],
+      "filename": "synthetic-scan.png",
+      "mediaType": "image/png",
+      "organization": {
+        "supplier": {
+          "name": "Northwind Components Ltd."
+        }
+      },
+      "provenance": {
+        "agentRef": "agent://document/structurer@1",
+        "attempt": 1,
+        "chunkerRef": "chunker://structure-aware@1",
+        "classifierRef": "classifier://label-candidates@1",
+        "detectedMediaType": "image/png",
+        "extractorRefs": [
+          "extractor://schema-rules@2"
+        ],
+        "parserRef": "parser://image-metadata@1",
+        "processingPlan": {
+          "largeDocument": false,
+          "pageBatchSize": 10,
+          "pageBatches": [
+            [
+              1
+            ]
+          ]
+        },
+        "processingRunId": "019fda02-7ba5-7471-8294-86bffc2d7b1a",
+        "profileRef": "document-profile://business-structuring@1",
+        "qualityRef": "quality://document-structure-gates@1"
+      },
+      "qualityFlags": [
+        "CLASSIFICATION_REVIEW_REQUIRED",
+        "EXTRACTION_REVIEW_REQUIRED",
+        "OCR_CONFIDENCE_MISSING",
+        "OCR_REVIEW_REQUIRED",
+        "OCR_UNCERTAINTY",
+        "LOW_CLASSIFICATION_CONFIDENCE",
+        "MISSING_BUYER",
+        "DUPLICATE_DOCUMENT",
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "sections": [],
+      "sha256": "72d03ce17d4e07d7c45c70540965f23582467e30b0a9985ef1a162f6468e1a13",
+      "tables": []
+    }
+  ],
+  "effectId": "3c8e029a-a69d-4c5d-a2bc-34af828dcbf9",
+  "humanReview": {
+    "correctionCount": 0,
+    "decision": "CONFIRM",
+    "reason": "已核对真实 ODF 原文、字段证据、表格与质量标记，确认进入结构化发布。"
+  },
+  "provenance": {
+    "agentRef": "agent://document/structurer@1",
+    "agentSchemaVersion": "schema://document-structuring/agent-result@1",
+    "effectId": "eef71dbf-17a1-4aa4-b4d6-68f5f5d590fd",
+    "evaluationId": "019fda02-963e-7acb-b924-9d59b7c88795",
+    "preparedContentHash": "fb1051a120c09d5761c71c5d3e32455cb6897dbf75455a65bf4f9fefe952d6c0",
+    "publishedInputHash": "4f089928d47052b32adc558819aee5e10e39b496d12125b925a82468ab1f5ce4",
+    "runId": "019fda02-9644-7f7b-8232-f8cf619f6f0f",
+    "toolRefs": [
+      "tool://document/read-versions@1",
+      "tool://document/structure-prepare@1",
+      "tool://document/quality-check@1",
+      "tool://document/publish@1"
+    ]
+  },
+  "qualityFlags": [
+    "MISSING_CRITICAL_FIELDS",
+    "OCR_UNCERTAINTY",
+    "DUPLICATE_DOCUMENTS"
+  ],
+  "reviewRequired": false,
+  "schemaVersion": "schema://document-structuring/package@1",
+  "status": "READY",
+  "summary": "处理了4份文档：1份合同（DOS 4框架协议呼叫合同）和3份重复的发票扫描件（OCR鉴定文档）。合同缺少买方和供应商详细信息以及合同金额。发票扫描件存在OCR不确定性，分类置信度低，且缺少买方信息。所有文档因关键字段缺失和OCR不确定性需人工审核。"
+}

@@ -1,0 +1,321 @@
+{
+  "fields": [
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "document.title",
+      "machineValue": "Digital Outcomes and Specialists 4 Framework Agreement\nCall-Off Contract",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.reference",
+      "machineValue": "RM1043.6",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.partA",
+      "machineValue": "Part A - Order Form",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fa704-bd47-7def-970f-a92796a1a20c",
+      "fieldPath": "contract.partB",
+      "machineValue": "Part B – Terms and conditions",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fd9fb-b6cf-7e3d-b159-a310cad7f13a",
+      "fieldPath": "document.id",
+      "machineValue": "OCR-QUAL-2026-0807",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fd9fb-b6cf-7e3d-b159-a310cad7f13a",
+      "fieldPath": "invoice.number",
+      "machineValue": "INV-2026-1842",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fd9fb-b6cf-7e3d-b159-a310cad7f13a",
+      "fieldPath": "invoice.date",
+      "machineValue": "2026-08-07",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fd9fb-b6cf-7e3d-b159-a310cad7f13a",
+      "fieldPath": "invoice.amount",
+      "machineValue": "USD 12,480.75",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fd9fb-b6cf-7e3d-b159-a310cad7f13a",
+      "fieldPath": "invoice.tax",
+      "machineValue": "USD 748.85",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fd9fb-b6cf-7e3d-b159-a310cad7f13a",
+      "fieldPath": "invoice.total",
+      "machineValue": "USD 13,229.60",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fd9fb-b6cf-7e3d-b159-a310cad7f13a",
+      "fieldPath": "invoice.purchaseOrder",
+      "machineValue": "PO-88421",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fd9fb-b6cf-7e3d-b159-a310cad7f13a",
+      "fieldPath": "invoice.supplier",
+      "machineValue": "Northwind Components Ltd.",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fd9fb-b6cf-7e3d-b159-a310cad7f13a",
+      "fieldPath": "invoice.status",
+      "machineValue": "PENDING REVIEW",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda00-f918-7c60-aeef-b39aa0e3d3d1",
+      "fieldPath": "document.id",
+      "machineValue": "OCR-QUAL-2026-0807",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda00-f918-7c60-aeef-b39aa0e3d3d1",
+      "fieldPath": "invoice.number",
+      "machineValue": "INV-2026-1842",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda00-f918-7c60-aeef-b39aa0e3d3d1",
+      "fieldPath": "invoice.date",
+      "machineValue": "2026-08-07",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda00-f918-7c60-aeef-b39aa0e3d3d1",
+      "fieldPath": "invoice.amount",
+      "machineValue": "USD 12,480.75",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda00-f918-7c60-aeef-b39aa0e3d3d1",
+      "fieldPath": "invoice.tax",
+      "machineValue": "USD 748.85",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda00-f918-7c60-aeef-b39aa0e3d3d1",
+      "fieldPath": "invoice.total",
+      "machineValue": "USD 13,229.60",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda00-f918-7c60-aeef-b39aa0e3d3d1",
+      "fieldPath": "invoice.purchaseOrder",
+      "machineValue": "PO-88421",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda00-f918-7c60-aeef-b39aa0e3d3d1",
+      "fieldPath": "invoice.supplier",
+      "machineValue": "Northwind Components Ltd.",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda00-f918-7c60-aeef-b39aa0e3d3d1",
+      "fieldPath": "invoice.status",
+      "machineValue": "PENDING REVIEW",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda02-7b91-7fec-94e4-12b278f63c82",
+      "fieldPath": "document.id",
+      "machineValue": "OCR-QUAL-2026-0807",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda02-7b91-7fec-94e4-12b278f63c82",
+      "fieldPath": "invoice.number",
+      "machineValue": "INV-2026-1842",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda02-7b91-7fec-94e4-12b278f63c82",
+      "fieldPath": "invoice.date",
+      "machineValue": "2026-08-07",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda02-7b91-7fec-94e4-12b278f63c82",
+      "fieldPath": "invoice.amount",
+      "machineValue": "USD 12,480.75",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda02-7b91-7fec-94e4-12b278f63c82",
+      "fieldPath": "invoice.tax",
+      "machineValue": "USD 748.85",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda02-7b91-7fec-94e4-12b278f63c82",
+      "fieldPath": "invoice.total",
+      "machineValue": "USD 13,229.60",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda02-7b91-7fec-94e4-12b278f63c82",
+      "fieldPath": "invoice.purchaseOrder",
+      "machineValue": "PO-88421",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda02-7b91-7fec-94e4-12b278f63c82",
+      "fieldPath": "invoice.supplier",
+      "machineValue": "Northwind Components Ltd.",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    },
+    {
+      "confirmedValue": null,
+      "documentVersionId": "019fda02-7b91-7fec-94e4-12b278f63c82",
+      "fieldPath": "invoice.status",
+      "machineValue": "PENDING REVIEW",
+      "qualityFlags": [
+        "EXTRACTION_EVIDENCE_MISSING"
+      ],
+      "reviewStatus": "PENDING"
+    }
+  ],
+  "qualityFlags": [
+    "MISSING_CRITICAL_FIELDS",
+    "OCR_UNCERTAINTY",
+    "DUPLICATE_DOCUMENTS"
+  ],
+  "reviewRequired": false,
+  "status": "READY"
+}

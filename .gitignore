@@ -17,6 +17,9 @@ node_modules/
 playwright-report/
 test-results/
 .tmp/
+tmp/*-runtime.env
+tmp/*-config.json
+tmp/pdfs/real-post-evaluation/
 log/
 agent-ui/
 agno/

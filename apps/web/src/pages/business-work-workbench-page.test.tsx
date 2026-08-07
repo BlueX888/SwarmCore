@@ -46,6 +46,8 @@ function runnableWork(overrides: Partial<BusinessWorkSnapshot> = {}): BusinessWo
     summary: "完整性校验",
     status: "runnable",
     statusLabel: "可运行",
+    qualificationStatus: "local_verified",
+    qualificationLabel: "本地验证，待生产准入",
     packName: "contract-integrity",
     packVersionId: "version-1",
     packVersion: "1.2.0",
@@ -56,6 +58,7 @@ function runnableWork(overrides: Partial<BusinessWorkSnapshot> = {}): BusinessWo
     tools: [],
     models: [],
     documentRequirements: [],
+    documentBindingKeys: overrides.documentBindingKeys ?? ["document-integrity", "contract-integrity-case"],
     decisionSlots: [],
     functions: [],
     configuration: {},
@@ -161,6 +164,23 @@ describe("business work workbench", () => {
     await waitFor(() => expect(api.createWorkItem).toHaveBeenCalled());
     expect(api.executeWorkItem).toHaveBeenCalledWith(expect.any(String), expect.any(String), "item-1");
     expect(await screen.findByRole("heading", { name: "评估结果" })).toBeVisible();
+  });
+
+  it("provides the required title when starting document structuring", async () => {
+    vi.mocked(api.getBusinessWork).mockResolvedValue(runnableWork({
+      workKey: "document-structuring",
+      name: "文件结构化智能体",
+      workItemType: "document-structuring-case",
+    }));
+
+    renderPage("document-structuring");
+    expect(await screen.findByRole("heading", { name: "文件结构化智能体" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "开始办理" }));
+
+    await waitFor(() => expect(api.createWorkItem).toHaveBeenCalled());
+    const request = vi.mocked(api.createWorkItem).mock.calls[0]?.[2];
+    expect(request?.workItemType).toBe("document-structuring-case");
+    expect(request?.payload["title"]).toBe("文件结构化");
   });
 
   it("runs the v2 case assessment flow", async () => {
@@ -384,6 +404,7 @@ describe("business work workbench", () => {
     expect(request?.payload.issueUrl).toBe(
       "https://github.com/temporalio/sdk-python/issues/782",
     );
+    expect(request?.payload.calibrationMode).toBe("GITHUB_ENGINEERING_ISSUE");
     expect(request?.payload.acceptanceCriteria).toContain(
       "所有关键结论都引用冻结证据",
     );
@@ -414,6 +435,15 @@ describe("business work workbench", () => {
     expect(await screen.findByRole("heading", { name: "规则命中趋势" })).toBeVisible();
     expect(await screen.findByText("PARTY_ENTERPRISE_PUBLIC_STATUS")).toBeVisible();
     expect(screen.getByText("2 次")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "开始办理" }));
+    await waitFor(() => expect(api.createWorkItem).toHaveBeenCalled());
+    const request = vi.mocked(api.createWorkItem).mock.calls[0]?.[2];
+    expect(request?.payload).toEqual(expect.objectContaining({
+      fieldConfirmations: [],
+      humanVerification: {},
+      enterprisePublicStatusEvidence: {},
+    }));
   });
 
   it("disables start when readiness blockers exist", async () => {

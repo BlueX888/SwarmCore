@@ -104,6 +104,20 @@ def test_parser_registry_selects_by_media_type() -> None:
     assert not parsed.needs_ocr
 
 
+def test_parser_registry_reads_xml_as_text_without_expanding_entities() -> None:
+    registry = ParserRegistry()
+    content = Path("tests/fixtures/documents/demo-invoice.xml").read_bytes()
+    ref, parsed = registry.parse(
+        filename="demo-invoice.xml",
+        media_type="application/xml",
+        content=content,
+    )
+
+    assert ref == "parser://text-markdown@1"
+    assert "<InvoiceNumber>99992000000000000001</InvoiceNumber>" in parsed.text_excerpt
+    assert not parsed.needs_ocr
+
+
 def test_structured_text_and_digital_pdf_parsers_extract_real_content() -> None:
     registry = ParserRegistry()
     csv_ref, csv_value = registry.parse(
@@ -405,7 +419,7 @@ def test_both_business_packs_declare_documents_without_shared_hardcoding() -> No
     assert integrity_reqs and cpe_reqs
     assert integrity_reqs[0].key != cpe_reqs[0].key
     assert integrity.metadata.version == "2.1.0"
-    assert cpe.metadata.version == "2.0.6"
+    assert cpe.metadata.version == "2.0.7"
 
 
 def test_public_document_modules_have_no_business_work_hardcoding() -> None:

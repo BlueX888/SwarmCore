@@ -9,6 +9,7 @@ members = [
     "swarmcore-api",
     "swarmcore-application",
     "swarmcore-artifact-gateway",
+    "swarmcore-capability-ai-foundation-quality",
     "swarmcore-capability-contract-integrity",
     "swarmcore-capability-contract-performance",
     "swarmcore-capability-contract-post-evaluation",
@@ -16,6 +17,7 @@ members = [
     "swarmcore-capability-document-structuring",
     "swarmcore-capability-invoice-assurance",
     "swarmcore-capability-procurement-supplier-risk",
+    "swarmcore-capability-report-generation",
     "swarmcore-capability-swarm-calibration",
     "swarmcore-command-dispatcher",
     "swarmcore-compiler",
@@ -1249,6 +1251,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "swarmcore-application" },
+    { name = "swarmcore-capability-ai-foundation-quality" },
     { name = "swarmcore-capability-contract-integrity" },
     { name = "swarmcore-capability-contract-performance" },
     { name = "swarmcore-capability-contract-post-evaluation" },
@@ -1256,6 +1259,7 @@ dependencies = [
     { name = "swarmcore-capability-document-structuring" },
     { name = "swarmcore-capability-invoice-assurance" },
     { name = "swarmcore-capability-procurement-supplier-risk" },
+    { name = "swarmcore-capability-report-generation" },
     { name = "swarmcore-capability-swarm-calibration" },
     { name = "swarmcore-compiler" },
     { name = "swarmcore-domain" },
@@ -1274,6 +1278,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = "==2.14.2" },
     { name = "pyjwt", extras = ["crypto"], specifier = "==2.10.1" },
     { name = "swarmcore-application", editable = "packages/application" },
+    { name = "swarmcore-capability-ai-foundation-quality", editable = "packages/capability-ai-foundation-quality" },
     { name = "swarmcore-capability-contract-integrity", editable = "packages/capability-contract-integrity" },
     { name = "swarmcore-capability-contract-performance", editable = "packages/capability-contract-performance" },
     { name = "swarmcore-capability-contract-post-evaluation", editable = "packages/capability-contract-post-evaluation" },
@@ -1281,6 +1286,7 @@ requires-dist = [
     { name = "swarmcore-capability-document-structuring", editable = "packages/capability-document-structuring" },
     { name = "swarmcore-capability-invoice-assurance", editable = "packages/capability-invoice-assurance" },
     { name = "swarmcore-capability-procurement-supplier-risk", editable = "packages/capability-procurement-supplier-risk" },
+    { name = "swarmcore-capability-report-generation", editable = "packages/capability-report-generation" },
     { name = "swarmcore-capability-swarm-calibration", editable = "packages/capability-swarm-calibration" },
     { name = "swarmcore-compiler", editable = "packages/compiler" },
     { name = "swarmcore-domain", editable = "packages/domain" },
@@ -1307,6 +1313,7 @@ dependencies = [
     { name = "swarmcore-persistence" },
     { name = "swarmcore-registry" },
     { name = "swarmcore-spec" },
+    { name = "truststore" },
 ]
 
 [package.metadata]
@@ -1321,6 +1328,7 @@ requires-dist = [
     { name = "swarmcore-persistence", editable = "packages/persistence" },
     { name = "swarmcore-registry", editable = "packages/registry" },
     { name = "swarmcore-spec", editable = "packages/spec" },
+    { name = "truststore", specifier = "==0.10.4" },
 ]
 
 [[package]]
@@ -1347,6 +1355,11 @@ requires-dist = [
     { name = "swarmcore-persistence", editable = "packages/persistence" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
 ]
+
+[[package]]
+name = "swarmcore-capability-ai-foundation-quality"
+version = "0.1.0"
+source = { editable = "packages/capability-ai-foundation-quality" }
 
 [[package]]
 name = "swarmcore-capability-contract-integrity"
@@ -1382,6 +1395,11 @@ source = { editable = "packages/capability-invoice-assurance" }
 name = "swarmcore-capability-procurement-supplier-risk"
 version = "0.1.0"
 source = { editable = "packages/capability-procurement-supplier-risk" }
+
+[[package]]
+name = "swarmcore-capability-report-generation"
+version = "0.1.0"
+source = { editable = "packages/capability-report-generation" }
 
 [[package]]
 name = "swarmcore-capability-swarm-calibration"
@@ -1813,6 +1831,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ae/5f/57ff8b434839e70dab45601284ea413e947a63799891b7553e5960a793a8/tqdm-4.68.4.tar.gz", hash = "sha256:19829c9673638f2a0b8617da4cdcb927e831cd88bcfcb6e78d42a4d1af131520", size = 792418, upload-time = "2026-07-07T09:58:18.369Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/22/2a/5e5e750890ada51017d18d0d4c30da696e5b5bd3180947729927628fc3cb/tqdm-4.68.4-py3-none-any.whl", hash = "sha256:5168118b2368f48c561afda8020fd79195b1bdb0bdf8086b88442c267a315dc2", size = 676612, upload-time = "2026-07-07T09:58:16.256Z" },
+]
+
+[[package]]
+name = "truststore"
+version = "0.10.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/a3/1585216310e344e8102c22482f6060c7a6ea0322b63e026372e6dcefcfd6/truststore-0.10.4.tar.gz", hash = "sha256:9d91bd436463ad5e4ee4aba766628dd6cd7010cf3e2461756b3303710eebc301", size = 26169, upload-time = "2025-08-12T18:49:02.73Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/19/97/56608b2249fe206a67cd573bc93cd9896e1efb9e98bce9c163bcdc704b88/truststore-0.10.4-py3-none-any.whl", hash = "sha256:adaeaecf1cbb5f4de3b1959b42d41f6fab57b2b1666adb59e89cb0b53361d981", size = 18660, upload-time = "2025-08-12T18:49:01.46Z" },
 ]
 
 [[package]]

@@ -86,24 +86,30 @@ class RolePolicyEngine:
                 "webhook.*",
                 "capability.*",
                 "work-item.*",
+                "case.*",
+                "document.*",
                 "finding.*",
                 "rule.*",
                 "report.*",
                 "blob.*",
+                "model-provider.*",
             }
         ),
         "strategy_author": frozenset({"strategy.*"}),
-        "run_operator": frozenset({"run.*"}),
+        "run_operator": frozenset({"run.*", "model-provider.read"}),
         "approver": frozenset({"approval.decide"}),
-        "auditor": frozenset({"run.read", "artifact.read", "audit.read"}),
+        "auditor": frozenset({"run.read", "artifact.read", "audit.read", "model-provider.read"}),
         "viewer": frozenset(
             {
                 "run.read",
                 "artifact.read",
                 "capability.read",
                 "work-item.read",
+                "case.read",
+                "document.read",
                 "finding.read",
                 "report.read",
+                "model-provider.read",
             }
         ),
         "workload": frozenset(
@@ -207,7 +213,5 @@ def redact_policy_log(request: PolicyRequest, decision: PolicyDecision) -> dict[
 
 def _matches(action: str, grant: str) -> bool:
     return (
-        grant == "*"
-        or action == grant
-        or (grant.endswith(".*") and action.startswith(grant[:-1]))
+        grant == "*" or action == grant or (grant.endswith(".*") and action.startswith(grant[:-1]))
     )

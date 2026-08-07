@@ -1,0 +1,79 @@
+{
+  "apiVersion": "swarmcore.io/v2",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "document-structuring", "version": "1.0.0"},
+  "spec": {
+    "case": {
+      "type": "document-structuring-case",
+      "schema": "schema://document-structuring/case@1",
+      "subjectsRequired": false,
+      "subjectRoles": []
+    },
+    "inputSchema": "schema://document-structuring/input@1",
+    "outputSchema": "schema://document-structuring/package@1",
+    "strategies": {"execute": "strategy://document-structuring/execute@1"},
+    "agents": ["agent://document/structurer@1"],
+    "tools": [
+      "tool://document/read-versions@1",
+      "tool://document/structure-prepare@1",
+      "tool://document/quality-check@1",
+      "tool://document/publish@1"
+    ],
+    "documents": {
+      "processingProfile": "document-profile://business-structuring@1",
+      "requirements": [
+        {
+          "key": "source-document",
+          "category": "SOURCE_DOCUMENT",
+          "displayName": "待结构化资料",
+          "required": true,
+          "minCount": 1,
+          "maxCount": 100,
+          "classificationLabels": [
+            "CONTRACT",
+            "SOW",
+            "TECHNICAL_SPEC",
+            "OFFER",
+            "INVOICE",
+            "RECEIPT",
+            "DELIVERY",
+            "CORRESPONDENCE",
+            "REPORT",
+            "TABLE_DATA",
+            "UNCLASSIFIED"
+          ],
+          "extractionSchema": "schema://document/contract-structure@1",
+          "acceptedMediaTypes": [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.oasis.opendocument.text",
+            "application/vnd.oasis.opendocument.spreadsheet",
+            "application/vnd.oasis.opendocument.presentation",
+            "text/csv",
+            "application/json",
+            "text/plain",
+            "text/markdown",
+            "image/jpeg",
+            "image/png",
+            "image/tiff"
+          ]
+        }
+      ]
+    },
+    "report": {"template": "report://document-structuring@1"},
+    "permissions": [
+      "case.create",
+      "case.read",
+      "case.assess",
+      "document.read",
+      "document.review",
+      "document.publish",
+      "approval.respond",
+      "report.read"
+    ],
+    "events": {"namespace": "capability.document-structuring"},
+    "ui": {"viewDefinition": "view://document-structuring/case@1"}
+  }
+}

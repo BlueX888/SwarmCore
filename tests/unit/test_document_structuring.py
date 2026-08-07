@@ -6,6 +6,8 @@ import io
 import zipfile
 from xml.etree.ElementTree import Element, SubElement, tostring
 
+import pypdf
+import pytest
 from pypdf import PdfWriter
 from swarmcore_application.document_processing import (
     BUSINESS_STRUCTURING_PROFILE,
@@ -18,6 +20,11 @@ from swarmcore_application.document_processing import (
     SchemaDrivenExtractor,
     resolve_profile,
     schema_for_ref,
+)
+from swarmcore_application.document_processing import parsers as parser_module
+from swarmcore_application.document_processing.limits import (
+    ArchiveBudget,
+    DocumentLimitError,
 )
 from swarmcore_application.document_processing.service import _detect_media_type
 from swarmcore_worker_control.document_processing import (
@@ -90,8 +97,7 @@ def _ods() -> bytes:
 
 def _pptx() -> bytes:
     presentation = (
-        '<p:presentation xmlns:p="http://schemas.openxmlformats.org/'
-        'presentationml/2006/main"/>'
+        '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>'
     )
     slide = (
         '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
@@ -145,24 +151,88 @@ def test_ods_parser_returns_sheet_and_rectangular_table() -> None:
     assert parsed.tables[0]["rows"] == [["Item", "Amount"], ["A", "100"]]
 
 
+def test_archive_budget_rejects_high_ratio_member() -> None:
+    value = io.BytesIO()
+    with zipfile.ZipFile(value, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", b"A" * (2 * 1024 * 1024))
+
+    with (
+        zipfile.ZipFile(io.BytesIO(value.getvalue())) as archive,
+        pytest.raises(DocumentLimitError, match="COMPRESSION_RATIO"),
+    ):
+        ArchiveBudget(archive).read("word/document.xml")
+
+
+def test_processing_planner_rejects_high_ratio_xlsx() -> None:
+    worksheet = (
+        b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        + b"<row></row>" * 200_000
+        + b"</worksheet>"
+    )
+    value = io.BytesIO()
+    with zipfile.ZipFile(value, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("xl/worksheets/sheet1.xml", worksheet)
+
+    with pytest.raises(DocumentLimitError, match="COMPRESSION_RATIO"):
+        _processing_groups(
+            value.getvalue(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "amplification.xlsx",
+        )
+
+
+def test_ods_parser_rejects_multiplicative_repeat_expansion() -> None:
+    document = Element(f"{{{ODF_OFFICE}}}document-content")
+    body = SubElement(document, f"{{{ODF_OFFICE}}}body")
+    spreadsheet = SubElement(body, f"{{{ODF_OFFICE}}}spreadsheet")
+    table = SubElement(spreadsheet, f"{{{ODF_TABLE}}}table")
+    row = SubElement(
+        table,
+        f"{{{ODF_TABLE}}}table-row",
+        {f"{{{ODF_TABLE}}}number-rows-repeated": "10000"},
+    )
+    SubElement(
+        row,
+        f"{{{ODF_TABLE}}}table-cell",
+        {f"{{{ODF_TABLE}}}number-columns-repeated": "10000"},
+    )
+    content = _odf_package(
+        "application/vnd.oasis.opendocument.spreadsheet",
+        tostring(document, encoding="utf-8", xml_declaration=True),
+    )
+
+    with pytest.raises(DocumentLimitError, match="CELL_LIMIT"):
+        ParserRegistry().parse(
+            filename="amplification.ods",
+            media_type="application/vnd.oasis.opendocument.spreadsheet",
+            content=content,
+        )
+
+
+def test_pdf_parser_rejects_excess_page_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Reader:
+        pages = [object()] * 1001
+
+    monkeypatch.setattr(parser_module.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(pypdf, "PdfReader", lambda _source: Reader())
+
+    with pytest.raises(DocumentLimitError, match="PAGE_LIMIT"):
+        parser_module.PdfParser().parse(
+            filename="oversized.pdf", media_type="application/pdf", content=b"%PDF"
+        )
+
+
 def test_pptx_is_detected_and_parsed_without_extension() -> None:
     content = _pptx()
-    media_type = _detect_media_type(
-        content, "presentation.bin", "application/octet-stream"
-    )
-    assert (
-        media_type
-        == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    )
+    media_type = _detect_media_type(content, "presentation.bin", "application/octet-stream")
+    assert media_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     parser_ref, parsed = ParserRegistry().parse(
         filename="presentation.bin",
         media_type=media_type,
         content=content,
     )
     assert parser_ref == "parser://pptx-native@1"
-    assert parsed.pages == [
-        {"page": 1, "text": "Project status", "title": "Project status"}
-    ]
+    assert parsed.pages == [{"page": 1, "text": "Project status", "title": "Project status"}]
 
 
 def test_chunker_respects_sections_and_keeps_tables_as_table_chunks() -> None:
@@ -279,9 +349,7 @@ def test_contract_extractor_does_not_promote_template_placeholder() -> None:
         ),
         profile=BUSINESS_STRUCTURING_PROFILE,
     )
-    reference = next(
-        field for field in fields if field.field_path == "contract.reference"
-    )
+    reference = next(field for field in fields if field.field_path == "contract.reference")
     buyer = next(field for field in fields if field.field_path == "contract.buyer")
     assert reference.machine_value == "RM1043.6"
     assert reference.evidence_refs[0]["page"] == 4
@@ -298,17 +366,12 @@ def test_large_pdf_is_split_into_seven_bounded_temporal_groups() -> None:
     writer.write(stream)
     content = stream.getvalue()
 
-    groups, page_count, row_count = _processing_groups(
-        content, "application/pdf", "contract.pdf"
-    )
+    groups, page_count, row_count = _processing_groups(content, "application/pdf", "contract.pdf")
 
     assert page_count == 68
     assert row_count == 0
     assert len(groups) == 7
-    assert all(
-        int(group["pageEnd"]) - int(group["pageStart"]) + 1 <= 10
-        for group in groups
-    )
+    assert all(int(group["pageEnd"]) - int(group["pageStart"]) + 1 <= 10 for group in groups)
     assert groups[0]["pageStart"] == 1
     assert groups[-1]["pageEnd"] == 68
     extracted = _extract_group(content, "application/pdf", groups[-1])

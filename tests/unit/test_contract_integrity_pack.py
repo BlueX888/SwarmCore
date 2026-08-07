@@ -3,6 +3,7 @@ from swarmcore_capability_contract_integrity import (
     DEFAULT_RULES,
     MANIFEST,
     MANIFEST_V2_1,
+    MANIFEST_V2_2,
     REFERENCES,
     SCHEMAS,
     STRATEGIES,
@@ -88,4 +89,48 @@ def test_document_processing_pack_strategy_dependencies_match_manifest() -> None
         if value.get("registryRef") is not None
     }
     assert actual_agents == set(manifest.spec.agents)
+    assert set(plan.resolved_tools) == set(manifest.spec.tools)
+
+
+def test_strategy_input_contract_covers_runtime_template_paths() -> None:
+    registry = builtin_registry()
+    _, legacy_plan = StrategyService().compile(
+        STRATEGIES["strategy://contract-integrity/validate@1"],
+        registry_snapshot=registry.snapshot_id,
+        policy_revision="test",
+    )
+    _, document_plan = StrategyService().compile(
+        STRATEGIES["strategy://contract-integrity/validate@2"],
+        registry_snapshot=registry.snapshot_id,
+        policy_revision="test",
+    )
+
+    assert "payload" in legacy_plan.input_schema["required"]
+    assert legacy_plan.input_schema["properties"]["payload"]["required"] == ["title"]
+    assert set(document_plan.input_schema["required"]) >= {
+        "payload",
+        "documents",
+        "attachments",
+    }
+    assert document_plan.input_schema["properties"]["payload"]["required"] == ["title"]
+
+
+def test_integrity_v2_2_reads_frozen_documents_and_records_merged_result() -> None:
+    manifest = CapabilityPackManifest.model_validate(MANIFEST_V2_2)
+    registry = builtin_registry()
+    _, plan = StrategyService().compile(
+        STRATEGIES[manifest.spec.strategies.execute],
+        registry_snapshot=registry.snapshot_id,
+        policy_revision="test",
+    )
+
+    nodes = {node.key: node for node in plan.nodes}
+    assert manifest.metadata.version == "2.2.0"
+    assert manifest.spec.input_schema == "schema://contract/validation-input@3"
+    assert nodes["read-documents"].config["tool"] == "tool://document/read-versions@1"
+    assert nodes["assemble"].config["tool"] == "tool://contract/integrity-finalize@1"
+    assert nodes["manual-review"].type == "approval"
+    assert nodes["record"].config["input"]["result"] == (
+        "{{ tasks.finalize.output.content }}"
+    )
     assert set(plan.resolved_tools) == set(manifest.spec.tools)

@@ -15,10 +15,36 @@ def _load(name: str) -> dict[str, Any]:
 
 LEGACY_MANIFEST = _load("manifest.json")
 MANIFEST_V2_0 = _load("manifest-v2.json")
+_INPUT_V3 = _load("input-v3.schema.json")
+_INPUT_V4 = deepcopy(_INPUT_V3)
+_INPUT_V4["$id"] = "schema://contract/post-evaluation-input@4"
+_INPUT_V4["properties"]["upstreamEvaluations"] = {
+    "type": "array",
+    "maxItems": 20,
+    "items": {
+        "type": "object",
+        "required": [
+            "evaluationId",
+            "businessWorkKey",
+            "outputSchemaVersion",
+            "resultHash",
+            "result",
+        ],
+        "properties": {
+            "evaluationId": {"type": "string", "format": "uuid"},
+            "businessWorkKey": {"type": "string", "minLength": 1},
+            "outputSchemaVersion": {"type": "string", "minLength": 1},
+            "resultHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "result": {"type": "object"},
+        },
+        "additionalProperties": False,
+    },
+}
 SCHEMAS = {
     "schema://contract/post-evaluation-case@1": _load("case.schema.json"),
     "schema://contract/post-evaluation-input@2": _load("input.schema.json"),
-    "schema://contract/post-evaluation-input@3": _load("input-v3.schema.json"),
+    "schema://contract/post-evaluation-input@3": _INPUT_V3,
+    "schema://contract/post-evaluation-input@4": _INPUT_V4,
     "schema://contract/post-evaluation-result@1": _load("output.schema.json"),
     "schema://contract/post-evaluation-result@2": _load("output-v2.schema.json"),
     "schema://contract/post-evaluation-result@3": _load("output-v3.schema.json"),
@@ -295,6 +321,15 @@ _V14_NODES["record"] = {
 _STRATEGY_V14["spec"]["graph"]["output"] = {
     "result": "{{ tasks.quality-gate.output.content }}"
 }
+_STRATEGY_V15 = deepcopy(_STRATEGY_V14)
+_STRATEGY_V15["metadata"]["name"] = "contract-post-evaluation-generate-v15"
+_V15_NODES = _STRATEGY_V15["spec"]["graph"]["nodes"]
+_V15_NODES["merge-domains"]["input"]["upstreamEvaluations"] = (
+    "{{ input.upstreamEvaluations }}"
+)
+_V15_NODES["finalize"]["input"]["provenance"]["upstreamEvaluations"] = (
+    "{{ tasks.merge-domains.output.content.upstreamEvaluationRefs }}"
+)
 STRATEGIES = {
     "strategy://contract-post-evaluation/generate@7": _load("strategy.json"),
     "strategy://contract-post-evaluation/generate@8": _STRATEGY_V8,
@@ -304,6 +339,7 @@ STRATEGIES = {
     "strategy://contract-post-evaluation/generate@12": _STRATEGY_V12,
     "strategy://contract-post-evaluation/generate@13": _STRATEGY_V13,
     "strategy://contract-post-evaluation/generate@14": _STRATEGY_V14,
+    "strategy://contract-post-evaluation/generate@15": _STRATEGY_V15,
 }
 MANIFEST_V2_1 = deepcopy(MANIFEST_V2_0)
 MANIFEST_V2_1["metadata"]["version"] = "2.0.1"
@@ -350,26 +386,34 @@ MANIFEST_V2_5["spec"]["tools"] = [
     else value
     for value in MANIFEST_V2_5["spec"]["tools"]
 ]
-MANIFEST = deepcopy(MANIFEST_V2_5)
-MANIFEST["metadata"]["version"] = "2.0.6"
-MANIFEST["spec"]["outputSchema"] = "schema://contract/post-evaluation-result@3"
-MANIFEST["spec"]["strategies"]["execute"] = "strategy://contract-post-evaluation/generate@14"
-MANIFEST["spec"]["agents"] = list(_V14_PROVENANCE_AGENTS)
-MANIFEST["spec"]["tools"] = [
+MANIFEST_V2_6 = deepcopy(MANIFEST_V2_5)
+MANIFEST_V2_6["metadata"]["version"] = "2.0.6"
+MANIFEST_V2_6["spec"]["outputSchema"] = "schema://contract/post-evaluation-result@3"
+MANIFEST_V2_6["spec"]["strategies"]["execute"] = (
+    "strategy://contract-post-evaluation/generate@14"
+)
+MANIFEST_V2_6["spec"]["agents"] = list(_V14_PROVENANCE_AGENTS)
+MANIFEST_V2_6["spec"]["tools"] = [
     "tool://report/render-post-evaluation@4"
     if value == "tool://report/render-post-evaluation@3"
     else "tool://workbench/record-post-evaluation@3"
     if value == "tool://workbench/record-post-evaluation@2"
     else value
-    for value in MANIFEST["spec"]["tools"]
+    for value in MANIFEST_V2_6["spec"]["tools"]
 ]
-MANIFEST["spec"]["tools"].extend(
+MANIFEST_V2_6["spec"]["tools"].extend(
     [
         "tool://document/readability-gate@1",
         "tool://report/compose-post-evaluation@1",
         "tool://report/verify-post-evaluation-citations@1",
         "tool://report/check-post-evaluation-quality@1",
     ]
+)
+MANIFEST = deepcopy(MANIFEST_V2_6)
+MANIFEST["metadata"]["version"] = "2.0.7"
+MANIFEST["spec"]["inputSchema"] = "schema://contract/post-evaluation-input@4"
+MANIFEST["spec"]["strategies"]["execute"] = (
+    "strategy://contract-post-evaluation/generate@15"
 )
 MANIFESTS = (
     LEGACY_MANIFEST,
@@ -379,6 +423,7 @@ MANIFESTS = (
     MANIFEST_V2_3,
     MANIFEST_V2_4,
     MANIFEST_V2_5,
+    MANIFEST_V2_6,
     MANIFEST,
 )
 REFERENCES = frozenset(
@@ -438,6 +483,7 @@ __all__ = [
     "MANIFEST_V2_3",
     "MANIFEST_V2_4",
     "MANIFEST_V2_5",
+    "MANIFEST_V2_6",
     "REFERENCES",
     "SCHEMAS",
     "STRATEGIES",

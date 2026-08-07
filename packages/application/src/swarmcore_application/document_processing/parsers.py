@@ -16,6 +16,14 @@ from typing import Any, ClassVar, Protocol
 from xml.etree import ElementTree
 
 from .contracts import ParsedContent
+from .limits import (
+    MAX_PDF_PAGES,
+    MAX_PDF_TEXT_BYTES,
+    MAX_SPREADSHEET_CELLS,
+    MAX_SPREADSHEET_ROWS,
+    ArchiveBudget,
+    DocumentLimitError,
+)
 from .native_parsers import OdfParser, PptxParser
 
 
@@ -43,7 +51,13 @@ class TextMarkdownParser:
     version = "1"
 
     def supports(self, media_type: str) -> bool:
-        return media_type in {"text/plain", "text/markdown", "text/x-markdown"}
+        return media_type in {
+            "application/xml",
+            "text/markdown",
+            "text/plain",
+            "text/x-markdown",
+            "text/xml",
+        }
 
     def parse(self, *, filename: str, media_type: str, content: bytes) -> ParsedContent:
         text = content.decode("utf-8", errors="replace")
@@ -87,16 +101,13 @@ class StructuredTextParser:
             normalized = json.dumps(value, ensure_ascii=False, indent=2)
             rows = value if isinstance(value, list) else [value]
             if rows and all(isinstance(row, dict) for row in rows):
-                columns = sorted(
-                    {str(key) for row in rows for key in row}
-                )
+                columns = sorted({str(key) for row in rows for key in row})
                 tables.append(
                     {
                         "name": filename,
                         "columns": columns,
                         "rows": [
-                            [str(row.get(column, "")) for column in columns]
-                            for row in rows[:500]
+                            [str(row.get(column, "")) for column in columns] for row in rows[:500]
                         ],
                     }
                 )
@@ -143,7 +154,9 @@ class DocxParser:
     def parse(self, *, filename: str, media_type: str, content: bytes) -> ParsedContent:
         try:
             with zipfile.ZipFile(io.BytesIO(content)) as archive:
-                xml = archive.read("word/document.xml")
+                xml = ArchiveBudget(archive).read("word/document.xml")
+        except DocumentLimitError:
+            raise
         except (KeyError, zipfile.BadZipFile) as exc:
             raise ValueError("DOCUMENT_PARSE_FAILED") from exc
         root = ElementTree.fromstring(xml)
@@ -208,15 +221,10 @@ class DocxParser:
                 if index + 1 < len(sections)
                 else len(paragraphs) + 1
             )
-            section["paragraphEnd"] = max(
-                int(section["paragraphStart"]), next_start - 1
-            )
+            section["paragraphEnd"] = max(int(section["paragraphStart"]), next_start - 1)
         source_tables = document_body.findall(".//w:tbl", self._NS)
         if len(source_tables) != len(tables):
-            tables = [
-                self._table(node, index)
-                for index, node in enumerate(source_tables, start=1)
-            ]
+            tables = [self._table(node, index) for index, node in enumerate(source_tables, start=1)]
         body = "\n".join(str(item["text"]) for item in paragraphs)
         return ParsedContent(
             pages=[{"page": 1, "text": body}],
@@ -228,9 +236,7 @@ class DocxParser:
                 "filename": filename,
                 "mediaType": media_type,
                 "headingCount": len(sections),
-                "paragraphCount": len(
-                    document_body.findall(".//w:p", self._NS)
-                ),
+                "paragraphCount": len(document_body.findall(".//w:p", self._NS)),
                 "semanticParagraphCount": len(paragraphs),
                 "tableCount": len(tables),
             },
@@ -239,9 +245,7 @@ class DocxParser:
             needsOcr=not bool(body.strip()),
         )
 
-    def _table(
-        self, node: ElementTree.Element, ordinal: int
-    ) -> dict[str, Any]:
+    def _table(self, node: ElementTree.Element, ordinal: int) -> dict[str, Any]:
         rows = [
             [self._node_text(cell) for cell in row.findall("w:tc", self._NS)]
             for row in node.findall("w:tr", self._NS)
@@ -291,19 +295,28 @@ class XlsxParser:
     def parse(self, *, filename: str, media_type: str, content: bytes) -> ParsedContent:
         try:
             with zipfile.ZipFile(io.BytesIO(content)) as archive:
-                shared = self._shared_strings(archive)
+                budget = ArchiveBudget(archive)
+                shared = self._shared_strings(archive, budget)
                 sheets: list[dict[str, Any]] = []
                 tables: list[dict[str, Any]] = []
                 paragraphs: list[dict[str, Any]] = []
+                total_cells = 0
+                total_rows = 0
                 for name in archive.namelist():
                     if not name.startswith("xl/worksheets/sheet") or not name.endswith(".xml"):
                         continue
-                    root = ElementTree.fromstring(archive.read(name))
+                    root = ElementTree.fromstring(budget.read(name))
                     rows: list[list[str]] = []
                     for row in root.findall(".//m:sheetData/m:row", self._NS):
+                        total_rows += 1
+                        if total_rows > MAX_SPREADSHEET_ROWS:
+                            raise DocumentLimitError("DOCUMENT_SPREADSHEET_ROW_LIMIT_EXCEEDED")
                         values: list[str] = []
                         for cell in row.findall("m:c", self._NS):
                             values.append(self._cell_value(cell, shared))
+                        total_cells += len(values)
+                        if total_cells > MAX_SPREADSHEET_CELLS:
+                            raise DocumentLimitError("DOCUMENT_SPREADSHEET_CELL_LIMIT_EXCEEDED")
                         if any(values):
                             rows.append(values)
                             paragraphs.append(
@@ -320,9 +333,7 @@ class XlsxParser:
                             "name": normalized_name,
                             "rows": capped_rows,
                             "rowCount": len(rows),
-                            "columnCount": max(
-                                (len(row) for row in capped_rows), default=0
-                            ),
+                            "columnCount": max((len(row) for row in capped_rows), default=0),
                         }
                     )
                     tables.append(
@@ -332,13 +343,13 @@ class XlsxParser:
                             "columns": capped_rows[0] if capped_rows else [],
                             "rows": capped_rows,
                             "rowCount": len(rows),
-                            "columnCount": max(
-                                (len(row) for row in capped_rows), default=0
-                            ),
+                            "columnCount": max((len(row) for row in capped_rows), default=0),
                             "sourceKind": "NATIVE",
                             "evidenceRefs": [{"sourcePath": name}],
                         }
                     )
+        except DocumentLimitError:
+            raise
         except (KeyError, zipfile.BadZipFile) as exc:
             raise ValueError("DOCUMENT_PARSE_FAILED") from exc
         excerpt = "\n".join(item["text"] for item in paragraphs[:80])
@@ -360,10 +371,10 @@ class XlsxParser:
             needsOcr=False,
         )
 
-    def _shared_strings(self, archive: zipfile.ZipFile) -> list[str]:
+    def _shared_strings(self, archive: zipfile.ZipFile, budget: ArchiveBudget) -> list[str]:
         if "xl/sharedStrings.xml" not in archive.namelist():
             return []
-        root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
+        root = ElementTree.fromstring(budget.read("xl/sharedStrings.xml"))
         values: list[str] = []
         for item in root.findall("m:si", self._NS):
             texts = [node.text or "" for node in item.findall(".//m:t", self._NS)]
@@ -389,6 +400,17 @@ class PdfParser:
         return media_type == "application/pdf"
 
     def parse(self, *, filename: str, media_type: str, content: bytes) -> ParsedContent:
+        reader: Any | None = None
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(io.BytesIO(content))
+            if len(reader.pages) > MAX_PDF_PAGES:
+                raise DocumentLimitError("DOCUMENT_PDF_PAGE_LIMIT_EXCEEDED")
+        except DocumentLimitError:
+            raise
+        except Exception:
+            reader = None
         poppler_text = self._extract_with_poppler(content)
         if _meaningful_text(poppler_text):
             page_texts = poppler_text.split("\f")
@@ -405,12 +427,13 @@ class PdfParser:
             )
         fallback_pages: list[dict[str, Any]] = []
         try:
-            from pypdf import PdfReader
-
-            reader = PdfReader(io.BytesIO(content))
             pages: list[dict[str, Any]] = []
-            for index, page in enumerate(reader.pages, start=1):
+            decoded_bytes = 0
+            for index, page in enumerate(reader.pages if reader is not None else (), start=1):
                 page_text = page.extract_text() or ""
+                decoded_bytes += len(page_text.encode("utf-8"))
+                if decoded_bytes > MAX_PDF_TEXT_BYTES:
+                    raise DocumentLimitError("DOCUMENT_PDF_TEXT_LIMIT_EXCEEDED")
                 pages.append({"page": index, "text": page_text})
             fallback_pages = pages
             body = "\n".join(str(page["text"]) for page in pages)
@@ -421,6 +444,8 @@ class PdfParser:
                     pages=pages,
                     warning=None,
                 )
+        except DocumentLimitError:
+            raise
         except Exception:
             pass
         if not fallback_pages:
@@ -465,19 +490,32 @@ class PdfParser:
             return ""
         with tempfile.TemporaryDirectory(prefix="swarmcore-pdf-") as temp:
             source = Path(temp) / "source.pdf"
+            output = Path(temp) / "output.txt"
             source.write_bytes(content)
             try:
                 completed = subprocess.run(
-                    [command, "-layout", str(source), "-"],
+                    [
+                        command,
+                        "-f",
+                        "1",
+                        "-l",
+                        str(MAX_PDF_PAGES),
+                        "-layout",
+                        str(source),
+                        str(output),
+                    ],
                     check=False,
-                    capture_output=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                     timeout=120,
                 )
             except (OSError, subprocess.TimeoutExpired):
                 return ""
-        if completed.returncode != 0:
-            return ""
-        return completed.stdout.decode("utf-8", errors="replace")
+            if completed.returncode != 0 or not output.exists():
+                return ""
+            if output.stat().st_size > MAX_PDF_TEXT_BYTES:
+                raise DocumentLimitError("DOCUMENT_PDF_TEXT_LIMIT_EXCEEDED")
+            return output.read_bytes().decode("utf-8", errors="replace")
 
     def _parsed_pdf(
         self,
@@ -491,11 +529,7 @@ class PdfParser:
         page_routes = [
             {
                 "page": int(page["page"]),
-                "route": (
-                    "NATIVE"
-                    if _meaningful_text(str(page.get("text") or ""))
-                    else "OCR"
-                ),
+                "route": ("NATIVE" if _meaningful_text(str(page.get("text") or "")) else "OCR"),
                 "reason": (
                     "NATIVE_TEXT_SUFFICIENT"
                     if _meaningful_text(str(page.get("text") or ""))
@@ -513,9 +547,7 @@ class PdfParser:
             }
             for index, page in enumerate(pages)
         ]
-        ocr_pages = [
-            int(item["page"]) for item in page_routes if item["route"] == "OCR"
-        ]
+        ocr_pages = [int(item["page"]) for item in page_routes if item["route"] == "OCR"]
         return ParsedContent(
             pages=normalized_pages or [{"page": 1, "text": ""}],
             paragraphs=[

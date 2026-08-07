@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import ssl
 import subprocess
 import tempfile
 from asyncio import to_thread
@@ -13,6 +14,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+import truststore
 from jsonschema import Draft202012Validator
 
 CALIBRATION_SCHEMA_VERSION = "schema://swarm-calibration/result@1"
@@ -28,6 +30,11 @@ _INJECTION_MARKERS = (
     "忽略以上",
     "系统提示词",
 )
+
+
+def system_trust_context() -> ssl.SSLContext:
+    """Build a strict TLS context backed by the operating-system trust store."""
+    return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +84,7 @@ class GitHubEvidenceClient:
             headers=headers,
             timeout=timeout_seconds,
             transport=transport,
+            verify=system_trust_context(),
         )
 
     async def close(self) -> None:
@@ -84,6 +92,7 @@ class GitHubEvidenceClient:
 
     async def get_issue(self, issue_url: str) -> dict[str, Any]:
         locator = parse_github_issue_url(issue_url)
+        await self._assert_public_repository(locator.owner, locator.repository)
         response = await self._request(
             f"/repos/{locator.owner}/{locator.repository}/issues/{locator.number}"
         )
@@ -112,6 +121,7 @@ class GitHubEvidenceClient:
 
     async def get_discussion(self, issue_url: str) -> dict[str, Any]:
         locator = parse_github_issue_url(issue_url)
+        await self._assert_public_repository(locator.owner, locator.repository)
         comments_response = await self._request(
             f"/repos/{locator.owner}/{locator.repository}/issues/{locator.number}/comments",
             params={"per_page": "100"},
@@ -160,6 +170,7 @@ class GitHubEvidenceClient:
             repository = str(candidate.get("repository") or issue.repository)
             number = int(candidate["number"])
             try:
+                await self._assert_public_repository(owner, repository)
                 pull_response = await self._request(f"/repos/{owner}/{repository}/pulls/{number}")
                 pull = self._object(pull_response)
                 files_response = await self._request(
@@ -192,6 +203,10 @@ class GitHubEvidenceClient:
                 selected=payload,
             )
         raise ValueError(f"linked pull requests were unavailable: {', '.join(failures)}")
+
+    async def _assert_public_repository(self, owner: str, repository: str) -> None:
+        response = await self._request(f"/repos/{owner}/{repository}")
+        _assert_public_repository(self._object(response))
 
     async def _request(
         self,
@@ -264,9 +279,7 @@ class RepositorySandboxVerifier:
         repository = str(input_value["repository"])
         commit_sha = str(input_value["commitSha"]).lower()
         command = input_value.get("testCommand")
-        command_items = (
-            [str(item) for item in command] if isinstance(command, list) else []
-        )
+        command_items = [str(item) for item in command] if isinstance(command, list) else []
         if not bool(input_value.get("enabled", True)):
             return self._unverified(
                 repository, commit_sha, command_items, effect_id, "SANDBOX_DISABLED"
@@ -288,9 +301,23 @@ class RepositorySandboxVerifier:
             commit_sha,
             command_items,
         )
+        dependency_missing = _sandbox_dependency_missing(execution["output"])
+        status = (
+            "PASSED"
+            if execution["exitCode"] == 0
+            else "UNVERIFIED"
+            if dependency_missing
+            else "FAILED"
+        )
         return {
-            "status": "PASSED" if execution["exitCode"] == 0 else "FAILED",
-            "reasonCode": None if execution["exitCode"] == 0 else "TEST_COMMAND_FAILED",
+            "status": status,
+            "reasonCode": (
+                None
+                if status == "PASSED"
+                else "SANDBOX_DEPENDENCY_MISSING"
+                if dependency_missing
+                else "TEST_COMMAND_FAILED"
+            ),
             "repository": repository,
             "commitSha": commit_sha,
             "command": command_items,
@@ -316,7 +343,14 @@ class RepositorySandboxVerifier:
             headers=headers,
             timeout=60,
             follow_redirects=True,
+            verify=system_trust_context(),
         ) as client:
+            metadata = await client.get(f"https://api.github.com/repos/{repository}")
+            metadata.raise_for_status()
+            payload = metadata.json()
+            if not isinstance(payload, dict):
+                raise ValueError("GitHub repository metadata must be an object")
+            _assert_public_repository(payload)
             response = await client.get(
                 f"https://api.github.com/repos/{repository}/tarball/{commit_sha}"
             )
@@ -410,6 +444,11 @@ class RepositorySandboxVerifier:
         }
 
 
+def _assert_public_repository(payload: dict[str, Any]) -> None:
+    if payload.get("private") is not False:
+        raise ValueError("GitHub repository must be public")
+
+
 def _parse_test_counts(output: str) -> dict[str, int]:
     counts = {"passed": 0, "failed": 0, "skipped": 0}
     for key in counts:
@@ -417,6 +456,20 @@ def _parse_test_counts(output: str) -> dict[str, int]:
         if matches:
             counts[key] = int(matches[-1])
     return counts
+
+
+def _sandbox_dependency_missing(output: str) -> bool:
+    normalized = output.casefold()
+    return any(
+        marker in normalized
+        for marker in (
+            "no module named",
+            "module not found",
+            "command not found",
+            "is not recognized as an internal or external command",
+            "executable file not found",
+        )
+    )
 
 
 def discover_pull_candidates(
@@ -469,12 +522,7 @@ def discover_pull_candidates(
 
 def scan_untrusted_content(values: list[str]) -> dict[str, Any]:
     matches = sorted(
-        {
-            marker
-            for value in values
-            for marker in _INJECTION_MARKERS
-            if marker in value.casefold()
-        }
+        {marker for value in values for marker in _INJECTION_MARKERS if marker in value.casefold()}
     )
     return {
         "untrusted": True,
@@ -667,15 +715,17 @@ def finalize_calibration_result(
     approved = bool((approvals or {}).get("approved"))
     quality_passed = quality.get("decision") == "PASS"
     selected_route = str(route.get("selectedRoute") or "HUMAN")
-    status = (
-        "COMPLETED_DEGRADED"
-        if quality_passed and selected_route == "STANDBY"
-        else "COMPLETED"
-        if quality_passed
-        else "COMPLETED_DEGRADED"
-        if approved
-        else "REVIEW_REQUIRED"
-    )
+    runtime_verified = str(sandbox.get("status") or "") == "PASSED"
+    if not runtime_verified:
+        status = "REVIEW_REQUIRED"
+    elif quality_passed and selected_route == "STANDBY":
+        status = "COMPLETED_DEGRADED"
+    elif quality_passed:
+        status = "COMPLETED"
+    elif approved:
+        status = "COMPLETED_DEGRADED"
+    else:
+        status = "REVIEW_REQUIRED"
     result = {
         "schemaVersion": CALIBRATION_SCHEMA_VERSION,
         "status": status,
@@ -693,6 +743,9 @@ def finalize_calibration_result(
         "evidence": evidence["evidenceIndex"],
         "provenance": {
             "evidenceManifestHash": evidence["evidenceManifestHash"],
+            "calibrationMode": payload.get(
+                "calibrationMode", "GITHUB_ENGINEERING_ISSUE"
+            ),
             "generatedAt": datetime.now(UTC).isoformat(),
             "externalWritePerformed": False,
         },

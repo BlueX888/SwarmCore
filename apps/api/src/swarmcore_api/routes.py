@@ -37,12 +37,13 @@ from swarmcore_application import (
     is_retryable_run_failure,
     render_run_snapshot,
 )
-from swarmcore_application.capabilities import ModelCapability
-from swarmcore_application.project_models import (
-    is_runtime_provider_name,
-    project_model_logical_id,
+from swarmcore_capability_ai_foundation_quality import MANIFEST as AI_QUALITY_MANIFEST
+from swarmcore_capability_contract_integrity import (
+    MANIFEST,
+    MANIFEST_V2,
+    MANIFEST_V2_1,
+    MANIFEST_V2_2,
 )
-from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2, MANIFEST_V2_1
 from swarmcore_capability_contract_performance import MANIFEST as CONTRACT_PERFORMANCE_MANIFEST
 from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
 from swarmcore_capability_deviation_analysis import MANIFEST as DEVIATION_ANALYSIS_MANIFEST
@@ -53,6 +54,7 @@ from swarmcore_capability_invoice_assurance import MANIFEST as INVOICE_ASSURANCE
 from swarmcore_capability_procurement_supplier_risk import (
     MANIFEST as PROCUREMENT_SUPPLIER_RISK_MANIFEST,
 )
+from swarmcore_capability_report_generation import MANIFEST as REPORT_GENERATION_MANIFEST
 from swarmcore_capability_swarm_calibration import MANIFEST as SWARM_CALIBRATION_MANIFEST
 from swarmcore_domain import CapabilitySummary
 from swarmcore_governance import (
@@ -78,6 +80,7 @@ from swarmcore_persistence.models import (
     WebhookEndpoint,
 )
 
+from .capability_catalog import project_capability_catalog
 from .dependencies import (
     RequestScope,
     authorize_rest,
@@ -150,6 +153,7 @@ capabilities = CapabilityCatalogService(
         MANIFEST,
         MANIFEST_V2,
         MANIFEST_V2_1,
+        MANIFEST_V2_2,
         POST_EVALUATION_MANIFEST,
         CONTRACT_PERFORMANCE_MANIFEST,
         PROCUREMENT_SUPPLIER_RISK_MANIFEST,
@@ -157,6 +161,8 @@ capabilities = CapabilityCatalogService(
         DOCUMENT_STRUCTURING_MANIFEST,
         INVOICE_ASSURANCE_MANIFEST,
         SWARM_CALIBRATION_MANIFEST,
+        AI_QUALITY_MANIFEST,
+        REPORT_GENERATION_MANIFEST,
     )
 )
 project_configurations = ProjectConfigurationService()
@@ -202,33 +208,13 @@ async def _model_gateway_request(
 
 @router.get("/projects/{project_id}/capabilities", response_model=CapabilityCatalog)
 async def get_capabilities(request: Request, scope: Scope) -> CapabilityCatalog:
-    catalog = capabilities.get()
     database: Database = request.app.state.database
-    try:
-        async with tenant_transaction(
-            database.sessions, tenant_id=scope.tenant_id, project_id=scope.project_id
-        ) as session:
-            rows, _ = await ProjectConfigurationService().list(
-                session,
-                tenant_id=scope.tenant_id,
-                project_id=scope.project_id,
-                kind=ConfigurationKind.MODEL,
-                limit=1000,
-            )
-    except Exception:
-        return catalog
-    project_models = [
-        ModelCapability(
-            ref=f"{project_model_logical_id(str(row.source_ref))}@{row.revision}",
-            runtime="agno",
-            environments=["development", "production"],
-        )
-        for row in rows
-        if is_runtime_provider_name(row.name) and str(row.source_ref).startswith("model://project/")
-    ]
-    if not project_models:
-        return catalog
-    return catalog.model_copy(update={"models": [*project_models, *catalog.models]})
+    return await project_capability_catalog(
+        database,
+        base_catalog=capabilities.get(),
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+    )
 
 
 @router.get("/projects/{project_id}/capability-center", response_model=CapabilityCenterResponse)
@@ -1016,115 +1002,34 @@ async def list_run_summaries(
     limit: Annotated[int, Query(ge=1, le=20)] = 5,
     include_active: Annotated[bool, Query(alias="includeActive")] = True,
 ) -> RunSummaryListResponse:
-    base_filters = (
-        Run.tenant_id == scope.tenant_id,
-        Run.project_id == scope.project_id,
-        Run.strategy_version_id == strategy_version_id,
+    page = await run_queries.list_summaries(
+        session,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        strategy_version_ids=(strategy_version_id,),
+        limit=limit,
+        include_active=include_active,
     )
-    recent = list(
-        await session.scalars(
-            select(Run)
-            .where(*base_filters)
-            .order_by(Run.created_at.desc())
-            .limit(limit)
-        )
-    )
-    runs_by_id = {run.id: run for run in recent}
-    if include_active:
-        active_statuses = (
-            "ACCEPTED",
-            "QUEUED",
-            "RUNNING",
-            "PENDING",
-            "WAITING_INPUT",
-            "WAITING_APPROVAL",
-            "PAUSING",
-            "CANCELLING",
-        )
-        active = list(
-            await session.scalars(
-                select(Run)
-                .where(*base_filters, Run.status.in_(active_statuses))
-                .order_by(Run.created_at.desc())
-            )
-        )
-        runs_by_id.update({run.id: run for run in active})
-    selected = sorted(runs_by_id.values(), key=lambda run: run.created_at, reverse=True)
-    task_counts: dict[UUID, int] = {}
-    if selected:
-        task_rows = await session.execute(
-            select(RunTask.run_id, func.count(RunTask.id))
-            .where(
-                RunTask.tenant_id == scope.tenant_id,
-                RunTask.run_id.in_(tuple(run.id for run in selected)),
-            )
-            .group_by(RunTask.run_id)
-        )
-        task_counts = {run_id: int(count) for run_id, count in task_rows}
-    reason_by_run: dict[UUID, tuple[str, str]] = {}
-    reason_runs = [run for run in selected if run.status in {"FAILED", "CANCELLED"}]
-    if reason_runs:
-        reason_rows = await session.execute(
-            select(RunEvent.run_id, RunEvent.type, RunEvent.payload)
-            .where(
-                RunEvent.tenant_id == scope.tenant_id,
-                RunEvent.project_id == scope.project_id,
-                RunEvent.run_id.in_(tuple(run.id for run in reason_runs)),
-                RunEvent.type.in_(("run.failed", "run.cancelled")),
-            )
-            .order_by(RunEvent.event_seq.desc())
-        )
-        for run_id, event_type, payload in reason_rows:
-            if run_id in reason_by_run or not isinstance(payload, dict):
-                continue
-            reason = payload.get("message") or payload.get("reason") or payload.get("code")
-            if isinstance(reason, str) and reason:
-                reason_by_run[run_id] = (event_type, reason)
-
-    items: list[RunSummarySnapshot] = []
-    for run in selected:
-        input_data = run.input if isinstance(run.input, dict) else {}
-        provenance = input_data.get("provenance")
-        operator_name = None
-        if isinstance(provenance, dict) and isinstance(provenance.get("operatorName"), str):
-            operator_name = provenance["operatorName"]
-        if not operator_name and isinstance(input_data.get("operatorName"), str):
-            operator_name = input_data["operatorName"]
-        if not operator_name and isinstance(input_data.get("owner"), str):
-            operator_name = input_data["owner"]
-        operator_name = operator_name or run.initiated_by or "当前用户"
-        output = run.output if isinstance(run.output, dict) else {}
-        event_reason = reason_by_run.get(run.id)
-        failure_reason = output.get("failureReason") or output.get("error")
-        if event_reason is not None and event_reason[0] == "run.failed":
-            failure_reason = event_reason[1]
-        if not isinstance(failure_reason, str):
-            failure_reason = "运行执行失败,请查看运行详情" if run.status == "FAILED" else None
-        cancel_reason = input_data.get("cancelReason")
-        if event_reason is not None and event_reason[0] == "run.cancelled":
-            cancel_reason = event_reason[1]
-        if not isinstance(cancel_reason, str):
-            cancel_reason = "运行已取消" if run.status == "CANCELLED" else None
-        items.append(
+    return RunSummaryListResponse(
+        items=[
             RunSummarySnapshot(
-                runId=run.id,
-                status=run.status,
-                strategyVersionId=run.strategy_version_id,
-                snapshotSeq=run.next_event_seq - 1,
-                eventCount=run.next_event_seq - 1,
-                taskCount=task_counts.get(run.id, 0),
-                operatorName=operator_name,
-                createdAt=run.created_at,
-                startedAt=run.started_at,
-                completedAt=run.completed_at,
-                failureReason=failure_reason,
-                cancelReason=cancel_reason,
+                runId=item.run_id,
+                status=item.status,
+                strategyVersionId=item.strategy_version_id,
+                snapshotSeq=item.snapshot_seq,
+                eventCount=item.event_count,
+                taskCount=item.task_count,
+                operatorName=item.operator_name,
+                createdAt=item.created_at,
+                startedAt=item.started_at,
+                completedAt=item.completed_at,
+                failureReason=item.failure_reason,
+                cancelReason=item.cancel_reason,
             )
-        )
-    total = await session.scalar(
-        select(func.count()).select_from(Run).where(*base_filters)
+            for item in page.items
+        ],
+        total=page.total,
     )
-    return RunSummaryListResponse(items=items, total=total or 0)
 
 
 @router.post(
@@ -1283,7 +1188,7 @@ async def provide_input(
         actor=scope.actor_id,
     )
     if request.handler_command_id not in {None, handle.command_id}:
-        raise HTTPException(status_code=409, detail="该输入请求已有待执行命令，请稍候刷新查看结果")
+        raise HTTPException(status_code=409, detail="该输入请求已有待执行命令, 请稍候刷新查看结果")
     request.handler_command_id = handle.command_id
     request.handled_by = scope.actor_id
     return handle
@@ -1373,26 +1278,43 @@ async def stream_events(
     request: Request,
     run_id: UUID,
     scope: Scope,
-    session: Session,
     after: Annotated[int | None, Query(ge=0)] = None,
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> StreamingResponse:
     cursor = after if after is not None else int(last_event_id or 0)
-    run = await _get_scoped_run(session, scope, run_id)
-    _check_cursor(run, cursor)
-    high_water = (
-        await session.scalar(select(func.max(RunEvent.event_seq)).where(RunEvent.run_id == run_id))
-        or 0
-    )
     database = request.app.state.database
-    poll_interval = request.app.state.settings.event_poll_interval_seconds
+    settings = request.app.state.settings
+    async with tenant_transaction(
+        database.sessions,
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+    ) as initial_session:
+        run = await _get_scoped_run(initial_session, scope, run_id)
+        _check_cursor(run, cursor)
+        high_water = (
+            await initial_session.scalar(
+                select(func.max(RunEvent.event_seq)).where(RunEvent.run_id == run_id)
+            )
+            or 0
+        )
+    limiter = request.app.state.sse_limiter
+    acquired = await limiter.acquire(
+        tenant_id=scope.tenant_id,
+        project_id=scope.project_id,
+        actor_id=scope.actor_id,
+    )
+    if not acquired:
+        raise HTTPException(status_code=429, detail="SSE_CONNECTION_LIMIT_EXCEEDED")
 
     async def generate() -> AsyncIterator[str]:
         current = cursor
         metrics = request.app.state.metrics
+        started = asyncio.get_running_loop().time()
         metrics.sse_connections.add(1)
         try:
             while not await request.is_disconnected():
+                if asyncio.get_running_loop().time() - started >= settings.sse_max_lifetime_seconds:
+                    break
                 async with tenant_transaction(
                     database.sessions,
                     tenant_id=scope.tenant_id,
@@ -1417,9 +1339,14 @@ async def stream_events(
                         yield format_sse(item)
                     continue
                 yield ": heartbeat\n\n"
-                await asyncio.sleep(poll_interval)
+                await asyncio.sleep(settings.event_poll_interval_seconds)
         finally:
             metrics.sse_connections.add(-1)
+            await limiter.release(
+                tenant_id=scope.tenant_id,
+                project_id=scope.project_id,
+                actor_id=scope.actor_id,
+            )
 
     return StreamingResponse(
         generate(),
@@ -1763,6 +1690,7 @@ def approval_decision_error(
     request: ApprovalRequest,
     *,
     actor: str,
+    roles: tuple[str, ...] = (),
 ) -> tuple[int, str] | None:
     """Return (status, detail) when an approval cannot be decided yet.
 
@@ -1771,9 +1699,12 @@ def approval_decision_error(
     must not leave Action Center cards that fail while the run is waiting.
     """
     if request.status != "PENDING":
-        return 410, "该审批已处理，请刷新待办列表。"
+        return 410, "该审批已处理, 请刷新待办列表。"
     if request.requires_distinct_approver and actor == request.requested_by:
-        return 403, "关键审批要求审批人与发起人分离（maker-checker）。"
+        return 403, "关键审批要求审批人与发起人分离(maker-checker)。"
+    required_roles = set(getattr(request, "required_roles", []) or [])
+    if required_roles and not required_roles.intersection(roles):
+        return 403, "当前身份不具备该审批要求的业务角色。"
     return None
 
 
@@ -1786,7 +1717,7 @@ async def _handle_approval(
     value: dict[str, Any],
     actor: str,
 ) -> CommandHandle:
-    blocked = approval_decision_error(request, actor=actor)
+    blocked = approval_decision_error(request, actor=actor, roles=scope.roles)
     if blocked is not None:
         status, detail = blocked
         raise HTTPException(status_code=status, detail=detail)
@@ -1805,9 +1736,7 @@ async def _handle_approval(
         actor=actor,
     )
     if request.handler_command_id not in {None, handle.command_id}:
-        raise HTTPException(
-            status_code=409, detail="该审批已有待执行命令，请稍候刷新查看结果"
-        )
+        raise HTTPException(status_code=409, detail="该审批已有待执行命令, 请稍候刷新查看结果")
     request.handler_command_id = handle.command_id
     request.handled_by = actor
     return handle
@@ -1824,6 +1753,7 @@ def _approval_snapshot(request: ApprovalRequest) -> ApprovalSnapshot:
         allowedActions=["approve", "reject"] if request.status == "PENDING" else [],
         requestedBy=request.requested_by,
         handledBy=request.handled_by,
+        requiredRoles=list(request.required_roles or []),
         createdAt=request.created_at,
         handledAt=request.handled_at,
     )

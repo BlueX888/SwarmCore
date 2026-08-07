@@ -250,3 +250,40 @@ def test_history_diff_and_final_result_are_hash_verified() -> None:
     )
     assert result["decision"] == "BLOCK"
     assert validate_procurement_supplier_risk_result(result) == result
+
+
+def test_blocker_consistency_cannot_be_overridden_by_human_approval() -> None:
+    comparison = compare_procurement_clauses(
+        {
+            "approvedExceptionKeys": ["party"],
+            "clauses": {
+                role: [
+                    {
+                        "matchKey": "party",
+                        "category": "PARTY",
+                        "normalizedValue": value,
+                    }
+                ]
+                for role, value in {
+                    "TENDER": "供应商甲",
+                    "BID": "供应商甲",
+                    "AWARD": "供应商甲",
+                    "CONTRACT": "供应商乙",
+                }.items()
+            },
+        }
+    )
+    result = finalize_procurement_supplier_risk(
+        {
+            "caseId": "case-identity",
+            "assessmentId": "assessment-identity",
+            "consistency": comparison,
+            "risk": {"decision": "PASS", "riskLevel": "A"},
+            "performance": {"status": "SCORED"},
+            "approval": {"approved": True, "decision": "CONDITIONAL_PASS"},
+        }
+    )
+
+    assert comparison["findings"][0]["severity"] == "BLOCKER"
+    assert result["decision"] == "BLOCK"
+    assert result["riskLevel"] == "D"

@@ -108,6 +108,43 @@ def test_formal_report_has_seven_sections_and_passes_quality_gate() -> None:
     assert result["reportQuality"]["checks"]["scoreConsistency"] is True
 
 
+def test_formal_report_blocks_any_dimension_without_direct_citation() -> None:
+    source = _source_result()
+    coverage = {
+        "documentCount": 10,
+        "contentAvailableCount": 10,
+        "missingRequired": [],
+        "complete": True,
+        "warnings": [],
+    }
+    readability = assess_document_readability(coverage)
+    report = compose_formal_post_evaluation_report(
+        title="采购合同履约后评价报告",
+        result=source,
+        readability=readability,
+        section_drafts={},
+        editorial={},
+        review={},
+        coverage=coverage,
+        consistency={},
+        diagnostics={},
+        approval=None,
+    )
+    report["dimensionSections"][0]["evidenceCitations"] = []
+    citations = verify_report_citations(report, source)
+    result = finalize_formal_report_quality(
+        source_result=source,
+        report_document=report,
+        citation_check=citations,
+        model_review={"issues": []},
+        readability=readability,
+    )
+
+    assert citations["passed"] is False
+    assert result["reportQuality"]["passed"] is False
+    assert result["reportQuality"]["checks"]["directDimensionCitations"] is False
+
+
 def test_formal_report_normalizes_timeline_and_internal_evidence_terms() -> None:
     source = _source_result()
     source["dimensions"][0]["evidenceRefs"] = []

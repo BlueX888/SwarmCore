@@ -21,9 +21,10 @@ from swarmcore_spec import SwarmStrategy
 def test_procurement_supplier_risk_capability_assets_are_valid() -> None:
     manifest = CapabilityPackManifest.model_validate(MANIFEST)
     strategy = SwarmStrategy.model_validate(
-        STRATEGIES["strategy://procurement-supplier-risk/assess@5"]
+        STRATEGIES["strategy://procurement-supplier-risk/assess@6"]
     )
     assert manifest.metadata.name == "procurement-supplier-risk"
+    assert manifest.metadata.version == "1.0.5"
     assert manifest.case_type == "procurement-supplier-risk-case"
     assert strategy.spec.graph.entrypoint == "read-documents"
     assert set(manifest.spec.references()) <= REFERENCES
@@ -54,6 +55,14 @@ def test_procurement_supplier_risk_capability_assets_are_valid() -> None:
         policy_revision="test",
     )
     assert set(plan.resolved_tools) == set(manifest.spec.tools)
+    review = strategy.spec.graph.nodes.root["manual-review"]
+    assert review.requires_distinct_approver is True
+    assert set(review.required_roles) == {
+        "procurement_reviewer",
+        "legal_reviewer",
+        "risk_reviewer",
+        "tenant_admin",
+    }
     for schema in SCHEMAS.values():
         Draft202012Validator.check_schema(schema)
 

@@ -14,7 +14,6 @@ import {
   BUSINESS_WORK_QUERY_GC_TIME,
   BUSINESS_WORK_QUERY_STALE_TIME,
   DOCUMENT_CATEGORY_LABELS,
-  documentBindingKeys,
   getBusinessWork,
 } from "@/lib/business-works";
 import {
@@ -39,8 +38,8 @@ export function BusinessWorkSettingsPage() {
     gcTime: BUSINESS_WORK_QUERY_GC_TIME,
   });
   const bindingKeyList = useMemo(
-    () => [...documentBindingKeys(work.data?.workKey ?? workKey, work.data?.workItemType ?? null)].sort(),
-    [work.data?.workItemType, work.data?.workKey, workKey],
+    () => [...(work.data?.documentBindingKeys ?? [])].sort(),
+    [work.data?.documentBindingKeys],
   );
   const bindingKeys = useMemo(() => new Set(bindingKeyList), [bindingKeyList]);
   const documents = useQuery({

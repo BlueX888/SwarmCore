@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/api/client";
 import { DEMO_PROJECT_ID, DEMO_TENANT_ID } from "@/lib/demo-scope";
 import { NewRunPage } from "./new-run-page";
@@ -31,7 +31,10 @@ function renderNewRunPage(path = "/runs/new") {
 }
 
 describe("new run input", () => {
+  afterEach(cleanup);
+
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(api.listStrategies).mockResolvedValue({ total: 1, items: [{ strategyId: "strategy-1", name: "内容策略", lifecycle: "ACTIVE", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), draftId: "draft-1", draftRevision: 1, latestVersion: 1 }] });
     vi.mocked(api.listVersions).mockResolvedValue({ total: 1, items: [{ strategyVersionId: "version-1", strategyId: "strategy-1", version: 1, lifecycle: "PUBLISHED", planHash: "a".repeat(64), schemaVersion: "swarmcore.io/v1", runtimeVersion: "1.0.0", createdAt: new Date(0).toISOString() }] });
     vi.mocked(api.getVersion).mockResolvedValue({ strategyVersionId: "version-1", strategyId: "strategy-1", version: 1, lifecycle: "PUBLISHED", planHash: "a".repeat(64), schemaVersion: "swarmcore.io/v1", runtimeVersion: "1.0.0", createdAt: new Date(0).toISOString(), spec: {}, normalizedSpec: {}, plan: { input_schema: { type: "object", required: ["topic"], properties: { topic: { type: "string", title: "主题", description: "请输入需要处理的主题。" }, reviewed: { type: "boolean", title: "已审核" } } } } });
@@ -66,5 +69,45 @@ describe("new run input", () => {
     fireEvent.change(await screen.findByLabelText("策略版本"), { target: { value: "version-1" } });
     fireEvent.click(await screen.findByRole("button", { name: "JSON 编辑" }));
     expect(screen.getByLabelText<HTMLTextAreaElement>("JSON 输入").value).toContain('"reviewed": false');
+  });
+
+  it("blocks an empty run when a complex strategy declares required inputs", async () => {
+    vi.mocked(api.getVersion).mockResolvedValue({
+      strategyVersionId: "version-1",
+      strategyId: "strategy-1",
+      version: 1,
+      lifecycle: "PUBLISHED",
+      planHash: "a".repeat(64),
+      schemaVersion: "swarmcore.io/v1",
+      runtimeVersion: "1.0.0",
+      createdAt: new Date(0).toISOString(),
+      spec: {},
+      normalizedSpec: {},
+      plan: {
+        input_schema: {
+          type: "object",
+          required: ["workItemId", "payload", "documents"],
+          properties: {
+            workItemId: { type: "string" },
+            payload: {
+              type: "object",
+              required: ["title"],
+              properties: { title: { type: "string" } },
+            },
+            documents: { type: "array", items: { type: "object" } },
+          },
+        },
+      },
+    });
+    renderNewRunPage();
+
+    fireEvent.change(await screen.findByLabelText("策略版本"), { target: { value: "version-1" } });
+    expect(await screen.findByText("该策略包含对象或数组等复杂字段，请使用 JSON 编辑。")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "创建运行" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("$.workItemId：缺少必填属性");
+    expect(screen.getByRole("alert")).toHaveTextContent("$.payload：缺少必填属性");
+    expect(screen.getByRole("alert")).toHaveTextContent("$.documents：缺少必填属性");
+    expect(api.createRun).not.toHaveBeenCalled();
   });
 });

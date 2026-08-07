@@ -382,7 +382,7 @@ def verify_report_citations(
         if code not in report_scores or report_scores[code] != value
     )
     return {
-        "passed": not unknown and not score_mismatches,
+        "passed": not unknown and not score_mismatches and not missing_citations,
         "indexedEvidenceCount": len(index_labels),
         "citedEvidenceCount": len(cited_labels),
         "unknownCitationCodes": unknown,
@@ -449,7 +449,7 @@ def finalize_formal_report_quality(
     if citation_check.get("unknownCitationCodes"):
         blocking.append("报告包含未登记的证据引用。")
     if citation_check.get("dimensionsWithoutCitations"):
-        warnings.append(
+        blocking.append(
             "部分评价维度缺少直接证据引用："
             + "、".join(citation_check["dimensionsWithoutCitations"])
         )
@@ -478,6 +478,9 @@ def finalize_formal_report_quality(
             "sevenDimensions": len(overview) == 7 and len(sections) == 7,
             "scoreConsistency": not citation_check.get("scoreMismatches"),
             "citationIntegrity": not citation_check.get("unknownCitationCodes"),
+            "directDimensionCitations": not citation_check.get(
+                "dimensionsWithoutCitations"
+            ),
             "businessFacingLanguage": not INTERNAL_TOKEN_PATTERN.search(visible_text),
             "formalEligibility": bool(readability.get("formalEligible")),
         },

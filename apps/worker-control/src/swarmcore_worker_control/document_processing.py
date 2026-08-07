@@ -12,6 +12,11 @@ from pypdf import PdfReader
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from swarmcore_application import DocumentProcessingService
+from swarmcore_application.document_processing.limits import (
+    MAX_SPREADSHEET_ROWS,
+    ArchiveBudget,
+    DocumentLimitError,
+)
 from swarmcore_domain import uuid7
 from swarmcore_governance import ArtifactStore
 from swarmcore_persistence import tenant_transaction
@@ -46,18 +51,12 @@ class DocumentProcessingActivities:
         async with tenant_transaction(
             self._sessions, tenant_id=tenant_id, project_id=project_id
         ) as session:
-            run, version, blob = await self._source_rows(
-                session, tenant_id, project_id, run_id
-            )
+            run, version, blob = await self._source_rows(session, tenant_id, project_id, run_id)
             source = await self._read_blob(blob)
             groups, page_count, row_count = _processing_groups(
                 source, version.media_type, version.filename
             )
-            large = (
-                page_count >= 50
-                or len(source) >= 25 * 1024 * 1024
-                or row_count >= 100_000
-            )
+            large = page_count >= 50 or len(source) >= 25 * 1024 * 1024 or row_count >= 100_000
             if not large:
                 groups = []
             run.status = "PARSING"
@@ -125,15 +124,12 @@ class DocumentProcessingActivities:
         async with tenant_transaction(
             self._sessions, tenant_id=tenant_id, project_id=project_id
         ) as session:
-            run, version, blob = await self._source_rows(
-                session, tenant_id, project_id, run_id
-            )
+            run, version, blob = await self._source_rows(session, tenant_id, project_id, run_id)
             existing = await session.scalar(
                 select(BlobObject).where(
                     BlobObject.tenant_id == tenant_id,
                     BlobObject.project_id == project_id,
-                    BlobObject.metadata_json["processingRunId"].astext
-                    == str(run_id),
+                    BlobObject.metadata_json["processingRunId"].astext == str(run_id),
                     BlobObject.metadata_json["groupKey"].astext == group_key,
                 )
             )
@@ -141,9 +137,7 @@ class DocumentProcessingActivities:
                 return _group_receipt(group, existing)
             source = await self._read_blob(blob)
             payload = _extract_group(source, version.media_type, group)
-            content = json.dumps(
-                payload, ensure_ascii=False, separators=(",", ":")
-            ).encode()
+            content = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
             artifact_id = uuid7()
             object_key = (
                 f"{tenant_id}/{project_id}/document-processing/{run_id}/"
@@ -211,9 +205,7 @@ class DocumentProcessingActivities:
     async def finalize(self, input_value: dict[str, Any]) -> dict[str, Any]:
         tenant_id, project_id, run_id = _scope(input_value)
         group_receipts = [
-            dict(value)
-            for value in input_value.get("groups") or []
-            if isinstance(value, dict)
+            dict(value) for value in input_value.get("groups") or [] if isinstance(value, dict)
         ]
         async with tenant_transaction(
             self._sessions, tenant_id=tenant_id, project_id=project_id
@@ -249,11 +241,13 @@ class DocumentProcessingActivities:
         run_id: UUID,
     ) -> tuple[DocumentProcessingRun, BusinessDocumentVersion, BlobObject]:
         run = await session.scalar(
-            select(DocumentProcessingRun).where(
+            select(DocumentProcessingRun)
+            .where(
                 DocumentProcessingRun.id == run_id,
                 DocumentProcessingRun.tenant_id == tenant_id,
                 DocumentProcessingRun.project_id == project_id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if run is None:
             raise LookupError("PROCESSING_RUN_NOT_FOUND")
@@ -319,27 +313,17 @@ def _processing_groups(
         )
     if (
         filename.lower().endswith(".xlsx")
-        or media_type
-        == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        or media_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     ):
         try:
             with zipfile.ZipFile(io.BytesIO(source)) as archive:
+                budget = ArchiveBudget(archive)
                 sheet_names = sorted(
                     name
                     for name in archive.namelist()
-                    if name.startswith("xl/worksheets/sheet")
-                    and name.endswith(".xml")
+                    if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
                 )
-                row_counts = [
-                    sum(
-                        1
-                        for _, node in ElementTree.iterparse(
-                            io.BytesIO(archive.read(name)), events=("end",)
-                        )
-                        if node.tag == f"{{{_XLSX_MAIN}}}row"
-                    )
-                    for name in sheet_names
-                ]
+                row_counts = [_xlsx_row_count(budget.read(name)) for name in sheet_names]
             return (
                 [
                     {
@@ -354,26 +338,16 @@ def _processing_groups(
                 0,
                 sum(row_counts),
             )
+        except DocumentLimitError:
+            raise
         except (ElementTree.ParseError, zipfile.BadZipFile):
             return [], 0, 0
     if filename.lower().endswith(".ods") or media_type.endswith("spreadsheet"):
         try:
             with zipfile.ZipFile(io.BytesIO(source)) as archive:
-                root = ElementTree.fromstring(archive.read("content.xml"))
+                root = ElementTree.fromstring(ArchiveBudget(archive).read("content.xml"))
             sheets = root.findall(f".//{{{_ODS_TABLE}}}table")
-            row_counts = [
-                sum(
-                    int(
-                        row.attrib.get(
-                            f"{{{_ODS_TABLE}}}number-rows-repeated", "1"
-                        )
-                    )
-                    for row in sheet.findall(
-                        f".//{{{_ODS_TABLE}}}table-row"
-                    )
-                )
-                for sheet in sheets
-            ]
+            row_counts = [_ods_row_count(sheet) for sheet in sheets]
             groups = [
                 {
                     "key": f"sheet-{index:04d}",
@@ -385,6 +359,8 @@ def _processing_groups(
                 for index, sheet in enumerate(sheets, start=1)
             ]
             return groups, 0, sum(row_counts)
+        except DocumentLimitError:
+            raise
         except (
             KeyError,
             ValueError,
@@ -395,15 +371,31 @@ def _processing_groups(
     return [], 0, 0
 
 
-def _extract_group(
-    source: bytes, media_type: str, group: dict[str, Any]
-) -> dict[str, Any]:
+def _xlsx_row_count(content: bytes) -> int:
+    count = 0
+    for _, node in ElementTree.iterparse(io.BytesIO(content), events=("end",)):
+        if node.tag == f"{{{_XLSX_MAIN}}}row":
+            count += 1
+            if count > MAX_SPREADSHEET_ROWS:
+                raise DocumentLimitError("DOCUMENT_SPREADSHEET_ROW_LIMIT_EXCEEDED")
+        node.clear()
+    return count
+
+
+def _ods_row_count(sheet: ElementTree.Element) -> int:
+    count = 0
+    for row in sheet.findall(f".//{{{_ODS_TABLE}}}table-row"):
+        count += int(row.attrib.get(f"{{{_ODS_TABLE}}}number-rows-repeated", "1"))
+        if count > MAX_SPREADSHEET_ROWS:
+            raise DocumentLimitError("DOCUMENT_SPREADSHEET_ROW_LIMIT_EXCEEDED")
+    return count
+
+
+def _extract_group(source: bytes, media_type: str, group: dict[str, Any]) -> dict[str, Any]:
     if group.get("kind") == "PAGES":
         reader = PdfReader(io.BytesIO(source))
         pages = []
-        for page_number in range(
-            int(group["pageStart"]), int(group["pageEnd"]) + 1
-        ):
+        for page_number in range(int(group["pageStart"]), int(group["pageEnd"]) + 1):
             text = reader.pages[page_number - 1].extract_text() or ""
             pages.append(
                 {
@@ -428,9 +420,7 @@ def _extract_group(
     }
 
 
-def _group_receipt(
-    group: dict[str, Any], artifact: BlobObject
-) -> dict[str, Any]:
+def _group_receipt(group: dict[str, Any], artifact: BlobObject) -> dict[str, Any]:
     return {
         "groupKey": str(group["key"]),
         "artifactRef": f"blob://{artifact.id}",

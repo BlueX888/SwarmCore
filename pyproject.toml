@@ -38,6 +38,8 @@ members = [
   "packages/capability-deviation-analysis",
   "packages/capability-invoice-assurance",
   "packages/capability-swarm-calibration",
+  "packages/capability-ai-foundation-quality",
+  "packages/capability-report-generation",
 ]
 
 [dependency-groups]
@@ -89,6 +91,8 @@ pythonpath = [
   "packages/capability-deviation-analysis/src",
   "packages/capability-invoice-assurance/src",
   "packages/capability-swarm-calibration/src",
+  "packages/capability-ai-foundation-quality/src",
+  "packages/capability-report-generation/src",
 ]
 
 [tool.ruff]
@@ -133,6 +137,8 @@ packages = [
   "swarmcore_capability_procurement_supplier_risk",
   "swarmcore_capability_deviation_analysis",
   "swarmcore_capability_swarm_calibration",
+  "swarmcore_capability_ai_foundation_quality",
+  "swarmcore_capability_report_generation",
 ]
 mypy_path = [
   "packages/application/src",
@@ -166,4 +172,6 @@ mypy_path = [
   "packages/capability-deviation-analysis/src",
   "packages/capability-invoice-assurance/src",
   "packages/capability-swarm-calibration/src",
+  "packages/capability-ai-foundation-quality/src",
+  "packages/capability-report-generation/src",
 ]

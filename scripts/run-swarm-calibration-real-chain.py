@@ -133,12 +133,12 @@ def main() -> int:
                 item
                 for item in packs["items"]
                 if item["name"] == "swarm-calibration"
-                and item["version"] == "1.0.4"
+                and item["version"] == "1.0.5"
             ),
             None,
         )
         if pack is None:
-            raise ChainError("trusted swarm-calibration@1.0.4 pack was not found")
+            raise ChainError("trusted swarm-calibration@1.0.5 pack was not found")
         enabled = (
             pack
             if pack.get("bindingStatus") == "ENABLED"

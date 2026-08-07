@@ -15,18 +15,22 @@ def _load(name: str) -> dict[str, Any]:
 MANIFEST = _load("manifest.json")
 MANIFEST_V2 = _load("manifest-v2.json")
 MANIFEST_V2_1 = _load("manifest-v2.1.json")
+MANIFEST_V2_2 = _load("manifest-v2.2.json")
 SCHEMAS = {
     "schema://contract/case@1": _load("case.schema.json"),
     "schema://contract/validation-input@1": _load("input.schema.json"),
     "schema://contract/validation-input@2": _load("input-v2.schema.json"),
+    "schema://contract/validation-input@3": _load("input-v3.schema.json"),
     "schema://contract/validation-result@1": _load("output.schema.json"),
+    "schema://contract/validation-result@2": _load("output-v2.schema.json"),
     "schema://contract/checklist-rule@1": _load("rule.schema.json"),
     "schema://contract/document-extraction@1": _load("extraction.schema.json"),
 }
 DEFAULT_RULES = _load("default-rules.json")
 VIEW_DEFINITION = _load("view-definition.json")
 STRATEGIES = {
-    "strategy://contract-integrity/validate@1": _load("strategy.json"),
+    "strategy://contract-integrity/validate@1": _load("strategy-v1.json"),
+    "strategy://contract-integrity/validate@2": _load("strategy.json"),
 }
 REFERENCES = frozenset(
     {
@@ -36,6 +40,7 @@ REFERENCES = frozenset(
         "agent://contract/field-extractor@1",
         "tool://document/read@1",
         "tool://document/read-versions@1",
+        "tool://contract/integrity-finalize@1",
         "tool://rules/evaluate@1",
         "tool://contract/cross-file-consistency@1",
         "tool://workbench/record-evaluation@1",
@@ -50,6 +55,7 @@ __all__ = [
     "MANIFEST",
     "MANIFEST_V2",
     "MANIFEST_V2_1",
+    "MANIFEST_V2_2",
     "REFERENCES",
     "SCHEMAS",
     "STRATEGIES",

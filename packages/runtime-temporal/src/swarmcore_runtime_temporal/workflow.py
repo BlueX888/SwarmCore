@@ -707,6 +707,10 @@ class SwarmRunWorkflow:
                 "nodeKey": request["nodeKey"],
                 "prompt": node["config"]["prompt"],
                 "inputSchema": request["schema"],
+                "requiredRoles": list(node["config"].get("requiredRoles", [])),
+                "requiresDistinctApprover": bool(
+                    node["config"].get("requiresDistinctApprover", False)
+                ),
                 **(governance or {}),
             },
         )

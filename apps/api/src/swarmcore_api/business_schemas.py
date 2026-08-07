@@ -414,8 +414,12 @@ class CaseSubjectRequest(BusinessModel):
 
 class CreateCaseRequest(BusinessModel):
     scenario_type: str = Field(alias="scenarioType", min_length=1, max_length=128)
+    business_work_key: str | None = Field(
+        default=None, alias="businessWorkKey", min_length=1, max_length=128
+    )
     payload: dict[str, Any]
     subjects: list[CaseSubjectRequest] = Field(default_factory=list)
+    document_ids: list[UUID] = Field(default_factory=list, alias="documentIds")
     owner: str | None = Field(default=None, max_length=256)
 
 
@@ -498,6 +502,12 @@ class BusinessWorkSnapshot(BusinessModel):
     summary: str
     status: Literal["planned", "not_configured", "incomplete", "runnable", "unavailable"]
     status_label: str = Field(alias="statusLabel")
+    qualification_status: Literal[
+        "planned", "unverified", "local_verified", "production_verified"
+    ] = Field(
+        alias="qualificationStatus"
+    )
+    qualification_label: str = Field(alias="qualificationLabel")
     pack_name: str | None = Field(default=None, alias="packName")
     pack_version_id: UUID | None = Field(default=None, alias="packVersionId")
     pack_version: str | None = Field(default=None, alias="packVersion")
@@ -510,6 +520,7 @@ class BusinessWorkSnapshot(BusinessModel):
     document_requirements: list[dict[str, Any]] = Field(
         default_factory=list, alias="documentRequirements"
     )
+    document_binding_keys: list[str] = Field(default_factory=list, alias="documentBindingKeys")
     decision_slots: list[dict[str, Any]] = Field(default_factory=list, alias="decisionSlots")
     functions: list[BusinessWorkFunctionSnapshot] = Field(default_factory=list)
     configuration: dict[str, Any] = Field(default_factory=dict)
@@ -525,6 +536,65 @@ class BusinessWorkSnapshot(BusinessModel):
 
 class BusinessWorkListResponse(BusinessModel):
     items: list[BusinessWorkSnapshot]
+
+
+class ProjectOverviewCountsSnapshot(BusinessModel):
+    pending_approvals: int = Field(alias="pendingApprovals")
+    pending_inputs: int = Field(alias="pendingInputs")
+    documents_available: int = Field(alias="documentsAvailable")
+    documents_review_required: int = Field(alias="documentsReviewRequired")
+    documents_failed: int = Field(alias="documentsFailed")
+    active_runs: int = Field(alias="activeRuns")
+    waiting_runs: int = Field(alias="waitingRuns")
+
+
+class ProjectOverviewReadinessSnapshot(BusinessModel):
+    required_documents: int = Field(alias="requiredDocuments")
+    satisfied_documents: int = Field(alias="satisfiedDocuments")
+    documents_ready: bool = Field(alias="documentsReady")
+    ready_to_start: bool = Field(alias="readyToStart")
+
+
+class ProjectOverviewRunSnapshot(BusinessModel):
+    run_id: UUID = Field(alias="runId")
+    business_work_key: str | None = Field(default=None, alias="businessWorkKey")
+    business_work_name: str = Field(alias="businessWorkName")
+    status: str
+    strategy_version_id: UUID = Field(alias="strategyVersionId")
+    event_count: int = Field(alias="eventCount")
+    task_count: int = Field(alias="taskCount")
+    operator_name: str = Field(alias="operatorName")
+    created_at: datetime = Field(alias="createdAt")
+    started_at: datetime | None = Field(default=None, alias="startedAt")
+    completed_at: datetime | None = Field(default=None, alias="completedAt")
+    failure_reason: str | None = Field(default=None, alias="failureReason")
+    cancel_reason: str | None = Field(default=None, alias="cancelReason")
+
+
+class ProjectOverviewWorkSnapshot(BusinessModel):
+    work_key: str = Field(alias="workKey")
+    name: str
+    short_name: str = Field(alias="shortName")
+    category: Literal["foundation", "business", "governance"]
+    status: Literal["planned", "not_configured", "incomplete", "runnable", "unavailable"]
+    status_label: str = Field(alias="statusLabel")
+    qualification_status: Literal[
+        "planned", "unverified", "local_verified", "production_verified"
+    ] = Field(
+        alias="qualificationStatus"
+    )
+    qualification_label: str = Field(alias="qualificationLabel")
+    blockers: list[BusinessWorkBlockerSnapshot] = Field(default_factory=list)
+    readiness: ProjectOverviewReadinessSnapshot
+    active_run_id: UUID | None = Field(default=None, alias="activeRunId")
+    latest_run: ProjectOverviewRunSnapshot | None = Field(default=None, alias="latestRun")
+
+
+class ProjectOverviewSnapshot(BusinessModel):
+    generated_at: datetime = Field(alias="generatedAt")
+    counts: ProjectOverviewCountsSnapshot
+    business_works: list[ProjectOverviewWorkSnapshot] = Field(alias="businessWorks")
+    recent_runs: list[ProjectOverviewRunSnapshot] = Field(alias="recentRuns")
 
 
 class BindBusinessWorkStrategyRequest(BusinessModel):
@@ -683,6 +753,9 @@ class SwarmCalibrationSandboxRequest(BusinessModel):
 
 
 class RunSwarmCalibrationRequest(BusinessModel):
+    calibration_mode: Literal["GITHUB_ENGINEERING_ISSUE"] = Field(
+        default="GITHUB_ENGINEERING_ISSUE", alias="calibrationMode"
+    )
     title: str = Field(min_length=1, max_length=256)
     issue_url: str = Field(
         alias="issueUrl",

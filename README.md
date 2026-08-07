@@ -23,9 +23,10 @@ SwarmCore 接收已经明确的目标与执行策略，负责校验、编译、�
 - **业务工作台**：提供 Business Works、文档处理、Case、Assessment、Finding、Report
   和 DecisionAsset 等统一产品入口。
 
-当前仓库包含合同完整性、合同七维后评价、偏差分析、发票一致性校验和招采一致性与
-供应商风控等能力包。它们的
-验收层级不同；请勿将本地实现状态等同于生产可用。
+当前仓库为 10 个业务工作提供一对一内部能力包，包括基础 AI 质量评测、文件结构化、
+文件完整性、履约采集、发票校验、偏差分析、确认结果报告生成、合同后评价、GitHub
+工程问题调度校准和招采供应商风控。它们的验收层级不同；请勿将本地实现状态等同于
+生产可用。
 
 ## 架构概览
 
@@ -201,6 +202,8 @@ DecisionAsset 术语；`WorkItem`、`Evaluation` 与 `RuleSet` 仅作为兼容�
 `GET /v1/projects/{projectId}/documents?businessWorkKey=...`；设置页可用
 `GET /v1/projects/{projectId}/strategies/versions` 一次读取项目级已发布/可信策略版本，
 详情页用 `GET /v1/projects/{projectId}/run-summaries?strategyVersionId=...` 读取轻量运行摘要。
+项目工作台用 `GET /v1/projects/{projectId}/overview` 一次读取当前待办、资料状态、
+业务工作准备度和最近 5 条运行摘要；响应不包含完整运行输入输出、任务、能力清单或资料记录。
 业务工作投影中的 `caseDefinition` 提供办理所需 Case 类型、Schema 和主体约束，避免加载完整能力包。
 合同履约专用 REST 位于
 `/v1/projects/{projectId}/contract-performance/cases`，覆盖 Case 创建、计划初始化/发布、
@@ -229,6 +232,7 @@ uv run python scripts/prepare_document_structuring_demo.py `
 
 Web 控制台的主要入口：
 
+- `/overview`：项目待办、业务工作准备度和最近执行动态
 - `/business-works/:workKey`：各业务工作的详情、配置与办理入口；`/business-works` 重定向到工作台
 - `/strategies`：策略管理
 - `/runs`：运行记录与状态
@@ -246,6 +250,8 @@ Web 控制台的主要入口：
   `SWARMCORE_MODEL_PROVIDER_API_KEY`
 - Gateway：`SWARMCORE_TOOL_GATEWAY_URL`、`SWARMCORE_ARTIFACT_GATEWAY_URL`、
   `SWARMCORE_MODEL_GATEWAY_URL`
+- SSE：`SWARMCORE_SSE_MAX_CONNECTIONS_PER_ACTOR`、
+  `SWARMCORE_SSE_MAX_CONNECTIONS_PER_PROJECT`、`SWARMCORE_SSE_MAX_LIFETIME_SECONDS`
 - 文档处理：`SWARMCORE_OCR_ENDPOINT`、`SWARMCORE_TESSERACT_CMD`
 - 调度校准：`SWARMCORE_GITHUB_TOKEN`、`SWARMCORE_GITHUB_API_URL`、
   `SWARMCORE_CALIBRATION_SANDBOX_ENABLED`、`SWARMCORE_CALIBRATION_SANDBOX_IMAGE`
@@ -253,6 +259,9 @@ Web 控制台的主要入口：
   `SWARMCORE_SUPPLIER_RISK_TIMEOUT_SECONDS`；商业 Provider 凭据使用 Vault `secretRef`
 - 受控文件系统：`SWARMCORE_FILESYSTEM_TOOLS_ENABLED`、
   `SWARMCORE_FILESYSTEM_EXECUTOR_MODE`、`SWARMCORE_FILESYSTEM_ROOT`
+
+生产环境的项目模型 Provider 仅接受解析到公网地址的 HTTPS URL，且配置、测试和密钥查看仅允许
+项目管理员或租户管理员执行。调度校准的 GitHub 证据和沙箱仓库仅允许公开仓库。
 
 仓库验证镜像必须由 `apps/repository-verifier` 构建，构建基础镜像和运行镜像都必须使用
 组织批准的 immutable digest；未配置时结果为 `UNVERIFIED`，质量门禁不会自动通过。

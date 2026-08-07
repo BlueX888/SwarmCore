@@ -280,11 +280,13 @@ describe("capabilities page", () => {
     vi.mocked(api.getCapabilityCenter).mockResolvedValue({ registrySnapshot: "registry:test", items: [] });
     renderModelPage();
     expect(await screen.findByRole("heading", { name: "模型" })).toBeVisible();
+    expect(screen.getByText(/模型只负责连接和调用.*任务能力在智能体中定义/)).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "显示已配置但未就绪" })).toBeVisible();
-    expect(screen.getByText("没有可用模型。")).toBeVisible();
+    expect(screen.getByPlaceholderText("搜索模型名称或 API 连接")).toBeVisible();
+    expect(screen.getByText("没有可调用的模型 API。")).toBeVisible();
     expect(screen.getByText(/点击“新建模型”，只需填写 API URL、ModelName 和 API Key/)).toBeVisible();
     fireEvent.click(screen.getByRole("checkbox", { name: "显示已配置但未就绪" }));
-    expect(await screen.findByText("当前项目还没有模型配置。")).toBeVisible();
+    expect(await screen.findByText("当前项目还没有模型 API 配置。")).toBeVisible();
   });
 
   it("configures and performs a real model connectivity test without run controls", async () => {
@@ -293,11 +295,16 @@ describe("capabilities page", () => {
     fireEvent.click(await screen.findByRole("button", { name: /general/ }));
     const dialog = screen.getByRole("dialog", { name: "general" });
     await waitFor(() => expect(within(dialog).getByLabelText("模型 API URL")).toHaveValue("https://api.example.com/v1"));
+    expect(within(dialog).getByText("供智能体调用的模型 API 连接。")).toBeVisible();
+    expect(within(dialog).queryByText(model.description)).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("heading", { name: "我的预设" })).not.toBeInTheDocument();
     expect(within(dialog).queryByLabelText("运行输入 JSON")).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "加入画布" })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "立即运行" })).not.toBeInTheDocument();
-    expect(within(dialog).getByText(/提示词在配置智能体或策略节点时填写/)).toBeVisible();
+    expect(within(dialog).getByText(/角色、提示词、工具和任务能力请在智能体中定义/)).toBeVisible();
+    expect(within(dialog).getByText("可调用")).toBeVisible();
+    fireEvent.click(within(dialog).getByText("连接详情"));
+    expect(within(dialog).queryByText(/inputSchema/)).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "重新检测" }));
     await waitFor(() => expect(api.testModelProvider).toHaveBeenCalledWith(expect.any(String), expect.any(String), {
       logicalModel: "model://general", providerUrl: "https://api.example.com/v1", modelName: "test-model", displayName: "test-model",
@@ -326,7 +333,7 @@ describe("capabilities page", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "重新检测" }));
 
     expect(await within(dialog).findByText(/模型已就绪/)).toBeVisible();
-    await waitFor(() => expect(within(dialog).getByText("可用")).toBeVisible());
+    await waitFor(() => expect(within(dialog).getByText("可调用")).toBeVisible());
     expect(within(dialog).queryByText("健康检查失败")).not.toBeInTheDocument();
   });
 
@@ -413,9 +420,9 @@ describe("capabilities page", () => {
     });
     renderModelPage();
     fireEvent.click(await screen.findByRole("button", { name: "新建模型" }));
-    const dialog = screen.getByRole("dialog", { name: "新建模型配置" });
+    const dialog = screen.getByRole("dialog", { name: "新建模型 API" });
     expect(within(dialog).queryByLabelText("逻辑模型路由")).not.toBeInTheDocument();
-    expect(within(dialog).getByText(/填写三要素即可创建项目级可用模型/)).toBeVisible();
+    expect(within(dialog).getByText(/创建供智能体调用的模型 API 连接.*任务能力在智能体中定义/)).toBeVisible();
     fireEvent.change(within(dialog).getByLabelText("模型显示名称"), { target: { value: "业务模型" } });
     fireEvent.change(within(dialog).getByLabelText("模型 API URL"), { target: { value: "https://api.example.com/v1" } });
     fireEvent.change(within(dialog).getByLabelText("模型名称"), { target: { value: "gpt-4.1-mini" } });
@@ -430,7 +437,7 @@ describe("capabilities page", () => {
       apiKey: "sk-test",
     });
     expect(request?.logicalModel).toMatch(/^model:\/\/project\/[0-9a-f-]{36}$/);
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建模型配置" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建模型 API" })).not.toBeInTheDocument());
   });
 
   it("opens the policy creation flow from the page header", async () => {

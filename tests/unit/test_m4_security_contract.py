@@ -12,17 +12,22 @@ import pytest
 from fastapi.testclient import TestClient
 from swarmcore_api import create_app
 from swarmcore_api.authentication import AuthenticationError, _identity_from_claims
+from swarmcore_api.dependencies import _rest_action
 from swarmcore_api.settings import Settings
 from swarmcore_governance import (
     InMemorySecretProvider,
     ModelCapabilityIssuer,
     PolicyDecision,
     PolicyObligations,
+    PolicyRequest,
+    PolicySubject,
+    RolePolicyEngine,
     SandboxAdmission,
     SandboxRequest,
     SandboxViolation,
     WorkloadTls,
 )
+from swarmcore_model_gateway import main as model_gateway
 from swarmcore_model_gateway.main import Settings as ModelGatewaySettings
 from swarmcore_model_gateway.main import create_app as create_model_gateway
 from swarmcore_observability import JsonRedactingFormatter
@@ -99,6 +104,101 @@ def test_rest_policy_denies_missing_or_insufficient_identity() -> None:
     assert missing.status_code == 401
     assert denied.status_code == 403
     assert denied.json()["detail"] == "POLICY_DENIED"
+
+
+@pytest.mark.asyncio
+async def test_model_provider_secret_actions_are_not_run_control() -> None:
+    project = "00000000-0000-0000-0000-000000000002"
+    reveal = _rest_action("POST", f"/v1/projects/{project}/model-provider:key")
+    test = _rest_action("POST", f"/v1/projects/{project}/model-provider:test")
+    engine = RolePolicyEngine()
+
+    async def allowed(role: str, action: str) -> bool:
+        decision = await engine.evaluate(
+            PolicyRequest(
+                subject=PolicySubject(
+                    id="actor",
+                    tenantId="00000000-0000-0000-0000-000000000001",
+                    roles=(role,),
+                ),
+                action=action,
+                resource={},
+            )
+        )
+        return decision.allow
+
+    assert reveal == "model-provider.secret.read"
+    assert test == "model-provider.test"
+    assert await allowed("run_operator", reveal) is False
+    assert await allowed("run_operator", test) is False
+    assert await allowed("project_admin", reveal) is True
+    assert await allowed("project_admin", test) is True
+
+
+def test_business_resource_routes_use_domain_actions() -> None:
+    base = "/v1/projects/00000000-0000-0000-0000-000000000002"
+    assert _rest_action("GET", f"{base}/documents") == "document.read"
+    assert _rest_action("POST", f"{base}/documents:process") == "document.process"
+    assert _rest_action("PUT", f"{base}/documents/document-id/bindings") == "document.write"
+    assert _rest_action("GET", f"{base}/cases/case-id") == "case.read"
+    assert _rest_action("POST", f"{base}/cases/case-id:assess") == "case.assess"
+    assert _rest_action("POST", f"{base}/business-objects") == "case.write"
+
+
+def test_unpriced_model_usage_gets_conservative_budget_cost() -> None:
+    settings = ModelGatewaySettings(
+        unpriced_model_input_usd_per_million=100,
+        unpriced_model_output_usd_per_million=200,
+    )
+    cost, version = model_gateway._resolved_response_cost(
+        {"response_cost": 0},
+        input_tokens=1_000,
+        output_tokens=500,
+        settings=settings,
+    )
+    assert cost == pytest.approx(0.2)
+    assert version == f"{settings.model_price_version}:fallback"
+
+
+def test_production_model_provider_target_must_be_public_https(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        model_gateway.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [(2, 1, 6, "", ("10.0.0.5", 443))],
+    )
+    with pytest.raises(ValueError, match="public addresses"):
+        model_gateway._validate_provider_target(
+            "https://provider.example/v1", deployment_mode="production"
+        )
+    with pytest.raises(ValueError, match="HTTPS"):
+        model_gateway._validate_provider_target(
+            "http://198.51.100.10/v1", deployment_mode="production"
+        )
+
+    monkeypatch.setattr(
+        model_gateway.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [(2, 1, 6, "", ("8.8.8.8", 443))],
+    )
+    model_gateway._validate_provider_target(
+        "https://provider.example/v1", deployment_mode="production"
+    )
+
+
+def test_model_provider_http_redirects_are_disabled() -> None:
+    assert (
+        model_gateway._NoRedirectHandler().redirect_request(
+            model_gateway.Request("https://provider.example/v1"),
+            None,
+            302,
+            "Found",
+            {},
+            "http://127.0.0.1/internal",
+        )
+        is None
+    )
 
 
 def test_model_gateway_openai_route_requires_matching_run_capability() -> None:

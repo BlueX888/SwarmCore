@@ -5,6 +5,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
 import sys
 import time
 from datetime import UTC, datetime
@@ -18,10 +19,41 @@ from swarmcore_api.settings import Settings
 from swarmcore_persistence import Database
 from swarmcore_persistence.models import Project, Tenant
 
-API_URL = "http://127.0.0.1:8110"
-ARTIFACT_URL = "http://127.0.0.1:8091"
+API_URL = os.getenv("SWARMCORE_QUALIFICATION_API_URL", "http://127.0.0.1:8110")
+ARTIFACT_URL = os.getenv(
+    "SWARMCORE_QUALIFICATION_ARTIFACT_URL", "http://127.0.0.1:8091"
+)
 SOURCE_PATH = Path(
-    ".tmp/document-structuring-demo/dos-4-call-off-contract.odt"
+    os.getenv(
+        "SWARMCORE_QUALIFICATION_DOCUMENT_PATH",
+        ".tmp/document-structuring-demo/dos-4-call-off-contract.odt",
+    )
+)
+SOURCE_MEDIA_TYPE = os.getenv(
+    "SWARMCORE_QUALIFICATION_DOCUMENT_MEDIA_TYPE",
+    "application/vnd.oasis.opendocument.text",
+)
+SOURCE_ORIGIN = os.getenv(
+    "SWARMCORE_QUALIFICATION_DOCUMENT_ORIGIN",
+    "GOV.UK Digital Outcomes and Specialists 4 call-off contract",
+)
+SOURCE_DATA_CLASS = os.getenv(
+    "SWARMCORE_QUALIFICATION_DOCUMENT_DATA_CLASS", "public-real-document"
+)
+SOURCE_TAGS = [
+    value.strip()
+    for value in os.getenv(
+        "SWARMCORE_QUALIFICATION_DOCUMENT_TAGS", "CONTRACT,ODF,PUBLIC_REAL_CHAIN"
+    ).split(",")
+    if value.strip()
+]
+SOURCE_CASE_TITLE = os.getenv(
+    "SWARMCORE_QUALIFICATION_DOCUMENT_CASE_TITLE",
+    "GOV.UK DOS 4 合同真实文件结构化",
+)
+SOURCE_NOTES = os.getenv(
+    "SWARMCORE_QUALIFICATION_DOCUMENT_NOTES",
+    "使用公开真实 ODT，验证解析、NLP、工具、人工确认和发布。",
 )
 OUTPUT_DIR = Path("output/document-structuring-real-chain")
 TENANT_ID = UUID("1813c340-7bdc-42ed-b12d-cb9c91bf1fb3")
@@ -273,11 +305,11 @@ def main() -> int:
         "source": {
             "path": str(SOURCE_PATH.resolve()),
             "filename": SOURCE_PATH.name,
-            "mediaType": "application/vnd.oasis.opendocument.text",
+            "mediaType": SOURCE_MEDIA_TYPE,
             "sizeBytes": len(source),
             "sha256": digest,
-            "dataClass": "public-real-document",
-            "origin": "GOV.UK Digital Outcomes and Specialists 4 call-off contract",
+            "dataClass": SOURCE_DATA_CLASS,
+            "origin": SOURCE_ORIGIN,
         },
     }
     with httpx.Client(base_url=API_URL, timeout=90) as client:
@@ -346,9 +378,9 @@ def main() -> int:
             f"/v1/projects/{PROJECT_ID}/documents:initiate",
             idempotency_key=f"document-chain-init-{nonce}",
             json_body={
-                "name": "DOS 4 Call-Off Contract",
+                "name": SOURCE_PATH.stem,
                 "category": "SOURCE_DOCUMENT",
-                "tags": ["CONTRACT", "ODF", "PUBLIC_REAL_CHAIN"],
+                "tags": SOURCE_TAGS,
                 "filename": SOURCE_PATH.name,
                 "mediaType": evidence["source"]["mediaType"],
                 "sizeBytes": len(source),
@@ -418,10 +450,12 @@ def main() -> int:
             idempotency_key=f"document-chain-case-{nonce}",
             json_body={
                 "scenarioType": "document-structuring-case",
+                "businessWorkKey": "document-structuring",
+                "documentIds": [document_id],
                 "payload": {
-                    "title": "GOV.UK DOS 4 合同真实文件结构化",
+                    "title": SOURCE_CASE_TITLE,
                     "language": "en-GB",
-                    "notes": "使用公开真实 ODT，验证解析、NLP、工具、人工确认和发布。",
+                    "notes": SOURCE_NOTES,
                 },
                 "subjects": [],
                 "owner": "document-chain-operator",

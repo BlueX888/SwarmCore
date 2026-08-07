@@ -113,6 +113,8 @@ def test_post_evaluation_pack_is_self_consistent_and_runnable() -> None:
         MANIFEST, CapabilityReferenceCatalog.from_iterable(REFERENCES)
     )
     assert isinstance(manifest, CapabilityPackManifest)
+    assert manifest.metadata.version == "2.0.7"
+    assert manifest.spec.input_schema == "schema://contract/post-evaluation-input@4"
     assert manifest.case_type == "contract-post-evaluation-case"
     assert set(snapshot) == set(manifest.spec.references())
     assert manifest.spec.resources == ()
@@ -205,6 +207,12 @@ def test_post_evaluation_pack_is_self_consistent_and_runnable() -> None:
     )
     assert strategy_nodes["review-router"]["default"] == "auto-continue"
     assert strategy_nodes["manual-review"]["type"] == "approval"
+    assert strategy_nodes["merge-domains"]["input"]["upstreamEvaluations"] == (
+        "{{ input.upstreamEvaluations }}"
+    )
+    assert strategy_nodes["finalize"]["input"]["provenance"][
+        "upstreamEvaluations"
+    ] == "{{ tasks.merge-domains.output.content.upstreamEvaluationRefs }}"
 
     catalog = CapabilityCatalogService((MANIFEST,)).get()
     assert [item.name for item in catalog.capability_packs] == ["contract-post-evaluation"]

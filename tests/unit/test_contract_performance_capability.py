@@ -20,23 +20,24 @@ def test_contract_performance_capability_assets_are_valid() -> None:
         STRATEGIES["strategy://contract-performance/initialize@13"]
     )
     collect = SwarmStrategy.model_validate(
-        STRATEGIES["strategy://contract-performance/collect@10"]
+        STRATEGIES["strategy://contract-performance/collect@11"]
     )
 
     assert manifest.metadata.name == "contract-performance"
-    assert manifest.metadata.version == "1.0.17"
+    assert manifest.metadata.version == "1.0.18"
     assert len(initialize.spec.agents) == 1
     assert len(collect.spec.agents) == 1
     assert initialize.spec.budget.max_agents == 4
     assert collect.spec.budget.max_agents == 5
     assert collect.spec.budget.max_parallelism == 5
-    assert collect.spec.budget.on_exhausted == "partial_result"
+    assert collect.spec.budget.on_exhausted == "wait_for_budget_approval"
     assert manifest.spec.strategies.execute in REFERENCES
     assert manifest.spec.strategies.operations == {
         "INITIALIZE": "strategy://contract-performance/initialize@13",
-        "COLLECT": "strategy://contract-performance/collect@10",
+        "COLLECT": "strategy://contract-performance/collect@11",
     }
     assert "strategy://contract-performance/collect@10" in REFERENCES
+    assert "strategy://contract-performance/collect@11" in REFERENCES
     assert set(manifest.spec.agents) <= REFERENCES
     assert set(manifest.spec.tools) <= REFERENCES
     registry = builtin_registry()
@@ -97,7 +98,7 @@ def test_contract_performance_operation_selects_frozen_collect_strategy() -> Non
         "strategyVersionId": "00000000-0000-0000-0000-000000000001",
     }
     collect = {
-        "ref": "strategy://contract-performance/collect@10",
+        "ref": "strategy://contract-performance/collect@11",
         "strategyVersionId": "00000000-0000-0000-0000-000000000002",
     }
     dependency_snapshot = {

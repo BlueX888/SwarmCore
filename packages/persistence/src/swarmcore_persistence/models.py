@@ -403,6 +403,7 @@ class ApprovalRequest(Base, IdMixin, TenantMixin):
     policy_revision: Mapped[str | None] = mapped_column(String(128))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     requires_distinct_approver: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    required_roles: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
 
 
 class ExternalInputRequest(Base, IdMixin, TenantMixin):
@@ -781,10 +782,12 @@ class WorkItem(Base, IdMixin, TenantMixin, TimestampMixin):
         ),
         Index("ix_work_items_project_status", "project_id", "status", "updated_at"),
         Index("ix_work_items_project_type", "project_id", "work_item_type"),
+        Index("ix_work_items_project_business_work", "project_id", "business_work_key"),
     )
 
     project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     work_item_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_work_key: Mapped[str | None] = mapped_column(String(128))
     schema_version: Mapped[str] = mapped_column(String(256), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="DRAFT", nullable=False)

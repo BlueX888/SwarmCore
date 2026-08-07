@@ -50,6 +50,9 @@ test("edits, persists and publishes a Strategy Canvas", async ({ page }, testInf
     await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   }
 
+  await page.route("**/api/v1/projects/*/approvals", (route) => route.fulfill({ json: { total: 0, items: [] } }));
+  await page.route("**/api/v1/projects/*/inputs", (route) => route.fulfill({ json: { total: 0, items: [] } }));
+  await page.route("**/api/v1/projects/*/configurations/agent", (route) => route.fulfill({ json: { total: 0, items: [] } }));
   await page.route("**/api/v1/projects/*/capabilities", (route) => route.fulfill({ json: capabilityCatalog() }));
   await page.route("**/api/v1/projects/*/strategies/compile", (route) => route.fulfill({ json: { valid: true, diagnostics: [], plan: { plan_hash: "a".repeat(64) } } }));
   await page.route(/\/api\/v1\/projects\/[^/]+\/strategies(?:\?.*)?$/, (route) => route.fulfill({ json: { total: 1, items: [{ strategyId, name: "canvas-e2e", lifecycle: "ACTIVE", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), draftId, draftRevision: revision, latestVersion: null }] } }));
@@ -72,6 +75,7 @@ test("edits, persists and publishes a Strategy Canvas", async ({ page }, testInf
   await expect(page.getByTestId("strategy-canvas")).toBeVisible();
   await page.getByRole("button", { name: "并行", exact: true }).click();
   await page.getByRole("button", { name: "外部输入", exact: true }).click();
+  await page.getByRole("button", { name: "Fit View" }).click();
   await expect(page.locator('.react-flow__node[data-id="parallel-1"]')).toBeVisible();
   await connect(page, "planner", "parallel-1");
   await connect(page, "parallel-1", "input-1");
@@ -81,6 +85,8 @@ test("edits, persists and publishes a Strategy Canvas", async ({ page }, testInf
   await expect(page.locator('.react-flow__node[data-id="join-1"]')).toHaveCount(0);
 
   const inputNode = page.locator('.react-flow__node[data-id="input-1"]');
+  await page.getByRole("button", { name: "Fit View" }).click();
+  await inputNode.scrollIntoViewIfNeeded();
   await inputNode.dragTo(page.getByTestId("strategy-canvas"), { force: true, targetPosition: { x: 700, y: 400 } });
   await page.getByRole("button", { name: "保存草稿" }).click();
   await expect(page.getByRole("status")).toContainText("草稿已保存");

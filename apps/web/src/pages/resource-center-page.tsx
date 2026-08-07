@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import {
   ArrowDown,
   ArrowUp,
@@ -88,6 +88,7 @@ const defaultColumns: Record<ColumnKey, boolean> = {
 export function DocumentLibraryPage() {
   const { documentId } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { tenantId, projectId, workspacePath } = useWorkspaceScope();
   const queryClient = useQueryClient();
   const [showUpload, setShowUpload] = useState(false);
@@ -95,7 +96,16 @@ export function DocumentLibraryPage() {
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("");
   const [updatedWithin, setUpdatedWithin] = useState("");
-  const [view, setView] = useState<ViewKey>("all");
+  const requestedView = searchParams.get("view");
+  const view: ViewKey = views.some((item) => item.value === requestedView)
+    ? requestedView as ViewKey
+    : "all";
+  const setView = (next: ViewKey) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === "all") params.delete("view");
+    else params.set("view", next);
+    setSearchParams(params, { replace: true });
+  };
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [association, setAssociation] = useState<"" | "linked" | "unlinked">("");

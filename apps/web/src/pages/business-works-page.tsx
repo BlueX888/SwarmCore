@@ -18,7 +18,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   BUSINESS_WORK_QUERY_GC_TIME, BUSINESS_WORK_QUERY_STALE_TIME, BUSINESS_WORK_RUN_REFRESH_INTERVAL,
-  DOCUMENT_CATEGORY_LABELS, documentBindingKeys, getBusinessWork,
+  DOCUMENT_CATEGORY_LABELS, getBusinessWork,
   type BusinessWorkDefinition,
 } from "@/lib/business-works";
 import { useWorkspaceScope } from "@/lib/demo-scope";
@@ -141,8 +141,8 @@ function BusinessWorkDetailContent({
   const [startDialogOpen, setStartDialogOpen] = useState(false);
 
   const bindingKeys = useMemo(
-    () => [...documentBindingKeys(work.workKey, work.workItemType)].sort(),
-    [work.workKey, work.workItemType],
+    () => [...work.documentBindingKeys].sort(),
+    [work.documentBindingKeys],
   );
   const documentsQuery = useQuery({
     queryKey: ["business-work-documents", tenantId, projectId, bindingKeys],
@@ -265,12 +265,13 @@ function BusinessWorkDetailContent({
             {hasImplementation ? <Button asChild variant="outline" size="sm"><Link to={`${workspacePath}/business-works/${work.workKey}/settings`}><Settings2 />运行配置</Link></Button> : null}
           </div>
         </div>
-        <dl className="mt-5 grid gap-x-5 gap-y-4 border-t border-gray-100 pt-4 sm:grid-cols-2 xl:grid-cols-5 dark:border-gray-800">
+        <dl className="mt-5 grid gap-x-5 gap-y-4 border-t border-gray-100 pt-4 sm:grid-cols-2 xl:grid-cols-6 dark:border-gray-800">
           <OverviewMetric label="当前策略" value={strategyLabel} copyValue={work.boundStrategyVersionId ?? undefined} />
           <OverviewMetric label="策略状态" value={work.enabled && work.boundStrategyVersionId ? "已启用" : "待配置"} />
           <OverviewMetric label="必需资料" value={`${requiredDocsCompleted}/${requiredCategories.length}`} detail="按资料类型统计" />
           <OverviewMetric label="最近运行" value={latestRun ? formatDateTime(latestRun.startedAt ?? latestRun.completedAt) : "暂无"} />
           <OverviewMetric label="业务状态" value={businessStatusLabel(derivedState.status)} />
+          <OverviewMetric label="生产准入" value={work.qualificationLabel} />
         </dl>
       </header>
 
@@ -835,6 +836,8 @@ function snapshotFromDefinition(work: BusinessWorkDefinition): BusinessWorkSnaps
     summary: work.summary,
     status: "planned",
     statusLabel: "规划中",
+    qualificationStatus: "planned",
+    qualificationLabel: "尚未实现",
     packName: null,
     packVersionId: null,
     packVersion: null,
@@ -845,6 +848,7 @@ function snapshotFromDefinition(work: BusinessWorkDefinition): BusinessWorkSnaps
     tools: [],
     models: [],
     documentRequirements: [],
+    documentBindingKeys: [],
     decisionSlots: [],
     functions: work.functions,
     configuration: {},

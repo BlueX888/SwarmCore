@@ -1,0 +1,72 @@
+{
+  "apiVersion": "swarmcore.io/v2",
+  "kind": "CapabilityPack",
+  "metadata": {"name": "contract-integrity", "version": "2.2.0"},
+  "spec": {
+    "case": {
+      "type": "contract-case",
+      "schema": "schema://contract/case@1",
+      "subjectsRequired": true,
+      "subjectRoles": [
+        {"key": "contract", "objectType": "contract", "role": "PRIMARY", "min": 1, "max": 1}
+      ]
+    },
+    "inputSchema": "schema://contract/validation-input@3",
+    "outputSchema": "schema://contract/validation-result@2",
+    "strategies": {"execute": "strategy://contract-integrity/validate@2"},
+    "agents": [
+      "agent://contract/document-classifier@1",
+      "agent://contract/field-extractor@1"
+    ],
+    "tools": [
+      "tool://document/read@1",
+      "tool://document/read-versions@1",
+      "tool://rules/evaluate@1",
+      "tool://contract/cross-file-consistency@1",
+      "tool://contract/integrity-finalize@1",
+      "tool://workbench/record-evaluation@1",
+      "tool://report/render@1"
+    ],
+    "decisions": [
+      {
+        "slot": "document-checklist",
+        "required": true,
+        "inputSchema": "schema://contract/validation-input@3",
+        "outputSchema": "schema://contract/validation-result@2",
+        "allowedTypes": ["CHECKLIST", "DECISION_TABLE"]
+      }
+    ],
+    "documents": {
+      "processingProfile": "document-profile://business-default@1",
+      "requirements": [
+        {
+          "key": "integrity-primary",
+          "category": "CONTRACT",
+          "displayName": "完整性校验主文件",
+          "description": "用于文件完整性校验的合同或业务主文件。",
+          "required": true,
+          "minCount": 1,
+          "acceptedMediaTypes": [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/plain",
+            "text/markdown"
+          ],
+          "classificationLabels": ["CONTRACT", "CHECKLIST"],
+          "extractionSchema": "schema://contract/document-extraction@1"
+        }
+      ]
+    },
+    "report": {"template": "report://contract/validation@1"},
+    "permissions": [
+      "case.read",
+      "case.assess",
+      "finding.act",
+      "decision-asset.read",
+      "document.read"
+    ],
+    "events": {"namespace": "capability.contract-integrity"},
+    "ui": {"viewDefinition": "view://contract-integrity/work-item@1"}
+  }
+}

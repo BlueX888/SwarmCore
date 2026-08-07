@@ -119,6 +119,14 @@ async def authorize_rest(
 
 
 def _rest_action(method: str, path: str) -> str:
+    if "/model-provider" in path:
+        if method == "GET":
+            return "model-provider.read"
+        if path.endswith("/model-provider:key"):
+            return "model-provider.secret.read"
+        if path.endswith("/model-provider:test"):
+            return "model-provider.test"
+        return "model-provider.manage"
     if path.endswith("/capability-center"):
         return "capability.read"
     if path.endswith("/capability-runs"):
@@ -141,6 +149,26 @@ def _rest_action(method: str, path: str) -> str:
         if path.endswith(":collect"):
             return "case.assess"
         return "case.write"
+    if "/documents" in path:
+        if method == "GET" or path.endswith(":download"):
+            return "document.read"
+        if path.endswith(":process") or path.endswith(":retry-processing"):
+            return "document.process"
+        return "document.write"
+    if "/business-objects" in path or "/business-object-relations" in path:
+        return "case.read" if method == "GET" else "case.write"
+    if "/cases" in path:
+        if method == "GET":
+            return "case.read"
+        return "case.assess" if ":assess" in path else "case.write"
+    if "/procurement-supplier-risk/" in path:
+        if method == "GET":
+            return "case.read"
+        return "case.assess" if any(
+            marker in path for marker in (":assess", ":refresh", ":run")
+        ) else "case.write"
+    if "/assessments" in path:
+        return "case.read" if method == "GET" else "case.assess"
     if "/business-works" in path:
         return "capability.read" if method == "GET" else "capability.manage"
     if "/rule-set" in path:

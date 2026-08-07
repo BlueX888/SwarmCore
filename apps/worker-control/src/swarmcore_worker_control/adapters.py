@@ -333,6 +333,9 @@ class PostgresTransitionProjector:
                         requires_distinct_approver=bool(
                             data.get("requiresDistinctApprover", False)
                         ),
+                        required_roles=[
+                            str(value) for value in data.get("requiredRoles", [])
+                        ],
                     )
                 )
             else:
@@ -348,6 +351,9 @@ class PostgresTransitionProjector:
                 existing.response = None
                 existing.handler_command_id = None
                 existing.created_at = occurred_at
+                existing.required_roles = [
+                    str(value) for value in data.get("requiredRoles", [])
+                ]
                 existing.handled_at = None
                 existing.task_execution_id = data.get("taskExecutionId")
                 existing.tool_ref = data.get("toolRef")

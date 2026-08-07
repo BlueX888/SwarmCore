@@ -13,13 +13,15 @@ def _load(name: str) -> dict[str, Any]:
 
 
 MANIFEST = _load("manifest.json")
+MANIFEST_V1 = _load("manifest-v1.json")
 SCHEMAS = {
     "schema://document-structuring/case@1": _load("case.schema.json"),
     "schema://document-structuring/input@1": _load("input.schema.json"),
     "schema://document-structuring/package@1": _load("output.schema.json"),
 }
 STRATEGIES = {
-    "strategy://document-structuring/execute@1": _load("strategy.json"),
+    "strategy://document-structuring/execute@1": _load("strategy-v1.json"),
+    "strategy://document-structuring/execute@2": _load("strategy.json"),
 }
 VIEW_DEFINITION = _load("view-definition.json")
 MODELS = frozenset(
@@ -42,6 +44,7 @@ REFERENCES = frozenset(
 
 __all__ = [
     "MANIFEST",
+    "MANIFEST_V1",
     "MODELS",
     "REFERENCES",
     "SCHEMAS",

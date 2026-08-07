@@ -3,15 +3,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import socket
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal, cast
 from urllib.error import HTTPError
 from urllib.parse import urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import UUID
 
 import uvicorn
@@ -52,6 +54,29 @@ from swarmcore_registry import (
     runtime_provider_name,
 )
 
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        del req, fp, code, msg, headers, newurl
+        return None
+
+
+_NO_REDIRECT_OPENER = build_opener(_NoRedirectHandler())
+
+
+def urlopen(request: Request, *, timeout: float) -> Any:
+    """Open a provider request without allowing credential-bearing redirects."""
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
+
+
 logger = logging.getLogger(__name__)
 DEFAULT_MODEL_RESERVATION_TTL_SECONDS = 360
 
@@ -71,11 +96,11 @@ class Settings(BaseSettings):
         "model://kimi-k2.7-code": "kimi-k2.7-code",
     }
     model_price_version: str = "local-price:v1"
+    unpriced_model_input_usd_per_million: float = Field(default=10.0, gt=0)
+    unpriced_model_output_usd_per_million: float = Field(default=30.0, gt=0)
     litellm_url: str = "http://localhost:4000"
     litellm_timeout_seconds: float = 300
-    model_reservation_ttl_seconds: int = Field(
-        default=DEFAULT_MODEL_RESERVATION_TTL_SECONDS, ge=1
-    )
+    model_reservation_ttl_seconds: int = Field(default=DEFAULT_MODEL_RESERVATION_TTL_SECONDS, ge=1)
     litellm_secret_ref: str = "secret://platform/litellm"
     model_provider_url: str = ""
     model_provider_api_key: str = ""
@@ -148,6 +173,26 @@ class ModelProviderConfigurationBody(BaseModel):
 
 
 TenantHeader = Annotated[UUID, Header(alias="X-Tenant-ID")]
+
+
+def _resolved_response_cost(
+    result: Mapping[str, Any],
+    *,
+    input_tokens: int,
+    output_tokens: int,
+    settings: Settings,
+) -> tuple[float, str]:
+    """Use provider cost or a conservative fallback for otherwise unpriced usage."""
+    raw_cost = result.get("response_cost")
+    if isinstance(raw_cost, int | float) and float(raw_cost) > 0:
+        return float(raw_cost), settings.model_price_version
+    if input_tokens <= 0 and output_tokens <= 0:
+        return 0.0, settings.model_price_version
+    fallback = (
+        max(input_tokens, 0) * settings.unpriced_model_input_usd_per_million
+        + max(output_tokens, 0) * settings.unpriced_model_output_usd_per_million
+    ) / 1_000_000
+    return max(fallback, 0.000001), f"{settings.model_price_version}:fallback"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -231,6 +276,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if runtime_provider:
             provider_model = runtime_provider[2]
+        if provider_url:
+            try:
+                _validate_provider_target(
+                    provider_url,
+                    deployment_mode=configured.deployment_mode,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
         await _reserve(
             database,
             tenant_id=tenant_id,
@@ -239,6 +292,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             max_tokens=body.max_tokens,
             request_id=request_id,
             reservation_ttl_seconds=configured.model_reservation_ttl_seconds,
+            reserved_cost_usd=(
+                body.max_tokens * configured.unpriced_model_output_usd_per_million / 1_000_000
+            ),
         )
         provider = provider_model.partition("/")[0]
         span = get_tracer("model-gateway").start_span(
@@ -313,13 +369,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             if isinstance(exc, HTTPException):
                 raise
-            raise HTTPException(
-                status_code=502, detail=f"model provider failed: {exc}"
-            ) from exc
+            raise HTTPException(status_code=502, detail=f"model provider failed: {exc}") from exc
         usage = cast(dict[str, Any], result.get("usage", {}))
         input_tokens = int(usage.get("prompt_tokens", 0))
         output_tokens = int(usage.get("completion_tokens", 0))
-        cost = float(result.get("response_cost", 0))
+        cost, price_version = _resolved_response_cost(
+            result,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            settings=configured,
+        )
+        result["response_cost"] = cost
+        result["price_version"] = price_version
         try:
             await _commit(
                 database,
@@ -330,7 +391,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 actor_id=capability.subject_id,
                 logical_model=capability.logical_model,
                 provider_model=provider_model,
-                price_version=configured.model_price_version,
+                price_version=price_version,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 cost_usd=cost,
@@ -373,7 +434,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "inputTokens": input_tokens,
                 "outputTokens": output_tokens,
                 "costUsd": cost,
-                "priceVersion": configured.model_price_version,
+                "priceVersion": str(result.get("price_version", configured.model_price_version)),
             },
         }
 
@@ -401,9 +462,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             else configured.litellm_url
         )
         endpoint_api_key = (
-            configured.model_provider_api_key
-            if configured.model_provider_url
-            else health_api_key
+            configured.model_provider_api_key if configured.model_provider_url else health_api_key
         )
         endpoint_healthy = await asyncio.to_thread(
             _probe_litellm,
@@ -459,6 +518,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: HttpRequest,
         x_tenant_id: TenantHeader,
     ) -> dict[str, Any]:
+        _validate_provider_target(
+            str(body.provider_url), deployment_mode=configured.deployment_mode
+        )
         if (
             is_project_model_ref(body.logical_model)
             and parse_project_model_id(body.logical_model) is None
@@ -513,11 +575,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "displayName": display_name,
             }
             if saved is None:
-                session.add(ProjectConfiguration(
-                    tenant_id=x_tenant_id, project_id=project_id, kind="model", name=name,
-                    source_ref=body.logical_model.rsplit("@", 1)[0], configuration=document,
-                    created_by="model-provider-ui", updated_by="model-provider-ui",
-                ))
+                session.add(
+                    ProjectConfiguration(
+                        tenant_id=x_tenant_id,
+                        project_id=project_id,
+                        kind="model",
+                        name=name,
+                        source_ref=body.logical_model.rsplit("@", 1)[0],
+                        configuration=document,
+                        created_by="model-provider-ui",
+                        updated_by="model-provider-ui",
+                    )
+                )
             else:
                 saved.source_ref = body.logical_model.rsplit("@", 1)[0]
                 saved.configuration = document
@@ -556,6 +625,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: HttpRequest,
         x_tenant_id: TenantHeader,
     ) -> dict[str, Any]:
+        _validate_provider_target(
+            str(body.provider_url), deployment_mode=configured.deployment_mode
+        )
         api_key = body.api_key or ""
         if not api_key:
             runtime = await _runtime_provider_configuration(
@@ -668,6 +740,7 @@ def _active_model_reservations(
         if tokens > 0 and expires_at > now:
             active[str(request_id)] = {
                 "tokens": tokens,
+                "costUsd": max(0.0, float(value.get("costUsd", 0))),
                 "expiresAt": expires_at.isoformat(),
             }
     return active
@@ -675,6 +748,10 @@ def _active_model_reservations(
 
 def _reserved_tokens(reservations: dict[str, dict[str, Any]]) -> int:
     return sum(int(item["tokens"]) for item in reservations.values())
+
+
+def _reserved_cost_usd(reservations: dict[str, dict[str, Any]]) -> float:
+    return sum(float(item.get("costUsd", 0)) for item in reservations.values())
 
 
 async def _reserve(
@@ -686,6 +763,7 @@ async def _reserve(
     max_tokens: int,
     request_id: str,
     reservation_ttl_seconds: int = DEFAULT_MODEL_RESERVATION_TTL_SECONDS,
+    reserved_cost_usd: float = 0.0,
 ) -> None:
     async with tenant_transaction(
         database.sessions, tenant_id=tenant_id, project_id=project_id
@@ -715,13 +793,17 @@ async def _reserve(
         reserved = _reserved_tokens(reservations)
         if used + reserved + max_tokens > int(run.budgets["maxTokens"]):
             raise HTTPException(status_code=409, detail="BUDGET_EXCEEDED")
-        if float(usage.get("costUsd", 0)) >= float(run.budgets["maxCostUsd"]):
+        if (
+            float(usage.get("costUsd", 0))
+            + _reserved_cost_usd(reservations)
+            + reserved_cost_usd
+            > float(run.budgets["maxCostUsd"])
+        ):
             raise HTTPException(status_code=409, detail="BUDGET_EXCEEDED")
         reservations[request_id] = {
             "tokens": max_tokens,
-            "expiresAt": (
-                now + timedelta(seconds=max(1, reservation_ttl_seconds))
-            ).isoformat(),
+            "costUsd": reserved_cost_usd,
+            "expiresAt": (now + timedelta(seconds=max(1, reservation_ttl_seconds))).isoformat(),
         }
         usage["reservedTokens"] = _reserved_tokens(reservations)
         usage["modelReservations"] = reservations
@@ -894,6 +976,38 @@ def _provider_root(url: str) -> str:
     if _is_portal_capability_invoke_url(normalized):
         return normalized
     return normalized[:-3] if normalized.endswith("/v1") else normalized
+
+
+def _validate_provider_target(
+    url: str,
+    *,
+    deployment_mode: Literal["local", "production"],
+) -> None:
+    parsed = urlsplit(url)
+    if not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("model provider URL must not contain credentials")
+    if deployment_mode == "local":
+        return
+    if parsed.scheme != "https":
+        raise ValueError("production model provider URL must use HTTPS")
+    hostname = parsed.hostname.rstrip(".").lower()
+    port = parsed.port or 443
+    addresses: tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...]
+    try:
+        literal = ipaddress.ip_address(hostname)
+        addresses = (literal,)
+    except ValueError:
+        try:
+            addresses = tuple(
+                {
+                    ipaddress.ip_address(item[4][0])
+                    for item in socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+                }
+            )
+        except OSError as exc:
+            raise ValueError("model provider host could not be resolved") from exc
+    if not addresses or any(not address.is_global for address in addresses):
+        raise ValueError("model provider URL must resolve only to public addresses")
 
 
 def _model_runtime_name(logical_model: str) -> str:
@@ -1118,20 +1232,49 @@ def _litellm(
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        result = _request_openai_completion(url, payload, headers, timeout_seconds)
+    except HTTPError as exc:
+        detail = _provider_error_detail(exc.read(64 * 1024))
+        if (
+            exc.code == 400
+            and "response_format" in payload
+            and _structured_output_parameter_unsupported(detail)
+        ):
+            fallback_payload = dict(payload)
+            fallback_payload.pop("response_format", None)
+            try:
+                result = _request_openai_completion(url, fallback_payload, headers, timeout_seconds)
+            except HTTPError as fallback_exc:
+                fallback_detail = _provider_error_detail(fallback_exc.read(64 * 1024))
+                raise RuntimeError(
+                    f"provider HTTP {fallback_exc.code}: {fallback_detail}"
+                ) from fallback_exc
+        else:
+            raise RuntimeError(f"provider HTTP {exc.code}: {detail}") from exc
+    _assert_usable_completion(result)
+    return result
+
+
+def _request_openai_completion(
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+    timeout_seconds: float,
+) -> dict[str, Any]:
     request = Request(
         f"{url.rstrip('/')}/v1/chat/completions",
         data=json.dumps(payload, separators=(",", ":")).encode(),
         headers=headers,
         method="POST",
     )
-    try:
-        with urlopen(request, timeout=timeout_seconds) as response:
-            result = _decode_openai_response(response.read(4 * 1024 * 1024))
-    except HTTPError as exc:
-        detail = _provider_error_detail(exc.read(64 * 1024))
-        raise RuntimeError(f"provider HTTP {exc.code}: {detail}") from exc
-    _assert_usable_completion(result)
-    return result
+    with urlopen(request, timeout=timeout_seconds) as response:
+        return _decode_openai_response(response.read(4 * 1024 * 1024))
+
+
+def _structured_output_parameter_unsupported(detail: str) -> bool:
+    normalized = detail.lower()
+    return any(marker in normalized for marker in ("response_format", "json_object", "json_schema"))
 
 
 def _provider_error_detail(payload: bytes) -> str:
@@ -1275,15 +1418,10 @@ def _looks_like_provider_soft_error(content: str) -> bool:
         return True
     lowered = text.casefold()
     if any(
-        marker.casefold() in lowered or marker in text
-        for marker in _PROVIDER_SOFT_FAILURE_MARKERS
+        marker.casefold() in lowered or marker in text for marker in _PROVIDER_SOFT_FAILURE_MARKERS
     ):
         return True
-    return (
-        text.startswith(("⚠", "⚠️", "❌", "🚫"))
-        and len(text) <= 80
-        and "{" not in text
-    )
+    return text.startswith(("⚠", "⚠️", "❌", "🚫")) and len(text) <= 80 and "{" not in text
 
 
 def _assert_usable_completion(result: Mapping[str, Any]) -> None:
@@ -1385,9 +1523,7 @@ def _decode_openai_response(raw: bytes) -> dict[str, Any]:
         if not message["reasoning_content"]:
             message.pop("reasoning_content")
         if index in tool_calls:
-            message["tool_calls"] = [
-                call for _, call in sorted(tool_calls[index].items())
-            ]
+            message["tool_calls"] = [call for _, call in sorted(tool_calls[index].items())]
         choices.append(
             {
                 "index": index,

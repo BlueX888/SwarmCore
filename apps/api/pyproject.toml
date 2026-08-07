@@ -23,6 +23,8 @@ dependencies = [
   "swarmcore-capability-deviation-analysis",
   "swarmcore-capability-invoice-assurance",
   "swarmcore-capability-swarm-calibration",
+  "swarmcore-capability-ai-foundation-quality",
+  "swarmcore-capability-report-generation",
   "uvicorn[standard]==0.35.0",
 ]
 
@@ -47,6 +49,8 @@ swarmcore-capability-procurement-supplier-risk = { workspace = true }
 swarmcore-capability-deviation-analysis = { workspace = true }
 swarmcore-capability-invoice-assurance = { workspace = true }
 swarmcore-capability-swarm-calibration = { workspace = true }
+swarmcore-capability-ai-foundation-quality = { workspace = true }
+swarmcore-capability-report-generation = { workspace = true }
 
 [build-system]
 requires = ["hatchling==1.27.0"]

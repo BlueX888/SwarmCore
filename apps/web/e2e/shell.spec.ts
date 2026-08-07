@@ -1,18 +1,68 @@
 import { expect, test } from "@playwright/test";
+import type { ProjectOverviewSnapshot, ProjectOverviewWorkSnapshot } from "../src/api/types";
 import { demoOverviewPath, demoRunsPath, demoWorkspacePath } from "../src/lib/demo-scope";
 
 test("root redirects into the demo workspace", async ({ page }, testInfo) => {
-  await page.route("**/api/v1/projects/*/runs", (route) => route.fulfill({ json: { total: 0, items: [] } }));
-  await page.route("**/api/v1/projects/*/strategies", (route) => route.fulfill({ json: { total: 0, items: [] } }));
+  await page.route("**/api/v1/projects/*/overview", (route) => route.fulfill({ json: overviewSnapshot() }));
   await page.route("**/api/v1/projects/*/approvals", (route) => route.fulfill({ json: { total: 0, items: [] } }));
   await page.route("**/api/v1/projects/*/inputs", (route) => route.fulfill({ json: { total: 0, items: [] } }));
-  await page.route("**/api/v1/projects/*/capabilities", (route) => route.fulfill({ json: configurationCatalog() }));
   await page.goto("/");
   await expect(page).toHaveURL(demoOverviewPath);
-  await expect(page.getByRole("heading", { name: "工作台", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "功能导航" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "项目工作台", exact: true })).toBeVisible();
+  await expect(page.locator("#business-works-heading")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "基础与治理" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "最近动态" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "业务处理一：开始处理" })).toHaveAttribute("href", "/business-works/business-one/workbench");
+  await expect(page.getByRole("heading", { name: "功能导航" })).toHaveCount(0);
   if (testInfo.project.name !== "desktop") await page.getByRole("button", { name: "打开导航" }).click();
   await expect(page.getByRole("link", { name: "工作台", exact: true })).toHaveAttribute("aria-current", "page");
+});
+
+test("overview routes exceptions and active work to their professional pages", async ({ page }) => {
+  const activeRunId = "00000000-0000-0000-0000-000000000220";
+  const snapshot = overviewSnapshot();
+  snapshot.counts.documentsReviewRequired = 1;
+  snapshot.businessWorks[0].activeRunId = activeRunId;
+  await page.route("**/api/v1/projects/*/overview", (route) => route.fulfill({ json: snapshot }));
+  await page.route("**/api/v1/projects/*/documents**", (route) => route.fulfill({ json: { total: 0, items: [] } }));
+  await page.route("**/api/v1/projects/*/runs/*", (route) => route.fulfill({ json: {
+    runId: activeRunId,
+    status: "RUNNING",
+    input: {},
+    output: null,
+    outputRef: null,
+    snapshotSeq: 0,
+    earliestAvailableSeq: 0,
+    planHash: "a".repeat(64),
+    usage: {},
+    taskCounts: {},
+    allowedActions: [],
+    tasks: [],
+  } }));
+
+  await page.goto(demoOverviewPath);
+  await page.getByRole("link", { name: /资料需处理/ }).click();
+  await expect(page).toHaveURL("/documents?view=failed");
+
+  await page.goto(demoOverviewPath);
+  await page.getByRole("link", { name: "业务处理一：查看运行" }).click();
+  await expect(page).toHaveURL(`/runs/${activeRunId}`);
+});
+
+test("overview business cards use one, two and three responsive columns", async ({ page }) => {
+  await page.route("**/api/v1/projects/*/overview", (route) => route.fulfill({ json: overviewSnapshot() }));
+  await page.goto(demoOverviewPath);
+
+  for (const [width, columns] of [[390, 1], [1280, 2], [1600, 3]] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    const actualColumns = await page.evaluate<number>(
+      "getComputedStyle(document.querySelector('.overview-business-grid')).gridTemplateColumns.split(' ').length",
+    );
+    const overflow = await page.evaluate<boolean>(
+      "document.documentElement.scrollWidth > document.documentElement.clientWidth",
+    );
+    expect({ columns: actualColumns, overflow }).toEqual({ columns, overflow: false });
+  }
 });
 
 test("legacy demo workspace URLs redirect to the short path", async ({ page }) => {
@@ -40,8 +90,8 @@ test("creates a run from a published strategy version", async ({ page }) => {
   const strategyId = "00000000-0000-0000-0000-000000000010";
   const versionId = "00000000-0000-0000-0000-000000000011";
   const createdRunId = "00000000-0000-0000-0000-000000000012";
-  await page.route("**/api/v1/projects/*/strategies", (route) => route.fulfill({ json: { total: 1, items: [{ strategyId, name: "demo", lifecycle: "ACTIVE", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), draftId: "draft", draftRevision: 1, latestVersion: 1 }] } }));
-  await page.route("**/api/v1/projects/*/strategies/*/versions", (route) => route.fulfill({ json: { total: 1, items: [{ strategyVersionId: versionId, strategyId, version: 1, lifecycle: "PUBLISHED", planHash: "a".repeat(64), schemaVersion: "swarmcore.io/v1", runtimeVersion: "1.0.0", createdAt: new Date(0).toISOString() }] } }));
+  await page.route(/\/api\/v1\/projects\/[^/]+\/strategies\?[^/]*$/, (route) => route.fulfill({ json: { total: 1, items: [{ strategyId, name: "demo", lifecycle: "ACTIVE", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), draftId: "draft", draftRevision: 1, latestVersion: 1 }] } }));
+  await page.route(/\/api\/v1\/projects\/[^/]+\/strategies\/[^/]+\/versions$/, (route) => route.fulfill({ json: { total: 1, items: [{ strategyVersionId: versionId, strategyId, version: 1, lifecycle: "PUBLISHED", planHash: "a".repeat(64), schemaVersion: "swarmcore.io/v1", runtimeVersion: "1.0.0", createdAt: new Date(0).toISOString() }] } }));
   await page.route("**/api/v1/projects/*/strategies/*/versions/*", (route) => route.fulfill({ json: { strategyVersionId: versionId, strategyId, version: 1, lifecycle: "PUBLISHED", planHash: "a".repeat(64), schemaVersion: "swarmcore.io/v1", runtimeVersion: "1.0.0", createdAt: new Date(0).toISOString(), spec: {}, normalizedSpec: {}, plan: { input_schema: { type: "object", required: ["topic"], properties: { topic: { type: "string" } } } } } }));
   await page.route("**/api/v1/projects/*/runs", async (route) => {
     if (route.request().method() === "POST") await route.fulfill({ json: { runId: createdRunId, status: "ACCEPTED", commandId: "command", commandStatus: "ACCEPTED" } });
@@ -49,7 +99,7 @@ test("creates a run from a published strategy version", async ({ page }) => {
   });
   await page.goto("/runs/new");
   await page.getByLabel("策略版本").selectOption(versionId);
-  await page.getByLabel(/topic/).fill("acceptance");
+  await page.getByRole("textbox", { name: /^主题/ }).fill("acceptance");
   await page.getByRole("button", { name: "创建运行" }).click();
   await expect(page).toHaveURL(new RegExp(`/runs/${createdRunId}$`));
 });
@@ -61,7 +111,7 @@ test("opens pending human work from the action inbox", async ({ page }) => {
   await page.goto("/actions");
   await expect(page.getByRole("heading", { name: "待办中心" })).toBeVisible();
   await expect(page.getByText("Approve release?")).toBeVisible();
-  await expect(page.getByRole("link", { name: "打开 review 所在运行" })).toHaveAttribute("href", `/runs/${runId}`);
+  await expect(page.getByRole("link", { name: "打开运行详情核对" })).toHaveAttribute("href", `/runs/${runId}`);
 });
 
 test("splits the capability center into agent, tool, model and policy pages", async ({ page }) => {
@@ -78,9 +128,9 @@ test("splits the capability center into agent, tool, model and policy pages", as
   await page.goto("/agents");
   await expect(page.getByRole("heading", { name: "智能体", exact: true })).toBeVisible();
   await expect(page.getByLabel("能力类型")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "编辑 合同分类 配置" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "编辑 合同文件分类智能体 配置" })).toBeVisible();
   await expect(page.getByRole("button", { name: /受控检索/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "编辑 合同分类 配置" }).click();
+  await page.getByRole("button", { name: "编辑 合同文件分类智能体 配置" }).click();
   await expect(page.getByRole("heading", { name: "智能体配置", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "运行时可用智能体" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "已配置智能体" })).toHaveCount(0);
@@ -97,6 +147,7 @@ test("splits the capability center into agent, tool, model and policy pages", as
   await page.getByRole("button", { name: /未接入工具/ }).click();
   await expect(page.getByText("缺少执行器")).toBeVisible();
   await expect(page.getByRole("button", { name: "立即运行" })).toBeDisabled();
+  await page.getByRole("button", { name: "关闭详情" }).click();
   await page.getByRole("button", { name: /受控检索/ }).click();
   await page.getByLabel("检索词").fill("capability e2e");
   await page.getByRole("button", { name: "立即运行" }).click();
@@ -161,6 +212,35 @@ function configurationCatalog() {
     models: [{ ref: "model://general@1", runtime: "agno", environments: ["development"] }],
     limits: {},
     swarmSpecSchema: {},
+  };
+}
+
+function overviewSnapshot(): ProjectOverviewSnapshot {
+  const makeWork = (workKey: string, name: string, category: "business" | "foundation" | "governance"): ProjectOverviewWorkSnapshot => ({
+    workKey,
+    name,
+    shortName: name,
+    category,
+    status: "runnable",
+    statusLabel: "可运行",
+    qualificationStatus: "local_verified",
+    qualificationLabel: "本地验证，待生产准入",
+    blockers: [],
+    readiness: { requiredDocuments: 0, satisfiedDocuments: 0, documentsReady: true, readyToStart: true },
+    activeRunId: null,
+    latestRun: null,
+  });
+  return {
+    generatedAt: new Date(0).toISOString(),
+    counts: { pendingApprovals: 0, pendingInputs: 0, documentsAvailable: 0, documentsReviewRequired: 0, documentsFailed: 0, activeRuns: 0, waitingRuns: 0 },
+    businessWorks: [
+      makeWork("business-one", "业务处理一", "business"),
+      ...Array.from({ length: 6 }, (_, index) => makeWork(`business-${index + 2}`, `业务处理${index + 2}`, "business")),
+      makeWork("foundation-one", "基础能力一", "foundation"),
+      makeWork("foundation-two", "基础能力二", "foundation"),
+      makeWork("governance-one", "调度治理", "governance"),
+    ],
+    recentRuns: [],
   };
 }
 

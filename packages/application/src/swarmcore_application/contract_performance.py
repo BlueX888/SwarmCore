@@ -527,14 +527,30 @@ def apply_approved_changes(
                 }
             )
             continue
+        candidate = deepcopy(current)
+        change_differences: list[dict[str, Any]] = []
+        invalid_path = False
         for patch in change.get("changedPaths") or []:
             if not isinstance(patch, Mapping):
                 continue
             path = str(patch.get("path") or "")
-            before = _read_path(current, path)
-            after = deepcopy(patch.get("after"))
-            _write_path(current, path, after)
-            differences.append(
+            try:
+                before = _read_path(candidate, path)
+                after = deepcopy(patch.get("after"))
+                _write_path(candidate, path, after)
+            except (IndexError, KeyError, TypeError, ValueError) as exc:
+                risks.append(
+                    {
+                        "changeId": change.get("id"),
+                        "code": "INVALID_CHANGE_PATH",
+                        "status": status,
+                        "path": path,
+                        "reason": str(exc),
+                    }
+                )
+                invalid_path = True
+                break
+            change_differences.append(
                 {
                     "changeId": change.get("id"),
                     "path": path,
@@ -542,6 +558,10 @@ def apply_approved_changes(
                     "after": after,
                 }
             )
+        if invalid_path:
+            continue
+        current = candidate
+        differences.extend(change_differences)
         applied.append(change)
 
     change_history = {

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ssl
+
 import httpx
 import pytest
 from swarmcore_application.capability_tool_executors import calibration_attempt_select
@@ -11,7 +13,16 @@ from swarmcore_application.swarm_calibration import (
     parse_github_issue_url,
     scan_untrusted_content,
     score_quality,
+    system_trust_context,
 )
+
+
+def test_github_tls_uses_operating_system_trust_store() -> None:
+    context = system_trust_context()
+
+    assert isinstance(context, ssl.SSLContext)
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
 
 
 @pytest.mark.asyncio
@@ -111,9 +122,7 @@ def test_untrusted_repository_content_is_never_promoted_to_instructions() -> Non
 
 
 def test_freeze_evidence_requires_full_commit_and_produces_manifest() -> None:
-    issue = _snapshot(
-        "github_issue", {"repository": "temporalio/sdk-python", "number": 782}
-    )
+    issue = _snapshot("github_issue", {"repository": "temporalio/sdk-python", "number": 782})
     discussion = _snapshot("github_discussion", {"comments": [], "timeline": []})
     pull = _snapshot("github_pull_request", {"mergeCommitSha": "1" * 40})
 
@@ -201,9 +210,40 @@ def test_finalize_marks_standby_success_as_degraded() -> None:
     assert len(result["resultHash"]) == 64
 
 
+def test_manual_approval_cannot_turn_unverified_sandbox_into_completion() -> None:
+    evidence = {
+        "repository": "temporalio/sdk-python",
+        "issueNumber": 782,
+        "mergeCommitSha": "1" * 40,
+        "evidenceIndex": [{"evidenceId": f"ev-{index:03d}"} for index in range(1, 4)],
+        "evidenceManifestHash": "2" * 64,
+    }
+    result = finalize_calibration_result(
+        payload={
+            "calibrationMode": "GITHUB_ENGINEERING_ISSUE",
+            "issueUrl": "https://github.com/temporalio/sdk-python/issues/782",
+            "objective": "分析问题",
+        },
+        evidence=evidence,
+        route={"selectedRoute": "PRIMARY"},
+        diagnosis={"summary": "done"},
+        quality={"decision": "REVIEW_REQUIRED", "score": 79},
+        sandbox={
+            "status": "UNVERIFIED",
+            "reasonCode": "SANDBOX_DEPENDENCY_MISSING",
+        },
+        approvals={"approved": True, "reason": "人工接受"},
+    )
+
+    assert result["status"] == "REVIEW_REQUIRED"
+    assert result["provenance"]["calibrationMode"] == "GITHUB_ENGINEERING_ISSUE"
+
+
 @pytest.mark.asyncio
 async def test_github_client_reads_real_api_shapes_and_preserves_provenance() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/temporalio/sdk-python":
+            return httpx.Response(200, json={"private": False, "visibility": "public"})
         if request.url.path.endswith("/issues/782"):
             return httpx.Response(
                 200,
@@ -228,9 +268,7 @@ async def test_github_client_reads_real_api_shapes_and_preserves_provenance() ->
         transport=httpx.MockTransport(handler),
     )
     try:
-        result = await client.get_issue(
-            "https://github.com/temporalio/sdk-python/issues/782"
-        )
+        result = await client.get_issue("https://github.com/temporalio/sdk-python/issues/782")
     finally:
         await client.close()
 
@@ -238,3 +276,25 @@ async def test_github_client_reads_real_api_shapes_and_preserves_provenance() ->
     assert result["payload"]["repository"] == "temporalio/sdk-python"
     assert len(result["contentHash"]) == 64
     assert result["security"]["handling"] == "DATA_ONLY"
+
+
+@pytest.mark.asyncio
+async def test_github_client_rejects_private_repository_before_reading_issue() -> None:
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url.path)
+        return httpx.Response(200, json={"private": True, "visibility": "private"})
+
+    client = GitHubEvidenceClient(
+        token="service-token",
+        base_url="https://api.github.test",
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(ValueError, match="must be public"):
+            await client.get_issue("https://github.com/example/private/issues/1")
+    finally:
+        await client.close()
+
+    assert requested == ["/repos/example/private"]

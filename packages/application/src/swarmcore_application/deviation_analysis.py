@@ -15,6 +15,9 @@ _CONTENT_SCORES = {
     "MISSING": Decimal("0"),
     "REJECTED": Decimal("0"),
 }
+_EMPTY_TIME_METRICS = {"maximumDelayDays": None}
+_EMPTY_CONTENT_METRICS = {"contentVarianceRate": None}
+_EMPTY_COST_METRICS = {"costVarianceRate": None}
 
 
 def _decimal(value: Any, *, field: str) -> Decimal:
@@ -94,13 +97,91 @@ def merge_deviation_facts(
     }
 
 
+def upstream_performance_analysis(
+    upstream_evaluations: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Convert the latest confirmed performance result into reusable deviation facts."""
+
+    for upstream in upstream_evaluations:
+        result = upstream.get("result")
+        if not isinstance(result, Mapping) or result.get("schemaVersion") != (
+            "schema://contract-performance/result@1"
+        ):
+            continue
+        plan = result.get("plan")
+        performance = result.get("performance")
+        if not isinstance(plan, Mapping) or not isinstance(performance, Mapping):
+            continue
+        actual_by_id = {
+            str(value.get("milestoneId") or ""): value
+            for value in performance.get("milestones", [])
+            if isinstance(value, Mapping)
+        }
+        evidence_ref = (
+            f"evaluation://{upstream.get('evaluationId')}"
+            f"#{upstream.get('resultHash') or result.get('resultHash') or ''}"
+        )
+        milestones: list[dict[str, Any]] = []
+        for item in plan.get("milestones", []):
+            if not isinstance(item, Mapping):
+                continue
+            milestone_id = str(item.get("id") or "")
+            actual = actual_by_id.get(milestone_id, {})
+            actual_finish = actual.get("actualFinishDate")
+            if not actual_finish:
+                continue
+            milestones.append(
+                {
+                    "milestoneId": milestone_id,
+                    "name": str(item.get("title") or milestone_id),
+                    "baselineDate": item.get("dueDate"),
+                    "actualDate": actual_finish,
+                    "critical": item.get("critical"),
+                    "evidenceRefs": [evidence_ref],
+                }
+            )
+        return {
+            "payloadPatch": {"time": {"milestones": milestones}} if milestones else {},
+            "facts": [
+                {
+                    "factId": f"upstream-performance-{upstream.get('evaluationId')}",
+                    "factType": "CONFIRMED_CONTRACT_PERFORMANCE",
+                    "value": str(result.get("status") or ""),
+                    "confidence": 1.0,
+                    "evidenceRefs": [evidence_ref],
+                }
+            ],
+            "conflicts": [],
+            "missingEvidence": [],
+            "source": {
+                "evaluationId": upstream.get("evaluationId"),
+                "resultHash": upstream.get("resultHash") or result.get("resultHash"),
+            },
+        }
+    return {
+        "payloadPatch": {},
+        "facts": [],
+        "conflicts": [],
+        "missingEvidence": [],
+        "source": None,
+    }
+
+
 def calculate_time_deviation(payload: Mapping[str, Any]) -> dict[str, Any]:
     data = payload.get("time")
     if not isinstance(data, Mapping):
-        return _status_payload("DATA_INSUFFICIENT", reasons=("missing time facts",))
+        return _status_payload(
+            "DATA_INSUFFICIENT",
+            metrics=_EMPTY_TIME_METRICS,
+            reasons=("missing time facts",),
+        )
     milestones = data.get("milestones")
     if not isinstance(milestones, list) or not milestones:
-        return _status_payload("DATA_INSUFFICIENT", reasons=("missing milestones",))
+        return _status_payload(
+            "DATA_INSUFFICIENT",
+            metrics=_EMPTY_TIME_METRICS,
+            reasons=("missing milestones",),
+        )
 
     results: list[dict[str, Any]] = []
     evidence_refs: list[str] = []
@@ -141,6 +222,7 @@ def calculate_time_deviation(payload: Mapping[str, Any]) -> dict[str, Any]:
     if not results:
         return _status_payload(
             "DATA_INSUFFICIENT",
+            metrics=_EMPTY_TIME_METRICS,
             reasons=("no milestone has both baseline and actual/forecast date",),
         )
     pv = data.get("pv")
@@ -182,13 +264,25 @@ def calculate_time_deviation(payload: Mapping[str, Any]) -> dict[str, Any]:
 def compare_content_deviation(payload: Mapping[str, Any]) -> dict[str, Any]:
     data = payload.get("content")
     if not isinstance(data, Mapping):
-        return _status_payload("DATA_INSUFFICIENT", reasons=("missing content facts",))
+        return _status_payload(
+            "DATA_INSUFFICIENT",
+            metrics=_EMPTY_CONTENT_METRICS,
+            reasons=("missing content facts",),
+        )
     items = data.get("items")
     if not isinstance(items, list) or not items:
-        return _status_payload("DATA_INSUFFICIENT", reasons=("missing deliverable items",))
+        return _status_payload(
+            "DATA_INSUFFICIENT",
+            metrics=_EMPTY_CONTENT_METRICS,
+            reasons=("missing deliverable items",),
+        )
     valid = [item for item in items if isinstance(item, Mapping)]
     if not valid:
-        return _status_payload("DATA_INSUFFICIENT", reasons=("no valid deliverable item",))
+        return _status_payload(
+            "DATA_INSUFFICIENT",
+            metrics=_EMPTY_CONTENT_METRICS,
+            reasons=("no valid deliverable item",),
+        )
     has_explicit_weights = all(item.get("weight") is not None for item in valid)
     weights = (
         [_decimal(item["weight"], field="content.items.weight") for item in valid]
@@ -198,6 +292,7 @@ def compare_content_deviation(payload: Mapping[str, Any]) -> dict[str, Any]:
     if any(weight < 0 for weight in weights) or sum(weights) <= 0:
         return _status_payload(
             "CONFLICTED",
+            metrics=_EMPTY_CONTENT_METRICS,
             reasons=("content weights must sum to a positive value",),
         )
     total_weight = sum(weights)
@@ -209,6 +304,7 @@ def compare_content_deviation(payload: Mapping[str, Any]) -> dict[str, Any]:
         if status not in _CONTENT_SCORES:
             return _status_payload(
                 "CONFLICTED",
+                metrics=_EMPTY_CONTENT_METRICS,
                 reasons=(f"unsupported content status: {status}",),
             )
         score = _CONTENT_SCORES[status]
@@ -257,7 +353,11 @@ def compare_content_deviation(payload: Mapping[str, Any]) -> dict[str, Any]:
 def calculate_cost_deviation(payload: Mapping[str, Any]) -> dict[str, Any]:
     data = payload.get("cost")
     if not isinstance(data, Mapping):
-        return _status_payload("DATA_INSUFFICIENT", reasons=("missing cost facts",))
+        return _status_payload(
+            "DATA_INSUFFICIENT",
+            metrics=_EMPTY_COST_METRICS,
+            reasons=("missing cost facts",),
+        )
     currency = str(data.get("currency") or payload.get("currency") or "").upper()
     currencies = {
         str(item).upper()
@@ -275,6 +375,7 @@ def calculate_cost_deviation(payload: Mapping[str, Any]) -> dict[str, Any]:
         ):
             return _status_payload(
                 "CONFLICTED",
+                metrics=_EMPTY_COST_METRICS,
                 reasons=(
                     "cross-currency facts require frozen rates and normalized amounts",
                 ),
@@ -284,6 +385,7 @@ def calculate_cost_deviation(payload: Mapping[str, Any]) -> dict[str, Any]:
     if original is None or eac is None:
         return _status_payload(
             "DATA_INSUFFICIENT",
+            metrics=_EMPTY_COST_METRICS,
             reasons=("originalBAC and EAC are required",),
         )
     original_value = _decimal(original, field="cost.originalBAC")
@@ -431,6 +533,8 @@ def finalize_deviation_result(
     evidence_review: Mapping[str, Any],
     narrative: Mapping[str, Any],
     provenance: Mapping[str, Any],
+    approvals: Iterable[Mapping[str, Any]] = (),
+    schema_version: str = SCHEMA_VERSION,
 ) -> dict[str, Any]:
     requested = [str(value).upper() for value in payload.get("dimensions", DIMENSIONS)]
     dimension_results = {
@@ -536,8 +640,8 @@ def finalize_deviation_result(
         "baselineHash": provenance.get("baselineHash"),
         "selectionManifestHash": provenance.get("selectionManifestHash"),
     }
-    return {
-        "schemaVersion": SCHEMA_VERSION,
+    result = {
+        "schemaVersion": schema_version,
         "title": str(payload.get("title") or "偏差分析报告"),
         "assessment": assessment,
         "subject": dict(subject) if isinstance(subject, Mapping) else {},
@@ -571,11 +675,17 @@ def finalize_deviation_result(
         "provenance": dict(provenance),
         "artifacts": [],
     }
+    if schema_version == "schema://deviation-analysis/result@2":
+        result["approvals"] = [dict(value) for value in approvals]
+    return result
 
 
 def validate_deviation_result(value: Mapping[str, Any]) -> dict[str, Any]:
     result = dict(value)
-    if result.get("schemaVersion") != SCHEMA_VERSION:
+    if result.get("schemaVersion") not in {
+        SCHEMA_VERSION,
+        "schema://deviation-analysis/result@2",
+    }:
         raise ValueError("unexpected deviation-analysis result schemaVersion")
     required = {
         "assessment",
@@ -593,6 +703,10 @@ def validate_deviation_result(value: Mapping[str, Any]) -> dict[str, Any]:
         "provenance",
     }
     missing = sorted(required - result.keys())
+    if result.get("schemaVersion") == "schema://deviation-analysis/result@2" and (
+        "approvals" not in result
+    ):
+        missing.append("approvals")
     if missing:
         raise ValueError(
             f"deviation-analysis result missing fields: {', '.join(missing)}"

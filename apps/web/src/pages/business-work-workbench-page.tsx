@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api } from "@/api/client";
-import type { BusinessWorkSnapshot, CaseSubjectInput, InvoiceRuleTrendSnapshot } from "@/api/types";
+import type { BusinessWorkSnapshot, CaseSubjectInput, DocumentSnapshot, InvoiceRuleTrendSnapshot } from "@/api/types";
 import { BusinessWorkPageHeader } from "@/components/business-works/business-work-page-header";
 import {
   DocumentRequirementChecklist,
@@ -173,6 +173,7 @@ export function BusinessWorkWorkbenchPage() {
   const [calibrationObjective, setCalibrationObjective] = useState("");
   const [calibrationCriteria, setCalibrationCriteria] = useState("");
   const [calibrationTestArgs, setCalibrationTestArgs] = useState("");
+  const [selectedDocuments, setSelectedDocuments] = useState<DocumentSnapshot[]>([]);
   const [payloadSource, setPayloadSource] = useState("{}");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
@@ -286,6 +287,14 @@ export function BusinessWorkWorkbenchPage() {
         });
         return api.executeWorkItem(tenantId, projectId, item.workItemId);
       }
+      for (const requirement of work.data.documentRequirements.filter((item) => item.required)) {
+        const selectedCount = selectedDocuments.filter(
+          (document) => document.category === requirement.category,
+        ).length;
+        if (selectedCount < (requirement.minCount ?? 1)) {
+          throw new Error("DOCUMENT_SELECTION_REQUIRED");
+        }
+      }
       const subjects = await Promise.all(subjectContracts.map(async (contract) => {
         const data = subjectData(payload, contract.objectType);
         const object = await api.createBusinessObject(tenantId, projectId, {
@@ -305,6 +314,8 @@ export function BusinessWorkWorkbenchPage() {
       const casePayload = enrichCasePayload(type, payload, subjects);
       const businessCase = await api.createCase(tenantId, projectId, {
         scenarioType: type,
+        businessWorkKey: workKey,
+        documentIds: selectedDocuments.map((document) => document.documentId),
         payload: casePayload,
         subjects,
         owner: owner.trim() || undefined,
@@ -419,7 +430,13 @@ export function BusinessWorkWorkbenchPage() {
       />
     </section>
 
-    <DocumentWorkbenchPanel workKey={workKey} tenantId={tenantId} projectId={projectId} />
+    <DocumentWorkbenchPanel
+      work={work.data}
+      tenantId={tenantId}
+      projectId={projectId}
+      selected={selectedDocuments}
+      onSelected={setSelectedDocuments}
+    />
     {workKey === "invoice-assurance" ? (
       <InvoiceRuleTrendPanel trend={invoiceTrends.data} loading={invoiceTrends.isPending} />
     ) : null}
@@ -953,6 +970,7 @@ function buildFormPayload(type: string, values: Omit<WorkbenchFormValues, "advan
   if (type === "swarm-calibration-case") {
     return {
       ...base,
+      calibrationMode: "GITHUB_ENGINEERING_ISSUE",
       title: values.title || base.title,
       issueUrl: values.calibrationIssueUrl.trim(),
       objective: values.calibrationObjective.trim(),
@@ -1067,15 +1085,20 @@ function isSubjectRole(value: unknown): value is SubjectRole {
 }
 
 function DocumentWorkbenchPanel({
-  workKey,
+  work,
   tenantId,
   projectId,
+  selected,
+  onSelected,
 }: {
-  workKey: string;
+  work: BusinessWorkSnapshot;
   tenantId: string;
   projectId: string;
+  selected: DocumentSnapshot[];
+  onSelected: (documents: DocumentSnapshot[]) => void;
 }) {
   const queryClient = useQueryClient();
+  const workKey = work.workKey;
   const requirements = useQuery({
     queryKey: ["document-requirements", tenantId, projectId, workKey],
     queryFn: () => api.listWorkDocumentRequirements(tenantId, projectId, workKey),
@@ -1084,6 +1107,19 @@ function DocumentWorkbenchPanel({
   });
   const [showUpload, setShowUpload] = useState(false);
   const [uploadCategory, setUploadCategory] = useState("");
+  const documents = useQuery({
+    queryKey: ["business-work-documents", tenantId, projectId, work.documentBindingKeys],
+    queryFn: () => api.listDocuments(
+      tenantId,
+      projectId,
+      "",
+      "",
+      "",
+      work.documentBindingKeys,
+    ),
+    staleTime: BUSINESS_WORK_QUERY_STALE_TIME,
+    gcTime: BUSINESS_WORK_QUERY_GC_TIME,
+  });
   const items = requirements.data?.items ?? [];
   const selectedRequirement = items.find((item) => item.category === uploadCategory) ?? items[0];
   const labels = (selectedRequirement?.classificationLabels ?? []).map((label) => ({
@@ -1103,6 +1139,28 @@ function DocumentWorkbenchPanel({
           </Button>
         </div>
         {requirements.isPending ? <Skeleton className="h-24" /> : <DocumentRequirementChecklist items={items} />}
+        {documents.data?.items.length ? (
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium text-gray-900 dark:text-white">
+              选择本次办理资料
+            </legend>
+            <p className="text-xs text-gray-500">只有明确选择的资料会绑定到本次业务对象。</p>
+            {documents.data.items.map((document) => {
+              const checked = selected.some((item) => item.documentId === document.documentId);
+              return <label key={document.documentId} className="flex items-center gap-3 rounded-xl border border-gray-200 px-3 py-2 text-sm dark:border-gray-800">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => onSelected(event.target.checked
+                    ? [...selected, document]
+                    : selected.filter((item) => item.documentId !== document.documentId))}
+                />
+                <span className="min-w-0 flex-1 truncate">{document.name}</span>
+                <span className="text-xs text-gray-500">{document.category}</span>
+              </label>;
+            })}
+          </fieldset>
+        ) : null}
         {showUpload ? (
           <div className="space-y-3">
             {items.length ? <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -1129,7 +1187,13 @@ function DocumentWorkbenchPanel({
                 classificationLabels: labels,
                 category: selectedRequirement?.category ?? "OTHER",
               }}
-              onCompleted={async () => {
+              onCompleted={async (uploaded) => {
+                onSelected([
+                  ...selected.filter(
+                    (item) => !uploaded.some((value) => value.documentId === item.documentId),
+                  ),
+                  ...uploaded,
+                ]);
                 setShowUpload(false);
                 await Promise.all([
                   requirements.refetch(),
@@ -1169,6 +1233,9 @@ function canonicalKey(data: Record<string, unknown>, payload: Record<string, unk
 }
 
 function defaultPayload(type: string): Record<string, unknown> {
+  if (type === "document-structuring-case") return {
+    title: "文件结构化",
+  };
   if (type === "swarm-calibration-case") return {
     title: "Temporal Python SDK 调度问题校准",
     issueUrl: "https://github.com/temporalio/sdk-python/issues/782",
@@ -1233,6 +1300,9 @@ function defaultPayload(type: string): Record<string, unknown> {
     timezone: "Asia/Shanghai",
     verificationMode: "HUMAN_ASSISTED",
     businessSnapshot: {},
+    fieldConfirmations: [],
+    humanVerification: {},
+    enterprisePublicStatusEvidence: {},
   };
   if (type === "deviation-analysis-case") return {
     title: "项目偏差分析",

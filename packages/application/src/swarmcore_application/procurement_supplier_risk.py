@@ -57,6 +57,8 @@ _RISK_DIMENSION_CAPS = {
 _HARD_GATE_TYPES = {
     "GOVERNMENT_PROCUREMENT_BAN",
     "INTERNAL_BLACKLIST",
+    "TAX_SERIOUS_DISHONESTY",
+    "SERIOUS_ADMIN_PENALTY",
     "QUALIFICATION_INVALID",
     "REGISTRATION_CANCELLED",
 }
@@ -247,8 +249,6 @@ def compare_procurement_clauses(payload: dict[str, Any]) -> dict[str, Any]:
             continue
         severity = _severity(category, change_type, str(proposal.get("severity") or ""))
         exception_approved = match_key in approved_exceptions
-        if exception_approved and severity == "BLOCKER":
-            severity = "HIGH"
         evidence = _evidence_refs(
             *(item.get("evidenceRefs") for item in by_role.values()),
             proposal.get("evidenceRefs"),
@@ -657,7 +657,7 @@ def finalize_procurement_supplier_risk(payload: dict[str, Any]) -> dict[str, Any
     consistency_blocking = bool(consistency.get("blocking"))
     risk_blocking = risk.get("decision") == "BLOCK"
     approved = bool(approval.get("approved")) if isinstance(approval, dict) else False
-    if risk_blocking or (consistency_blocking and not approved):
+    if risk_blocking or consistency_blocking:
         final_decision = "BLOCK"
     elif (
         consistency.get("reviewRequired")
@@ -675,7 +675,11 @@ def finalize_procurement_supplier_risk(payload: dict[str, Any]) -> dict[str, Any
         "asOf": risk.get("asOf") or payload.get("asOf"),
         "supplier": dict(risk.get("supplier") or payload.get("supplier") or {}),
         "decision": final_decision,
-        "riskLevel": risk.get("riskLevel") or "UNKNOWN",
+        "riskLevel": (
+            "D"
+            if final_decision == "BLOCK"
+            else risk.get("riskLevel") or "UNKNOWN"
+        ),
         "consistency": consistency,
         "risk": risk,
         "performance": performance,

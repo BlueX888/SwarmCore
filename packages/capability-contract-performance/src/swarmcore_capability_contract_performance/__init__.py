@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from importlib.resources import files
 from typing import Any
 
@@ -12,7 +13,12 @@ def _load(name: str) -> dict[str, Any]:
     return value
 
 
-MANIFEST = _load("manifest.json")
+MANIFEST_V1_0_17 = _load("manifest.json")
+MANIFEST = deepcopy(MANIFEST_V1_0_17)
+MANIFEST["metadata"]["version"] = "1.0.18"
+MANIFEST["spec"]["strategies"]["operations"]["COLLECT"] = (
+    "strategy://contract-performance/collect@11"
+)
 _ACCEPTED_MEDIA_TYPES = [
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -32,9 +38,14 @@ SCHEMAS = {
     "schema://contract-performance/plan@1": _load("plan.schema.json"),
     "schema://contract-performance/result@1": _load("output.schema.json"),
 }
+_COLLECT_V10 = _load("strategy-collect.json")
+_COLLECT_V11 = deepcopy(_COLLECT_V10)
+_COLLECT_V11["metadata"]["name"] = "contract-performance-collect-v11"
+_COLLECT_V11["spec"]["budget"]["onExhausted"] = "wait_for_budget_approval"
 STRATEGIES = {
     "strategy://contract-performance/initialize@13": _load("strategy-initialize.json"),
-    "strategy://contract-performance/collect@10": _load("strategy-collect.json"),
+    "strategy://contract-performance/collect@10": _COLLECT_V10,
+    "strategy://contract-performance/collect@11": _COLLECT_V11,
 }
 VIEW_DEFINITION = _load("view-definition.json")
 MODELS = frozenset(
@@ -66,4 +77,12 @@ REFERENCES = frozenset(
     }
 )
 
-__all__ = ["MANIFEST", "MODELS", "REFERENCES", "SCHEMAS", "STRATEGIES", "VIEW_DEFINITION"]
+__all__ = [
+    "MANIFEST",
+    "MANIFEST_V1_0_17",
+    "MODELS",
+    "REFERENCES",
+    "SCHEMAS",
+    "STRATEGIES",
+    "VIEW_DEFINITION",
+]

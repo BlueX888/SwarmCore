@@ -14,11 +14,11 @@ from swarmcore_spec import SwarmStrategy
 
 def test_invoice_assurance_capability_assets_and_references_are_valid() -> None:
     manifest = CapabilityPackManifest.model_validate(MANIFEST)
-    strategy = SwarmStrategy.model_validate(STRATEGIES["strategy://invoice-assurance/assess@2"])
+    strategy = SwarmStrategy.model_validate(STRATEGIES["strategy://invoice-assurance/assess@3"])
     registry = builtin_registry()
 
     assert manifest.metadata.name == "invoice-assurance"
-    assert manifest.metadata.version == "1.1.0"
+    assert manifest.metadata.version == "1.1.1"
     assert strategy.spec.budget.max_agents == 3
     assert strategy.spec.budget.max_parallelism == 3
     assert set(manifest.spec.agents) <= REFERENCES
@@ -53,4 +53,6 @@ def test_invoice_assurance_capability_assets_and_references_are_valid() -> None:
         in router_conditions
     )
     finalize = next(node for node in plan.nodes if node.key == "finalize")
-    assert finalize.config["input"]["approvals"] == {}
+    assert finalize.config["input"]["approvals"] == {
+        "manual-review": "{{ tasks.manual-review.output }}"
+    }

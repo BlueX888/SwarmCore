@@ -231,6 +231,10 @@ class CapabilityPresetService:
 
     @staticmethod
     def _configuration_kind(kind: CapabilityKind) -> ConfigurationKind:
+        if kind is CapabilityKind.MODEL:
+            raise ValueError(
+                "model presets are not supported; define task behavior in an agent"
+            )
         try:
             return ConfigurationKind(kind.value)
         except ValueError as exc:

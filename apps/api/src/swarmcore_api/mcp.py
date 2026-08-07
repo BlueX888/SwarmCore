@@ -23,7 +23,13 @@ from swarmcore_application import (
     RunService,
     StrategyService,
 )
-from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2, MANIFEST_V2_1
+from swarmcore_capability_ai_foundation_quality import MANIFEST as AI_QUALITY_MANIFEST
+from swarmcore_capability_contract_integrity import (
+    MANIFEST,
+    MANIFEST_V2,
+    MANIFEST_V2_1,
+    MANIFEST_V2_2,
+)
 from swarmcore_capability_contract_performance import MANIFEST as CONTRACT_PERFORMANCE_MANIFEST
 from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
 from swarmcore_capability_deviation_analysis import MANIFEST as DEVIATION_ANALYSIS_MANIFEST
@@ -34,6 +40,7 @@ from swarmcore_capability_invoice_assurance import MANIFEST as INVOICE_ASSURANCE
 from swarmcore_capability_procurement_supplier_risk import (
     MANIFEST as PROCUREMENT_SUPPLIER_RISK_MANIFEST,
 )
+from swarmcore_capability_report_generation import MANIFEST as REPORT_GENERATION_MANIFEST
 from swarmcore_capability_swarm_calibration import MANIFEST as SWARM_CALIBRATION_MANIFEST
 from swarmcore_governance import (
     PolicyDenied,
@@ -68,6 +75,7 @@ from .business_routes import documents as _documents
 from .business_routes import invoice_assurance_operations as _invoice_assurance_operations
 from .business_routes import procurement_supplier_risk as _procurement_supplier_risk
 from .business_routes import workbench as _workbench
+from .capability_catalog import project_capability_catalog
 from .schemas import JsonRpcRequest
 
 router = APIRouter()
@@ -82,6 +90,7 @@ _capabilities = CapabilityCatalogService(
         MANIFEST,
         MANIFEST_V2,
         MANIFEST_V2_1,
+        MANIFEST_V2_2,
         POST_EVALUATION_MANIFEST,
         CONTRACT_PERFORMANCE_MANIFEST,
         PROCUREMENT_SUPPLIER_RISK_MANIFEST,
@@ -89,6 +98,8 @@ _capabilities = CapabilityCatalogService(
         DOCUMENT_STRUCTURING_MANIFEST,
         INVOICE_ASSURANCE_MANIFEST,
         SWARM_CALIBRATION_MANIFEST,
+        AI_QUALITY_MANIFEST,
+        REPORT_GENERATION_MANIFEST,
     )
 )
 _compilation = CompilationService(_strategies)
@@ -893,7 +904,7 @@ async def _call_tool(
         "supplier_risk_work_order_update": "finding.write",
         "supplier_risk_work_orders_list": "finding.read",
         "create_work_item": "work-item.write",
-        "upsert_business_object": "business-object.write",
+        "upsert_business_object": "case.write",
         "create_case": "case.write",
         "assess_case": "case.assess",
         "get_case_result": "case.read",
@@ -904,6 +915,10 @@ async def _call_tool(
         "act_on_finding": "finding.act",
         "get_report": "report.read",
         "list_documents": "document.read",
+        "structure_document": "document.process",
+        "get_document_processing": "document.read",
+        "get_structured_package": "document.read",
+        "confirm_document_fields": "document.write",
     }.get(name)
     if action is None:
         raise ValueError(f"unknown tool: {name}")
@@ -948,7 +963,13 @@ async def _call_tool(
                     )
     decision.enforce()
     if name == "swarm.capabilities.get":
-        return _capabilities.get().model_dump(mode="json", by_alias=True)
+        catalog = await project_capability_catalog(
+            request.app.state.database,
+            base_catalog=_capabilities.get(),
+            tenant_id=tenant_id,
+            project_id=project_id,
+        )
+        return catalog.model_dump(mode="json", by_alias=True)
     if name == "swarm.capability-center.list":
         center: CapabilityCenterService = request.app.state.capability_center
         database = request.app.state.database

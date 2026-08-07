@@ -36,7 +36,7 @@ def test_v1_hash_does_not_include_v2_default_slots() -> None:
     assert "decisions" not in normalized["spec"]
     assert "resources" not in normalized["spec"]
     assert hash_manifest(MANIFEST) == (
-        "7992dd790bc7c8113648d7da0d8aa6cdbb0e32b3328c965ff49aa2b296830f78"
+        "c632917f20ddcde51cc4831e9df6cafc2c320bb5687e835457cc5ec3de8c47a2"
     )
 
 

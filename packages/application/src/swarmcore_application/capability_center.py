@@ -166,6 +166,19 @@ class CapabilityCenterService:
         submitted_scopes: tuple[str, ...],
         auth_context_hash: str,
     ) -> tuple[Any, Any]:
+        summaries = await self.list(
+            tenant_id=tenant_id,
+            project_id=project_id,
+            environment=environment,
+            session=session,
+        )
+        summary = next((item for item in summaries if item.ref == capability_ref), None)
+        if summary is None:
+            raise LookupError("capability not found")
+        if summary.kind is CapabilityKind.MODEL:
+            raise ValueError(
+                "MODEL_DIRECT_RUN_NOT_SUPPORTED: define task behavior in an agent"
+            )
         if preset_id is not None:
             if self._presets is None:
                 raise ValueError("preset service is unavailable")
@@ -177,15 +190,6 @@ class CapabilityCenterService:
                 capability_ref=capability_ref,
             )
             input_data = {**preset_input, **input_data}
-        summaries = await self.list(
-            tenant_id=tenant_id,
-            project_id=project_id,
-            environment=environment,
-            session=session,
-        )
-        summary = next((item for item in summaries if item.ref == capability_ref), None)
-        if summary is None:
-            raise LookupError("capability not found")
         if summary.readiness.status is not CapabilityReadinessStatus.READY:
             codes = ",".join(reason.code.value for reason in summary.readiness.reasons)
             raise ValueError(f"CAPABILITY_NOT_READY: {codes}")
@@ -408,15 +412,6 @@ class CapabilityCenterService:
             }
         elif summary.kind is CapabilityKind.AGENT:
             agents = {"capability": {"ref": summary.ref}}
-            node = {"type": "agent", "agent": "capability"}
-        elif summary.kind is CapabilityKind.MODEL:
-            agents = {
-                "capability": {
-                    "role": "capability-model-runner",
-                    "instructions": "Process the supplied input and return the final result.",
-                    "model": summary.ref,
-                }
-            }
             node = {"type": "agent", "agent": "capability"}
         else:
             raise ValueError(f"capability kind cannot run directly: {summary.kind.value}")

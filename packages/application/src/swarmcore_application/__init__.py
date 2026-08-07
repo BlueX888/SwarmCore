@@ -94,6 +94,7 @@ from .deviation_analysis import (
     deviation_report_lines,
     finalize_deviation_result,
     merge_deviation_facts,
+    upstream_performance_analysis,
     validate_deviation_result,
 )
 from .deviation_analysis import (
@@ -212,11 +213,6 @@ from .post_evaluation_expanded import (
     search_evidence,
     validate_expanded_result,
 )
-from .project_models import (
-    is_project_model_ref,
-    project_model_capability_summary,
-    synthesize_project_model_registration,
-)
 from .procurement_supplier_risk import (
     calculate_supplier_performance,
     collect_risk_observations,
@@ -227,7 +223,28 @@ from .procurement_supplier_risk import (
     validate_procurement_supplier_risk_result,
 )
 from .procurement_supplier_risk_service import ProcurementSupplierRiskService
-from .queries import RunQueryService, is_retryable_run_failure, render_run_snapshot
+from .project_models import (
+    is_project_model_ref,
+    project_model_capability_summary,
+    synthesize_project_model_registration,
+)
+from .project_overview import (
+    ProjectOverviewCounts,
+    ProjectOverviewReadiness,
+    ProjectOverviewRun,
+    ProjectOverviewService,
+    ProjectOverviewSnapshot,
+    ProjectOverviewWork,
+    calculate_document_readiness,
+)
+from .queries import (
+    ACTIVE_RUN_STATUSES,
+    RunQueryService,
+    RunSummary,
+    RunSummaryPage,
+    is_retryable_run_failure,
+    render_run_snapshot,
+)
 from .resource_plane import (
     CapabilityBindingService,
     ConnectionService,
@@ -249,6 +266,7 @@ from .services import (
 from .workbench import WorkbenchService
 
 __all__ = [
+    "ACTIVE_RUN_STATUSES",
     "BUSINESS_WORK_DEFINITIONS",
     "CONTRACT_PERFORMANCE_PLAN_SCHEMA_VERSION",
     "CONTRACT_PERFORMANCE_SCHEMA_VERSION",
@@ -337,8 +355,14 @@ __all__ = [
     "PostEvaluationPayload",
     "PostEvaluationResult",
     "ProcessingResultEnvelope",
-    "ProjectConfigurationService",
     "ProcurementSupplierRiskService",
+    "ProjectConfigurationService",
+    "ProjectOverviewCounts",
+    "ProjectOverviewReadiness",
+    "ProjectOverviewRun",
+    "ProjectOverviewService",
+    "ProjectOverviewSnapshot",
+    "ProjectOverviewWork",
     "QualityStatus",
     "ResourceCatalogService",
     "ResourceReadiness",
@@ -354,6 +378,8 @@ __all__ = [
     "RunResult",
     "RunResultService",
     "RunService",
+    "RunSummary",
+    "RunSummaryPage",
     "Severity",
     "SqlIntelligenceStore",
     "StrategyDeleteBlocker",
@@ -378,28 +404,29 @@ __all__ = [
     "build_schedule",
     "calculate_accuracy_baseline",
     "calculate_cost_deviation",
-    "calculate_supplier_performance",
+    "calculate_document_readiness",
     "calculate_status",
+    "calculate_supplier_performance",
     "calculate_time_deviation",
     "calculate_timeline",
     "capability_executors",
     "check_document_coverage",
     "check_evidence_consistency",
+    "collect_risk_observations",
     "command_request_id",
     "commercial_match",
-    "collect_risk_observations",
-    "compare_procurement_clauses",
     "compare_content_deviation",
+    "compare_procurement_clauses",
     "compose_formal_post_evaluation_report",
     "contract_performance_report_lines",
     "cross_file_consistency",
+    "decide_supplier_risk",
     "deduplicate",
     "dependency_cycle",
-    "decide_supplier_risk",
     "deviation_report_lines",
+    "diff_supplier_risk_snapshots",
     "document_binding_keys",
     "document_read",
-    "diff_supplier_risk_snapshots",
     "enterprise_public_status_check",
     "evaluate_cross_file_consistency",
     "evaluate_integrity",
@@ -417,6 +444,7 @@ __all__ = [
     "is_retryable_run_failure",
     "match_evidence",
     "merge_deviation_facts",
+    "upstream_performance_analysis",
     "merge_domain_analyses",
     "normalize_decision",
     "normalize_plan",

@@ -401,6 +401,59 @@ def test_litellm_includes_provider_error_detail(
         )
 
 
+def test_litellm_retries_without_structured_output_for_legacy_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payloads: list[dict[str, Any]] = []
+
+    def urlopen(request: Request, *, timeout: float) -> Any:
+        del timeout
+        payloads.append(json.loads(cast(bytes, request.data)))
+        if len(payloads) == 1:
+            raise HTTPError(
+                request.full_url,
+                400,
+                "Bad Request",
+                {},
+                BytesIO(b'{"error":{"message":"json_object is not supported"}}'),
+            )
+        return BytesIO(
+            json.dumps(
+                {
+                    "id": "completion-1",
+                    "model": "legacy-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": '{"answer":"ok"}'},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 4},
+                }
+            ).encode()
+        )
+
+    monkeypatch.setattr(model_gateway, "urlopen", urlopen)
+
+    result = model_gateway._litellm(
+        "https://models.example",
+        "test-key",
+        "legacy-model",
+        model_gateway.InvokeBody(
+            capabilityToken="unused",
+            messages=[{"role": "user", "content": "return json"}],
+            maxTokens=32,
+            parameters={"response_format": {"type": "json_object"}},
+        ),
+        30,
+    )
+
+    assert result["choices"][0]["message"]["content"] == '{"answer":"ok"}'
+    assert payloads[0]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in payloads[1]
+
+
 @pytest.mark.asyncio
 async def test_runtime_provider_falls_back_when_vault_lease_fails(
     monkeypatch: pytest.MonkeyPatch,

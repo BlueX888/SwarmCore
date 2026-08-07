@@ -287,6 +287,7 @@ class ApprovalSnapshot(ApiModel):
     allowed_actions: list[str] = Field(default_factory=list, alias="allowedActions")
     requested_by: str = Field(alias="requestedBy")
     handled_by: str | None = Field(default=None, alias="handledBy")
+    required_roles: list[str] = Field(default_factory=list, alias="requiredRoles")
     created_at: datetime = Field(alias="createdAt")
     handled_at: datetime | None = Field(default=None, alias="handledAt")
 

@@ -142,10 +142,10 @@ export const BUSINESS_WORKS: BusinessWorkDefinition[] = [
   },
   {
     key: "swarm-calibration",
-    name: "智能体调度校准智能体",
-    shortName: "调度校准",
+    name: "GitHub 工程问题调度校准智能体",
+    shortName: "工程问题调度校准",
     category: "governance",
-    summary: "监督多智能体任务的数据流和输出质量，为调度、降级与切换提供校准建议。",
+    summary: "基于冻结的公开 GitHub Issue、讨论、合并提交与沙箱验证，校准工程问题诊断的调度、降级与切换。",
     functions: [
       { name: "任务编排", description: "定义任务依赖、并行关系、输入输出和人工等待节点。" },
       { name: "智能体数据流转", description: "校验上游输出 Schema，向下游传递冻结数据和证据。" },
@@ -207,36 +207,6 @@ export const DOCUMENT_CATEGORY_LABELS: Record<string, string> = {
   TAX_ACCOUNT_EXPORT: "税务数字账户导出",
   BANK_CHANGE_EVIDENCE: "账户变更证据",
 };
-
-/** Keys that count when matching documents to a business work (mirrors backend). */
-export function documentBindingKeys(workKey: string, workItemType: string | null = null): string[] {
-  if (workKey === "contract-post-evaluation" || workKey === "report-generation") {
-    return [
-      workKey,
-      workItemType ?? "contract-post-evaluation-case",
-      "contract-post-evaluation",
-      "document-integrity",
-      "performance-plan-collection",
-      "invoice-assurance",
-      "deviation-analysis",
-      "procurement-supplier-risk",
-      "report-generation",
-    ];
-  }
-  if (workKey === "deviation-analysis") {
-    return [
-      workKey,
-      workItemType ?? "deviation-analysis-case",
-      "performance-plan-collection",
-      "document-integrity",
-      "invoice-assurance",
-    ];
-  }
-  if (workKey === "invoice-assurance") {
-    return [workKey, workItemType ?? "invoice-assurance-case"];
-  }
-  return workItemType ? [workKey, workItemType] : [workKey];
-}
 
 export function getBusinessWork(key: string | undefined) {
   return BUSINESS_WORKS.find((work) => work.key === key);

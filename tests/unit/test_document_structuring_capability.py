@@ -13,6 +13,8 @@ from swarmcore_application.document_structuring import (
     document_package_artifacts,
     finalize_document_structuring,
     prepare_document_structuring,
+    select_document_structuring_analysis,
+    select_document_structuring_review,
 )
 from swarmcore_capability_document_structuring import (
     MANIFEST,
@@ -29,11 +31,12 @@ from swarmcore_spec import SwarmStrategy
 def test_document_structuring_capability_assets_compile() -> None:
     manifest = CapabilityPackManifest.model_validate(MANIFEST)
     strategy = SwarmStrategy.model_validate(
-        STRATEGIES["strategy://document-structuring/execute@1"]
+        STRATEGIES["strategy://document-structuring/execute@2"]
     )
     registry = builtin_registry()
 
     assert manifest.metadata.name == "document-structuring"
+    assert manifest.metadata.version == "1.1.0"
     assert strategy.spec.budget.max_agents == 1
     assert set(manifest.spec.agents) <= REFERENCES
     assert set(manifest.spec.tools) <= REFERENCES
@@ -62,6 +65,13 @@ def test_document_structuring_capability_assets_compile() -> None:
         structurer.output_schema_fallback
     )
     assert structurer.output_schema_fallback["reviewRequired"] is True
+    nodes = strategy.spec.graph.nodes.root
+    assert nodes["review-decision-router"].routes[0].target == "reprocess-analyze"
+    assert nodes["select-analysis"].tool == "tool://document/analysis-select@1"
+    assert nodes["post-reprocess-review"].type == "approval"
+    assert nodes["publish"].input["result"] == (
+        "{{ tasks.selected-quality-check.output.content }}"
+    )
 
 
 def test_document_processing_events_have_migration_and_tenant_scope() -> None:
@@ -175,3 +185,34 @@ def test_finalize_requires_evidence_and_human_review_can_correct() -> None:
         "evidence-manifest.json",
         "review-log.json",
     } <= document_package_artifacts(corrected).keys()
+
+
+def test_reprocess_selection_requires_new_analysis_and_fresh_review() -> None:
+    original = {"summary": "first"}
+    revised = {"summary": "revised"}
+
+    assert select_document_structuring_analysis(original, None, None) == {
+        "analysis": original,
+        "reprocessed": False,
+    }
+    assert select_document_structuring_analysis(
+        original,
+        revised,
+        {"decision": "REQUEST_REPROCESS"},
+    ) == {"analysis": revised, "reprocessed": True}
+    assert select_document_structuring_review(
+        {"decision": "CONFIRM"},
+        {"decision": "CORRECT", "reason": "复核重处理结果"},
+        was_reprocessed=True,
+    ) == {"decision": "CORRECT", "reason": "复核重处理结果"}
+
+    try:
+        select_document_structuring_analysis(
+            original,
+            None,
+            {"decision": "REQUEST_REPROCESS"},
+        )
+    except ValueError as exc:
+        assert "completed reprocessing result" in str(exc)
+    else:
+        raise AssertionError("missing reprocess result must fail closed")

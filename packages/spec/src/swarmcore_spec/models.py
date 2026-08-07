@@ -208,6 +208,10 @@ class LoopNode(NodeBase):
 class ApprovalNode(NodeBase):
     type: Literal["approval"]
     prompt: str = Field(min_length=1)
+    required_roles: list[str] = Field(default_factory=list, alias="requiredRoles")
+    requires_distinct_approver: bool = Field(
+        default=False, alias="requiresDistinctApprover"
+    )
     input_schema: JsonSchema = Field(
         default_factory=lambda: {"type": "object"}, alias="inputSchema"
     )

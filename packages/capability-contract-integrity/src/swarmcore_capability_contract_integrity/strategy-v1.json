@@ -1,0 +1,135 @@
+{
+  "apiVersion": "swarmcore.io/v1",
+  "kind": "SwarmStrategy",
+  "metadata": {"name": "contract-integrity-validate"},
+  "spec": {
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "workItemId",
+        "workItemRevisionId",
+        "evaluationId",
+        "payload",
+        "attachments",
+        "ruleSetVersionId",
+        "rules",
+        "attachmentManifestHash",
+        "configuration"
+      ],
+      "properties": {
+        "workItemId": {"type": "string"},
+        "workItemRevisionId": {"type": "string"},
+        "evaluationId": {"type": "string"},
+        "payload": {
+          "type": "object",
+          "properties": {"title": {"type": "string"}},
+          "required": ["title"]
+        },
+        "subjects": {"type": "array", "items": {"type": "object"}},
+        "resources": {"type": "object"},
+        "documents": {"type": "array", "items": {"type": "object"}},
+        "attachments": {"type": "array", "items": {"type": "object"}},
+        "ruleSetVersionId": {"type": "string"},
+        "rules": {"type": "object"},
+        "attachmentManifestHash": {"type": "string"},
+        "configuration": {"type": "object"}
+      }
+    },
+    "outputSchema": {"type": "object"},
+    "defaults": {},
+    "budget": {
+      "maxDuration": "PT60M",
+      "maxTokens": 1000000,
+      "maxCostUsd": 25,
+      "maxAgents": 8,
+      "maxParallelism": 4,
+      "onExhausted": "fail"
+    },
+    "agents": {
+      "classify": {"ref": "agent://contract/document-classifier@1"},
+      "extract": {"ref": "agent://contract/field-extractor@1"}
+    },
+    "graph": {
+      "entrypoint": "classify",
+      "nodes": {
+        "classify": {
+          "type": "agent",
+          "agent": "classify",
+          "input": {
+            "documentText": "Business payload: {{ input.payload }}; attachments: {{ input.attachments }}",
+            "documentName": "{{ input.payload.title }}"
+          }
+        },
+        "extract": {
+          "type": "agent",
+          "agent": "extract",
+          "dependsOn": ["classify"],
+          "input": {
+            "documentText": "Business payload: {{ input.payload }}; classification: {{ tasks.classify.output }}"
+          }
+        },
+        "evaluate": {
+          "type": "tool",
+          "tool": "tool://rules/evaluate@1",
+          "dependsOn": ["extract"],
+          "input": {
+            "ruleSetVersionId": "{{ input.ruleSetVersionId }}",
+            "rules": "{{ input.rules }}",
+            "attachments": "{{ input.attachments }}",
+            "attachmentManifestHash": "{{ input.attachmentManifestHash }}"
+          }
+        },
+        "consistency": {
+          "type": "tool",
+          "tool": "tool://contract/cross-file-consistency@1",
+          "dependsOn": ["extract"],
+          "input": {
+            "results": [
+              {
+                "blobId": "{{ input.evaluationId }}",
+                "sha256": "{{ input.attachmentManifestHash }}",
+                "pipelineVersion": "strategy://contract-integrity/validate@1",
+                "status": "COMPLETED",
+                "extraction": "{{ tasks.extract.output }}",
+                "reviewReasons": [],
+                "diagnostics": []
+              }
+            ],
+            "rules": []
+          }
+        },
+        "report": {
+          "type": "tool",
+          "tool": "tool://report/render@1",
+          "dependsOn": ["consistency"],
+          "input": {
+            "title": "{{ input.payload.title }}",
+            "results": [
+              {
+                "blobId": "{{ input.evaluationId }}",
+                "sha256": "{{ input.attachmentManifestHash }}",
+                "pipelineVersion": "strategy://contract-integrity/validate@1",
+                "status": "COMPLETED",
+                "extraction": "{{ tasks.extract.output }}",
+                "reviewReasons": [],
+                "diagnostics": []
+              }
+            ],
+            "rules": []
+          }
+        },
+        "record": {
+          "type": "tool",
+          "tool": "tool://workbench/record-evaluation@1",
+          "dependsOn": ["evaluate", "report"],
+          "input": {
+            "evaluationId": "{{ input.evaluationId }}",
+            "result": "{{ tasks.evaluate.output }}"
+          }
+        }
+      },
+      "output": {"result": "{{ tasks.evaluate.output }}"}
+    },
+    "$defs": {}
+  }
+}

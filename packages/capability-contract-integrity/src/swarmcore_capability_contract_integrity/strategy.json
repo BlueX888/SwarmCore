@@ -1,31 +1,74 @@
 {
   "apiVersion": "swarmcore.io/v1",
   "kind": "SwarmStrategy",
-  "metadata": {"name": "contract-integrity-validate"},
+  "metadata": {"name": "contract-integrity-validate-v2"},
   "spec": {
-    "inputSchema": {"type": "object"},
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "workItemId",
+        "workItemRevisionId",
+        "evaluationId",
+        "payload",
+        "subjects",
+        "resources",
+        "documents",
+        "attachments",
+        "ruleSetVersionId",
+        "rules",
+        "attachmentManifestHash",
+        "configuration"
+      ],
+      "properties": {
+        "workItemId": {"type": "string"},
+        "workItemRevisionId": {"type": "string"},
+        "evaluationId": {"type": "string"},
+        "payload": {
+          "type": "object",
+          "properties": {"title": {"type": "string"}},
+          "required": ["title"]
+        },
+        "subjects": {"type": "array", "items": {"type": "object"}, "minItems": 1},
+        "resources": {"type": "object"},
+        "documents": {"type": "array", "items": {"type": "object"}, "minItems": 1},
+        "attachments": {"type": "array", "items": {"type": "object"}},
+        "ruleSetVersionId": {"type": "string"},
+        "rules": {"type": "object"},
+        "attachmentManifestHash": {"type": "string"},
+        "configuration": {"type": "object"}
+      }
+    },
     "outputSchema": {"type": "object"},
     "defaults": {},
     "budget": {
-      "maxDuration": "PT60M",
-      "maxTokens": 1000000,
-      "maxCostUsd": 25,
-      "maxAgents": 8,
-      "maxParallelism": 4,
-      "onExhausted": "fail"
+      "maxDuration": "PT30M",
+      "maxTokens": 120000,
+      "maxCostUsd": 3,
+      "maxAgents": 2,
+      "maxParallelism": 2,
+      "onExhausted": "wait_for_budget_approval"
     },
     "agents": {
       "classify": {"ref": "agent://contract/document-classifier@1"},
       "extract": {"ref": "agent://contract/field-extractor@1"}
     },
     "graph": {
-      "entrypoint": "classify",
+      "entrypoint": "read-documents",
       "nodes": {
+        "read-documents": {
+          "type": "tool",
+          "tool": "tool://document/read-versions@1",
+          "input": {
+            "evaluationId": "{{ input.evaluationId }}",
+            "documents": "{{ input.documents }}"
+          }
+        },
         "classify": {
           "type": "agent",
           "agent": "classify",
+          "dependsOn": ["read-documents"],
           "input": {
-            "documentText": "Business payload: {{ input.payload }}; attachments: {{ input.attachments }}",
+            "documentText": "Business payload: {{ input.payload }}; processed documents: {{ tasks.read-documents.output.content.documents }}",
             "documentName": "{{ input.payload.title }}"
           }
         },
@@ -34,7 +77,7 @@
           "agent": "extract",
           "dependsOn": ["classify"],
           "input": {
-            "documentText": "Business payload: {{ input.payload }}; classification: {{ tasks.classify.output }}"
+            "documentText": "Processed documents: {{ tasks.read-documents.output.content.documents }}; classification: {{ tasks.classify.output.content }}"
           }
         },
         "evaluate": {
@@ -57,9 +100,9 @@
               {
                 "blobId": "{{ input.evaluationId }}",
                 "sha256": "{{ input.attachmentManifestHash }}",
-                "pipelineVersion": "strategy://contract-integrity/validate@1",
+                "pipelineVersion": "strategy://contract-integrity/validate@2",
                 "status": "COMPLETED",
-                "extraction": "{{ tasks.extract.output }}",
+                "extraction": "{{ tasks.extract.output.content }}",
                 "reviewReasons": [],
                 "diagnostics": []
               }
@@ -67,19 +110,72 @@
             "rules": []
           }
         },
+        "assemble": {
+          "type": "tool",
+          "tool": "tool://contract/integrity-finalize@1",
+          "dependsOn": ["evaluate", "consistency", "extract"],
+          "input": {
+            "ruleResult": "{{ tasks.evaluate.output.content }}",
+            "consistencyResult": "{{ tasks.consistency.output.content }}",
+            "documentIntelligence": "{{ tasks.extract.output.content }}",
+            "approval": null
+          }
+        },
+        "review-router": {
+          "type": "router",
+          "dependsOn": ["assemble"],
+          "routes": [
+            {
+              "when": "tasks.assemble.output.content.reviewRequired == true",
+              "target": "manual-review"
+            }
+          ],
+          "default": "auto-continue"
+        },
+        "manual-review": {
+          "type": "approval",
+          "dependsOn": ["review-router"],
+          "prompt": "完整性规则、跨文件字段或抽取证据存在异常，请复核后决定是否接受例外。",
+          "inputSchema": {
+            "type": "object",
+            "required": ["approved", "reason"],
+            "properties": {
+              "approved": {"type": "boolean"},
+              "reason": {"type": "string", "minLength": 1},
+              "exceptionFindingIds": {"type": "array", "items": {"type": "string"}}
+            },
+            "additionalProperties": false
+          }
+        },
+        "auto-continue": {
+          "type": "join",
+          "strategy": "all",
+          "dependsOn": ["review-router"]
+        },
+        "finalize": {
+          "type": "tool",
+          "tool": "tool://contract/integrity-finalize@1",
+          "dependsOn": ["assemble", "manual-review", "auto-continue"],
+          "input": {
+            "ruleResult": "{{ tasks.evaluate.output.content }}",
+            "consistencyResult": "{{ tasks.consistency.output.content }}",
+            "documentIntelligence": "{{ tasks.extract.output.content }}",
+            "approval": "{{ tasks.manual-review.output }}"
+          }
+        },
         "report": {
           "type": "tool",
           "tool": "tool://report/render@1",
-          "dependsOn": ["consistency"],
+          "dependsOn": ["finalize"],
           "input": {
             "title": "{{ input.payload.title }}",
             "results": [
               {
                 "blobId": "{{ input.evaluationId }}",
                 "sha256": "{{ input.attachmentManifestHash }}",
-                "pipelineVersion": "strategy://contract-integrity/validate@1",
+                "pipelineVersion": "strategy://contract-integrity/validate@2",
                 "status": "COMPLETED",
-                "extraction": "{{ tasks.extract.output }}",
+                "extraction": "{{ tasks.extract.output.content }}",
                 "reviewReasons": [],
                 "diagnostics": []
               }
@@ -90,14 +186,14 @@
         "record": {
           "type": "tool",
           "tool": "tool://workbench/record-evaluation@1",
-          "dependsOn": ["evaluate", "report"],
+          "dependsOn": ["finalize", "report"],
           "input": {
             "evaluationId": "{{ input.evaluationId }}",
-            "result": "{{ tasks.evaluate.output }}"
+            "result": "{{ tasks.finalize.output.content }}"
           }
         }
       },
-      "output": {"result": "{{ tasks.evaluate.output }}"}
+      "output": {"result": "{{ tasks.finalize.output.content }}"}
     },
     "$defs": {}
   }

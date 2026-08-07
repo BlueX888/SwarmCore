@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import UUID
 
 from sqlalchemy import select
@@ -59,6 +59,9 @@ from .contract_performance import (
     validate_contract_performance_result,
 )
 from .deviation_analysis import (
+    SCHEMA_VERSION as DEVIATION_SCHEMA_VERSION,
+)
+from .deviation_analysis import (
     aggregate_responsibility,
     build_deviation_trends,
     calculate_cost_deviation,
@@ -67,6 +70,7 @@ from .deviation_analysis import (
     deviation_report_lines,
     finalize_deviation_result,
     merge_deviation_facts,
+    upstream_performance_analysis,
     validate_deviation_result,
 )
 from .document_intelligence import (
@@ -83,6 +87,8 @@ from .document_structuring import (
     document_package_artifacts,
     finalize_document_structuring,
     prepare_document_structuring,
+    select_document_structuring_analysis,
+    select_document_structuring_review,
 )
 from .formal_post_evaluation_report import (
     assess_document_readability,
@@ -91,7 +97,12 @@ from .formal_post_evaluation_report import (
     render_formal_post_evaluation_pdf,
     verify_report_citations,
 )
-from .integrity import AttachmentInput, IntegrityRuleDocument, evaluate_integrity
+from .integrity import (
+    AttachmentInput,
+    IntegrityRuleDocument,
+    evaluate_integrity,
+    finalize_integrity_result,
+)
 from .invoice_assurance import (
     arithmetic_check,
     commercial_match,
@@ -137,6 +148,10 @@ from .procurement_supplier_risk import (
     validate_procurement_supplier_risk_result,
 )
 from .procurement_supplier_risk_service import ProcurementSupplierRiskService
+from .quality_benchmark import (
+    evaluate_quality_benchmark,
+    quality_benchmark_report_lines,
+)
 from .resource_plane import FakeConnector
 from .swarm_calibration import (
     GitHubEvidenceClient,
@@ -147,6 +162,28 @@ from .swarm_calibration import (
     freeze_evidence,
     score_quality,
 )
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        del req, fp, code, msg, headers, newurl
+        return None
+
+
+_NO_REDIRECT_OPENER = build_opener(_NoRedirectHandler())
+
+
+def urlopen(request: Request, *, timeout: float) -> Any:
+    """Open allowlisted capability sources without automatic redirects."""
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
 
 
 def _nested_value(value: Any, path: str) -> Any:
@@ -282,9 +319,7 @@ class _CcgpBlacklistParser(HTMLParser):
         self._cell_parts: list[str] = []
         self._record_id: str | None = None
 
-    def handle_starttag(
-        self, tag: str, attrs: list[tuple[str, str | None]]
-    ) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
         if tag == "tr" and "trShow" in str(attributes.get("class") or "").split():
             self._in_row = True
@@ -517,10 +552,7 @@ class SupplierRiskCollectExecutor:
                     )
                 except (RuntimeError, ValueError) as exc:
                     source = {
-                        "sourceRef": str(
-                            raw.get("sourceRef")
-                            or "official://ccgp/serious-illegal"
-                        ),
+                        "sourceRef": str(raw.get("sourceRef") or "official://ccgp/serious-illegal"),
                         "status": "FAILED",
                         "fetchedAt": datetime.now(UTC).isoformat(),
                         "errorCode": type(exc).__name__.upper(),
@@ -565,16 +597,12 @@ async def supplier_performance_calculate(
     return calculate_supplier_performance(input_value)
 
 
-async def supplier_risk_decide(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def supplier_risk_decide(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return decide_supplier_risk(input_value)
 
 
-async def supplier_history_diff(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def supplier_history_diff(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     previous = input_value.get("previous")
     return diff_supplier_risk_snapshots(
@@ -693,6 +721,17 @@ async def cross_file_consistency(input_value: dict[str, Any], effect_id: str) ->
     }
 
 
+async def integrity_finalize(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
+    del effect_id
+    approval = input_value.get("approval")
+    return finalize_integrity_result(
+        dict(input_value["ruleResult"]),
+        dict(input_value["consistencyResult"]),
+        dict(input_value["documentIntelligence"]),
+        dict(approval) if isinstance(approval, dict) else None,
+    )
+
+
 async def report_render(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     results = [DocumentIntelligenceResult.model_validate(item) for item in input_value["results"]]
@@ -740,9 +779,7 @@ async def evidence_search(input_value: dict[str, Any], effect_id: str) -> dict[s
     )
 
 
-async def evidence_search_contextual(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def evidence_search_contextual(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return search_evidence(
         [dict(value) for value in input_value["documents"]],
@@ -764,8 +801,7 @@ class BoundEvidenceSearchExecutor:
     ) -> None:
         self._sessions = sessions
         self._artifact_root = (
-            artifact_root
-            or Path(os.environ.get("SWARMCORE_ARTIFACT_ROOT", ".tmp/artifacts"))
+            artifact_root or Path(os.environ.get("SWARMCORE_ARTIFACT_ROOT", ".tmp/artifacts"))
         ).resolve()
 
     async def healthy(self) -> bool:
@@ -781,11 +817,7 @@ class BoundEvidenceSearchExecutor:
     ) -> dict[str, Any]:
         tenant_id = UUID(str(context.tenant_id))
         project_id = UUID(str(context.project_id))
-        documents = [
-            dict(value)
-            for value in input_value["documents"]
-            if isinstance(value, dict)
-        ]
+        documents = [dict(value) for value in input_value["documents"] if isinstance(value, dict)]
         hydrated: list[dict[str, Any]] = []
         async with tenant_transaction(
             self._sessions, tenant_id=tenant_id, project_id=project_id
@@ -866,6 +898,7 @@ async def post_evaluation_merge_domains(
     return merge_domain_analyses(
         dict(input_value["basePayload"]),
         {key: dict(value) for key, value in dict(input_value["analyses"]).items()},
+        [dict(value) for value in input_value.get("upstreamEvaluations", [])],
     )
 
 
@@ -1027,7 +1060,16 @@ async def deviation_facts_merge(input_value: dict[str, Any], effect_id: str) -> 
     del effect_id
     merged = merge_deviation_facts(
         dict(input_value["basePayload"]),
-        {key: dict(value) for key, value in dict(input_value["analyses"]).items()},
+        {
+            **{key: dict(value) for key, value in dict(input_value["analyses"]).items()},
+            "confirmedPerformance": upstream_performance_analysis(
+                [
+                    dict(value)
+                    for value in input_value.get("upstreamEvaluations", [])
+                    if isinstance(value, dict)
+                ]
+            ),
+        },
     )
     configuration = input_value.get("configuration", {})
     if isinstance(configuration, dict):
@@ -1144,6 +1186,12 @@ async def deviation_finalize(input_value: dict[str, Any], effect_id: str) -> dic
         evidence_review=dict(input_value["evidenceReview"]),
         narrative=dict(input_value["narrative"]),
         provenance=dict(input_value["provenance"]),
+        approvals=[
+            dict(value)
+            for value in input_value.get("approvals", [])
+            if isinstance(value, dict) and value
+        ],
+        schema_version=str(input_value.get("schemaVersion") or DEVIATION_SCHEMA_VERSION),
     )
 
 
@@ -1163,9 +1211,10 @@ class GitHubCalibrationExecutor:
         self, input_value: dict[str, Any], effect_id: str, context: Any
     ) -> dict[str, Any]:
         del effect_id, context
-        client = GitHubEvidenceClient(
-            token=self._token,
-            **({"base_url": self._base_url} if self._base_url else {}),
+        client = (
+            GitHubEvidenceClient(token=self._token, base_url=self._base_url)
+            if self._base_url
+            else GitHubEvidenceClient(token=self._token)
         )
         try:
             if self._operation == "issue":
@@ -1196,9 +1245,7 @@ async def calibration_freeze_evidence(
     )
 
 
-async def calibration_route_select(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def calibration_route_select(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     return build_route_decision(
         dict(input_value["recommendation"]),
@@ -1207,9 +1254,7 @@ async def calibration_route_select(
     )
 
 
-async def calibration_quality_score(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def calibration_quality_score(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     diagnosis = dict(input_value["diagnosis"])
     required = {
@@ -1239,9 +1284,7 @@ async def calibration_quality_score(
     return {**result, "attempt": int(input_value.get("attempt", 1))}
 
 
-async def calibration_attempt_select(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def calibration_attempt_select(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     selected = input_value.get("selectedAttempt")
     if not isinstance(selected, dict):
@@ -1261,10 +1304,7 @@ async def calibration_attempt_select(
                 isinstance(item.get("fallback"), dict)
                 or (
                     "model" in item
-                    and not (
-                        "decision" in item["content"]
-                        and "components" in item["content"]
-                    )
+                    and not ("decision" in item["content"] and "components" in item["content"])
                 )
             )
         ),
@@ -1291,9 +1331,7 @@ async def calibration_attempt_select(
     }
 
 
-async def calibration_finalize(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def calibration_finalize(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     approvals = input_value.get("approvals")
     fallback = input_value.get("fallback")
@@ -1309,12 +1347,33 @@ async def calibration_finalize(
     )
 
 
-async def calibration_report_render(
-    input_value: dict[str, Any], effect_id: str
-) -> dict[str, Any]:
+async def calibration_report_render(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
     result = dict(input_value["result"])
     return pdf_report_payload(render_embedded_text_pdf(calibration_report_lines(result)))
+
+
+async def ai_quality_benchmark(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
+    del effect_id
+    return evaluate_quality_benchmark(dict(input_value["payload"]))
+
+
+async def ai_quality_finalize(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
+    del effect_id
+    approval = input_value.get("approval")
+    payload = dict(input_value["payload"])
+    return evaluate_quality_benchmark(
+        payload,
+        dict(approval) if isinstance(approval, dict) and approval else None,
+    )
+
+
+async def ai_quality_report(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
+    del effect_id
+    result = dict(input_value["result"])
+    return pdf_report_payload(
+        render_embedded_text_pdf(quality_benchmark_report_lines(result))
+    )
 
 
 class EvaluationRecorderExecutor:
@@ -1337,6 +1396,14 @@ class EvaluationRecorderExecutor:
         evaluation_id = UUID(str(input_value["evaluationId"]))
         result = dict(input_value["result"])
         result_hash = canonical_hash(result)
+        report_value = input_value.get("report")
+        report_payload = dict(report_value) if isinstance(report_value, dict) else None
+        if report_payload is not None:
+            content = base64.b64decode(
+                str(report_payload["contentBase64"]), validate=True
+            )
+            if hashlib.sha256(content).hexdigest() != report_payload["sha256"]:
+                raise ValueError("evaluation report sha256 does not match content")
         async with tenant_transaction(
             self._sessions, tenant_id=tenant_id, project_id=project_id
         ) as session:
@@ -1357,8 +1424,51 @@ class EvaluationRecorderExecutor:
                 return self._receipt(evaluation_id, effect_id, result_hash, recorded=False)
             if evaluation.status != "RUNNING":
                 raise ValueError(f"evaluation cannot be recorded from {evaluation.status}")
+            item: WorkItem | None = None
+            if report_payload is not None:
+                item = await session.scalar(
+                    select(WorkItem)
+                    .where(
+                        WorkItem.id == evaluation.work_item_id,
+                        WorkItem.tenant_id == tenant_id,
+                        WorkItem.project_id == project_id,
+                    )
+                    .with_for_update()
+                )
+                if item is None:
+                    raise LookupError("work item not found in capability scope")
             evaluation.result = result
             evaluation.status = "SUCCEEDED"
+            if item is not None and report_payload is not None:
+                item.status = (
+                    "IN_REVIEW" if result.get("reviewRequired") is True else "COMPLETED"
+                )
+                session.add_all(
+                    [
+                        Report(
+                            tenant_id=tenant_id,
+                            project_id=project_id,
+                            work_item_id=item.id,
+                            evaluation_id=evaluation.id,
+                            format="JSON",
+                            template_version=evaluation.report_template_version,
+                            result_schema_version=evaluation.output_schema_version,
+                            content=result,
+                            content_hash=result_hash,
+                        ),
+                        Report(
+                            tenant_id=tenant_id,
+                            project_id=project_id,
+                            work_item_id=item.id,
+                            evaluation_id=evaluation.id,
+                            format="PDF",
+                            template_version=evaluation.report_template_version,
+                            result_schema_version=evaluation.output_schema_version,
+                            content=report_payload,
+                            content_hash=str(report_payload["sha256"]),
+                        ),
+                    ]
+                )
             session.add(
                 OutboxEvent(
                     id=uuid7(),
@@ -1398,6 +1508,176 @@ class EvaluationRecorderExecutor:
             "effectId": effect_id,
             "resultHash": result_hash,
         }
+
+
+class ConfirmedEvaluationReportGenerator:
+    """Create or reuse a report for a confirmed source evaluation."""
+
+    _TEMPLATE = "report://confirmed-evaluation@1"
+    _RESULT_SCHEMA = "schema://report-generation/result@1"
+
+    def __init__(self, sessions: async_sessionmaker[Any]) -> None:
+        self._sessions = sessions
+
+    async def healthy(self) -> bool:
+        try:
+            async with self._sessions() as session:
+                await session.execute(select(1))
+            return True
+        except SQLAlchemyError:
+            return False
+
+    async def execute(
+        self, input_value: dict[str, Any], effect_id: str, context: Any
+    ) -> dict[str, Any]:
+        tenant_id = UUID(str(context.tenant_id))
+        project_id = UUID(str(context.project_id))
+        source_evaluation_id = UUID(str(input_value["sourceEvaluationId"]))
+        report_format = str(input_value.get("format", "PDF")).upper()
+        if report_format not in {"JSON", "PDF"}:
+            raise ValueError("report format must be JSON or PDF")
+        async with tenant_transaction(
+            self._sessions, tenant_id=tenant_id, project_id=project_id
+        ) as session:
+            source = await session.scalar(
+                select(Evaluation)
+                .where(
+                    Evaluation.id == source_evaluation_id,
+                    Evaluation.tenant_id == tenant_id,
+                    Evaluation.project_id == project_id,
+                )
+                .with_for_update()
+            )
+            if source is None:
+                raise LookupError("source evaluation not found in capability scope")
+            if source.status != "SUCCEEDED" or not self._confirmed(source.result):
+                raise ValueError("source evaluation is not confirmed for report generation")
+            source_result = dict(source.result or {})
+            source_result_hash = canonical_hash(source_result)
+            existing = await session.scalar(
+                select(Report).where(
+                    Report.evaluation_id == source.id,
+                    Report.format == report_format,
+                    Report.tenant_id == tenant_id,
+                    Report.project_id == project_id,
+                )
+            )
+            if existing is not None:
+                return self._result(
+                    source=source,
+                    report=existing,
+                    source_result_hash=source_result_hash,
+                    generated=False,
+                )
+
+            title = str(input_value.get("title") or "业务评价报告")
+            if report_format == "JSON":
+                report_content: dict[str, Any] = source_result
+                content_hash = source_result_hash
+            else:
+                pdf_payload = pdf_report_payload(
+                    render_embedded_text_pdf(
+                        [
+                            title,
+                            f"来源评价: {source.id}",
+                            "结果摘要: "
+                            + json.dumps(source_result, ensure_ascii=False, sort_keys=True),
+                        ]
+                    )
+                )
+                report_content = pdf_payload
+                content_hash = str(pdf_payload["sha256"])
+            report = Report(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                work_item_id=source.work_item_id,
+                evaluation_id=source.id,
+                format=report_format,
+                template_version=self._TEMPLATE,
+                result_schema_version=source.output_schema_version,
+                content=report_content,
+                content_hash=content_hash,
+            )
+            session.add(report)
+            await session.flush()
+            session.add(
+                OutboxEvent(
+                    id=uuid7(),
+                    tenant_id=tenant_id,
+                    aggregate_id=source.id,
+                    destination="nats",
+                    partition_key=str(source.id),
+                    source_id=report.id,
+                    type="report.created",
+                    payload={
+                        "reportId": str(report.id),
+                        "evaluationId": str(source.id),
+                        "format": report.format,
+                        "contentHash": report.content_hash,
+                        "effectId": effect_id,
+                    },
+                )
+            )
+            await AuditRepository().append(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                actor_id=str(context.execution_id),
+                action="report.generate-confirmed-evaluation",
+                resource_type="report",
+                resource_id=str(report.id),
+                run_id=UUID(str(context.run_id)),
+                metadata={
+                    "effectId": effect_id,
+                    "sourceEvaluationId": str(source.id),
+                    "format": report_format,
+                    "contentHash": report.content_hash,
+                },
+            )
+            return self._result(
+                source=source,
+                report=report,
+                source_result_hash=source_result_hash,
+                generated=True,
+            )
+
+    @staticmethod
+    def _confirmed(result: dict[str, Any] | None) -> bool:
+        if not isinstance(result, dict) or result.get("reviewRequired") is True:
+            return False
+        if isinstance(result.get("passed"), bool):
+            return result["passed"] is True
+        report_quality = result.get("reportQuality")
+        if isinstance(report_quality, dict):
+            return report_quality.get("passed") is True
+        if result.get("qualityStatus") is not None:
+            return result.get("qualityStatus") == "READY"
+        return result.get("status") in {"COMPLETED", "COMPLETED_DEGRADED"}
+
+    def _result(
+        self,
+        *,
+        source: Evaluation,
+        report: Report,
+        source_result_hash: str,
+        generated: bool,
+    ) -> dict[str, Any]:
+        result = {
+            "schemaVersion": self._RESULT_SCHEMA,
+            "sourceEvaluationId": str(source.id),
+            "reportId": str(report.id),
+            "format": report.format,
+            "contentHash": report.content_hash,
+            "sourceResultHash": source_result_hash,
+            "status": "READY",
+            "qualityStatus": "READY",
+            "reviewRequired": False,
+            "passed": True,
+            "generated": generated,
+            "provenance": {"template": self._TEMPLATE},
+        }
+        result["resultHash"] = canonical_hash(result)
+        return result
 
 
 class SwarmCalibrationRecorderExecutor(EvaluationRecorderExecutor):
@@ -1490,9 +1770,7 @@ class SwarmCalibrationRecorderExecutor(EvaluationRecorderExecutor):
                     evidence_key=str(evidence["evidenceId"]),
                     source_type=str(evidence["sourceType"]),
                     source_url=str(evidence["sourceUrl"]),
-                    commit_sha=(
-                        str(evidence["commitSha"]) if evidence.get("commitSha") else None
-                    ),
+                    commit_sha=(str(evidence["commitSha"]) if evidence.get("commitSha") else None),
                     etag=str(evidence["etag"]) if evidence.get("etag") else None,
                     content_hash=str(evidence["contentHash"]),
                     retrieved_at=datetime.fromisoformat(
@@ -1534,12 +1812,8 @@ class SwarmCalibrationRecorderExecutor(EvaluationRecorderExecutor):
                 threshold=round(float(quality["threshold"])),
                 components=dict(quality["components"]),
                 hard_failures=[str(item) for item in quality.get("hardFailures", [])],
-                evidence_coverage_bps=round(
-                    float(quality.get("evidenceCoverage", 0)) * 10_000
-                ),
-                acceptance_coverage_bps=round(
-                    float(quality.get("acceptanceCoverage", 0)) * 10_000
-                ),
+                evidence_coverage_bps=round(float(quality.get("evidenceCoverage", 0)) * 10_000),
+                acceptance_coverage_bps=round(float(quality.get("acceptanceCoverage", 0)) * 10_000),
                 sandbox_status=str(
                     quality.get("sandboxStatus") or result["sandbox"].get("status") or "UNVERIFIED"
                 ),
@@ -1556,9 +1830,7 @@ class SwarmCalibrationRecorderExecutor(EvaluationRecorderExecutor):
                         from_agent_ref=str(fallback["fromAgentRef"]),
                         to_agent_ref=str(fallback["toAgentRef"]),
                         trigger_code=str(fallback["triggerCode"]),
-                        error_message=(
-                            str(fallback["error"]) if fallback.get("error") else None
-                        ),
+                        error_message=(str(fallback["error"]) if fallback.get("error") else None),
                     )
                 )
             session.add_all(decision_records)
@@ -1850,11 +2122,7 @@ async def document_structuring_prepare(
     input_value: dict[str, Any], effect_id: str
 ) -> dict[str, Any]:
     prepared = prepare_document_structuring(
-        [
-            dict(value)
-            for value in input_value.get("documents") or []
-            if isinstance(value, dict)
-        ]
+        [dict(value) for value in input_value.get("documents") or [] if isinstance(value, dict)]
     )
     return {**prepared, "effectId": effect_id}
 
@@ -1867,6 +2135,28 @@ async def document_structuring_quality_check(
         dict(input_value["analysis"]),
     )
     return {**result, "effectId": effect_id}
+
+
+async def document_structuring_analysis_select(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    selected = select_document_structuring_analysis(
+        dict(input_value["original"]),
+        dict(input_value["reprocessed"]) if input_value.get("reprocessed") else None,
+        dict(input_value["review"]) if input_value.get("review") else None,
+    )
+    return {**selected, "effectId": effect_id}
+
+
+async def document_structuring_review_select(
+    input_value: dict[str, Any], effect_id: str
+) -> dict[str, Any]:
+    selected = select_document_structuring_review(
+        dict(input_value["initial"]) if input_value.get("initial") else None,
+        dict(input_value["reprocessed"]) if input_value.get("reprocessed") else None,
+        was_reprocessed=bool(input_value.get("wasReprocessed")),
+    )
+    return {"approval": selected, "effectId": effect_id}
 
 
 class PostEvaluationRecorderExecutor(EvaluationRecorderExecutor):
@@ -2325,6 +2615,13 @@ def _invoice_original_content(input_value: dict[str, Any]) -> tuple[Any, str | N
                     for key in ("text", "rawText", "xml", "markdown"):
                         if content.get(key):
                             return content[key], media_type, str(version_id) if version_id else None
+                    text_excerpt = content.get("textExcerpt")
+                    if isinstance(text_excerpt, str) and text_excerpt.strip():
+                        if content.get("textTruncated") is True:
+                            raise ValueError(
+                                "invoice original content is truncated in the document projection"
+                            )
+                        return text_excerpt, media_type, str(version_id) if version_id else None
                 for key in ("text", "rawText", "xml", "extractedText"):
                     if data.get(key):
                         return data[key], media_type, str(version_id) if version_id else None
@@ -2375,11 +2672,11 @@ async def invoice_parse(input_value: dict[str, Any], effect_id: str) -> dict[str
 
 async def invoice_official_verify(input_value: dict[str, Any], effect_id: str) -> dict[str, Any]:
     del effect_id
-    payload = input_value.get("payload") if isinstance(input_value.get("payload"), dict) else {}
-    configuration = (
-        input_value.get("configuration")
-        if isinstance(input_value.get("configuration"), dict)
-        else {}
+    payload_value = input_value.get("payload")
+    payload: dict[str, Any] = dict(payload_value) if isinstance(payload_value, dict) else {}
+    configuration_value = input_value.get("configuration")
+    configuration: dict[str, Any] = (
+        dict(configuration_value) if isinstance(configuration_value, dict) else {}
     )
     mode = (
         input_value.get("verificationMode")
@@ -2518,7 +2815,8 @@ async def invoice_finalize(input_value: dict[str, Any], effect_id: str) -> dict[
     if isinstance(nested, dict) and isinstance(nested.get("duplication"), dict):
         duplication = nested["duplication"]
         rules.extend(_flatten_invoice_rules(duplication.get("ruleResults")))
-    payload = input_value.get("payload") if isinstance(input_value.get("payload"), dict) else {}
+    payload_value = input_value.get("payload")
+    payload: dict[str, Any] = dict(payload_value) if isinstance(payload_value, dict) else {}
     evidence_review = (
         input_value.get("evidenceReview")
         if isinstance(input_value.get("evidenceReview"), dict)
@@ -2527,15 +2825,16 @@ async def invoice_finalize(input_value: dict[str, Any], effect_id: str) -> dict[
     narrative = evidence_review.get("narrative") if isinstance(evidence_review, dict) else None
     business_snapshot = input_value.get("businessSnapshot")
     if not isinstance(business_snapshot, dict):
+        payload_snapshot = payload.get("businessSnapshot")
         business_snapshot = {
             "hash": input_value.get("businessSnapshotHash"),
-            **(payload.get("businessSnapshot") or {}),
+            **(dict(payload_snapshot) if isinstance(payload_snapshot, dict) else {}),
         }
     approvals_raw = input_value.get("approvals")
     approvals: list[dict[str, Any]] = []
     if isinstance(approvals_raw, dict):
         for key, value in approvals_raw.items():
-            if isinstance(value, dict):
+            if isinstance(value, dict) and value:
                 approvals.append({"source": key, **value})
     elif isinstance(approvals_raw, list):
         approvals = [dict(item) for item in approvals_raw if isinstance(item, dict)]
@@ -2843,9 +3142,7 @@ def _public_dfe_spend_snapshots(
     if reader.fieldnames is None or not required_columns <= set(reader.fieldnames):
         raise ValueError("PUBLIC_DFE_SPEND_SCHEMA_MISMATCH")
     filters = {
-        str(key): str(value)
-        for key, value in dict(raw.get("filters") or {}).items()
-        if str(value)
+        str(key): str(value) for key, value in dict(raw.get("filters") or {}).items() if str(value)
     }
     if set(filters) - set(reader.fieldnames):
         raise ValueError("PUBLIC_DFE_SPEND_FILTER_UNKNOWN")
@@ -2862,9 +3159,9 @@ def _public_dfe_spend_snapshots(
             raise ValueError("PUBLIC_DFE_SPEND_TRANSACTION_ID_MISSING")
         try:
             amount = float(Decimal(str(row.get("Amount") or "").replace(",", "").strip()))
-            business_date = datetime.strptime(
-                str(row.get("Date") or "").strip(), "%d/%m/%Y"
-            ).date().isoformat()
+            business_date = (
+                datetime.strptime(str(row.get("Date") or "").strip(), "%d/%m/%Y").date().isoformat()
+            )
         except (InvalidOperation, ValueError) as exc:
             raise ValueError("PUBLIC_DFE_SPEND_VALUE_INVALID") from exc
         supplier = str(row.get("Supplier") or "").strip()
@@ -3129,10 +3426,7 @@ async def contract_performance_finalize(
             if not isinstance(plan.get("contract"), dict) or not plan["contract"]:
                 missing_sections.insert(0, "contract")
             if missing_sections:
-                raise ValueError(
-                    "PLAN_MINIMUM_CONTENT_REQUIRED:"
-                    + ",".join(missing_sections)
-                )
+                raise ValueError("PLAN_MINIMUM_CONTENT_REQUIRED:" + ",".join(missing_sections))
             plan = {**plan, "status": "PUBLISHED"}
             plan["planHash"] = canonical_hash(
                 {key: value for key, value in plan.items() if key != "planHash"}
@@ -3319,9 +3613,7 @@ class ContractPerformanceRecorderExecutor(EvaluationRecorderExecutor):
                         status="OPEN",
                         title=str(payload.get("title") or f"合同履约 · {code}"),
                         detail=str(
-                            payload.get("summary")
-                            or payload.get("detail")
-                            or "合同履约关注项"
+                            payload.get("summary") or payload.get("detail") or "合同履约关注项"
                         ),
                         evidence={
                             "evidenceRefs": list(payload.get("evidenceRefs") or []),
@@ -3347,9 +3639,7 @@ class ContractPerformanceRecorderExecutor(EvaluationRecorderExecutor):
                         "effectId": effect_id,
                         "resultHash": result_hash,
                         "status": result["status"],
-                        "reviewRequired": bool(
-                            result.get("performance", {}).get("reviewRequired")
-                        ),
+                        "reviewRequired": bool(result.get("performance", {}).get("reviewRequired")),
                     },
                 )
             )
@@ -3469,9 +3759,7 @@ class ProcurementSupplierRiskRecorderExecutor(EvaluationRecorderExecutor):
             ]
             finding_payloads.extend(
                 {
-                    "findingId": (
-                        f"gate-{gate.get('code')}-{gate.get('sourceRecordId') or index}"
-                    ),
+                    "findingId": (f"gate-{gate.get('code')}-{gate.get('sourceRecordId') or index}"),
                     "code": str(gate.get("code") or "SUPPLIER_RISK_GATE"),
                     "category": "SUPPLIER_RISK",
                     "severity": "BLOCKER",
@@ -3487,8 +3775,7 @@ class ProcurementSupplierRiskRecorderExecutor(EvaluationRecorderExecutor):
             )
             for finding_payload in finding_payloads:
                 finding_id = str(
-                    finding_payload.get("findingId")
-                    or canonical_hash(finding_payload)[:24]
+                    finding_payload.get("findingId") or canonical_hash(finding_payload)[:24]
                 )
                 session.add(
                     Finding(
@@ -3496,13 +3783,9 @@ class ProcurementSupplierRiskRecorderExecutor(EvaluationRecorderExecutor):
                         project_id=project_id,
                         work_item_id=work_item.id,
                         evaluation_id=evaluation.id,
-                        rule_key=(
-                            f"procurement-supplier-risk:{finding_id}:{result_hash[:12]}"
-                        ),
+                        rule_key=(f"procurement-supplier-risk:{finding_id}:{result_hash[:12]}"),
                         code=str(finding_payload.get("code") or "PROCUREMENT_RISK"),
-                        category=str(
-                            finding_payload.get("category") or "PROCUREMENT_CONSISTENCY"
-                        ),
+                        category=str(finding_payload.get("category") or "PROCUREMENT_CONSISTENCY"),
                         severity=str(finding_payload.get("severity") or "MEDIUM"),
                         status="OPEN",
                         title=str(finding_payload.get("title") or "招采与供应商风险"),
@@ -3512,9 +3795,7 @@ class ProcurementSupplierRiskRecorderExecutor(EvaluationRecorderExecutor):
                             or "需要复核"
                         ),
                         evidence={
-                            "evidenceRefs": list(
-                                finding_payload.get("evidenceRefs") or []
-                            ),
+                            "evidenceRefs": list(finding_payload.get("evidenceRefs") or []),
                             "resultHash": result_hash,
                             "sourceFindingId": finding_id,
                         },
@@ -3639,9 +3920,7 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                         recorded=False,
                     )
                 if evaluation.status != "RUNNING":
-                    raise ValueError(
-                        f"evaluation cannot be published from {evaluation.status}"
-                    )
+                    raise ValueError(f"evaluation cannot be published from {evaluation.status}")
                 item = await session.scalar(
                     select(WorkItem)
                     .where(
@@ -3655,8 +3934,7 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                     raise LookupError("work item not found in capability scope")
 
                 artifact_ids = {
-                    filename: uuid7()
-                    for filename in document_package_artifacts(reviewed)
+                    filename: uuid7() for filename in document_package_artifacts(reviewed)
                 }
                 reviewed["artifacts"] = [
                     {
@@ -3674,11 +3952,7 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                     "effectId": effect_id,
                 }
                 reviewed["contentHash"] = canonical_hash(
-                    {
-                        key: value
-                        for key, value in reviewed.items()
-                        if key != "contentHash"
-                    }
+                    {key: value for key, value in reviewed.items() if key != "contentHash"}
                 )
                 artifact_payloads = document_package_artifacts(reviewed)
                 artifact_root = Path(
@@ -3715,8 +3989,7 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                             sha256=hashlib.sha256(content).hexdigest(),
                             status="AVAILABLE",
                             data_classification="internal",
-                            retention_until=datetime.now(UTC)
-                            + timedelta(days=1_095),
+                            retention_until=datetime.now(UTC) + timedelta(days=1_095),
                         )
                     )
 
@@ -3725,16 +3998,13 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                     snapshot = await session.scalar(
                         select(DocumentUsageSnapshot).where(
                             DocumentUsageSnapshot.evaluation_id == evaluation_id,
-                            DocumentUsageSnapshot.business_document_version_id
-                            == version_id,
+                            DocumentUsageSnapshot.business_document_version_id == version_id,
                             DocumentUsageSnapshot.tenant_id == tenant_id,
                             DocumentUsageSnapshot.project_id == project_id,
                         )
                     )
                     if snapshot is None:
-                        raise LookupError(
-                            "structured result targets an unfrozen document version"
-                        )
+                        raise LookupError("structured result targets an unfrozen document version")
                     version = await session.scalar(
                         select(BusinessDocumentVersion).where(
                             BusinessDocumentVersion.id == version_id,
@@ -3758,26 +4028,20 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                             await session.scalars(
                                 select(DocumentProcessingResult)
                                 .where(
-                                    DocumentProcessingResult
-                                    .business_document_version_id
+                                    DocumentProcessingResult.business_document_version_id
                                     == version_id,
                                     DocumentProcessingResult.tenant_id == tenant_id,
                                     DocumentProcessingResult.project_id == project_id,
-                                    DocumentProcessingResult.result_type
-                                    == "STRUCTURED_PACKAGE",
+                                    DocumentProcessingResult.result_type == "STRUCTURED_PACKAGE",
                                 )
-                                .order_by(
-                                    DocumentProcessingResult.result_version.desc()
-                                )
+                                .order_by(DocumentProcessingResult.result_version.desc())
                             )
                         ).all()
                     )
                     document_result = {
                         **dict(document),
                         "packageContentHash": reviewed["contentHash"],
-                        "crossFormatConsistency": reviewed[
-                            "crossFormatConsistency"
-                        ],
+                        "crossFormatConsistency": reviewed["crossFormatConsistency"],
                         "quality": dict(reviewed.get("quality") or {}),
                         "qualityFlags": list(reviewed.get("qualityFlags") or []),
                         "artifacts": list(reviewed["artifacts"]),
@@ -3802,29 +4066,17 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                             project_id=project_id,
                             business_document_version_id=version_id,
                             result_type="STRUCTURED_PACKAGE",
-                            result_version=(
-                                int(existing[0].result_version) + 1
-                                if existing
-                                else 1
-                            ),
-                            status=(
-                                "CONFIRMED"
-                                if reviewed.get("humanReview")
-                                else "READY"
-                            ),
+                            result_version=(int(existing[0].result_version) + 1 if existing else 1),
+                            status=("CONFIRMED" if reviewed.get("humanReview") else "READY"),
                             schema_ref=str(reviewed["schemaVersion"]),
                             producer_ref="agent://document/structurer@1",
                             result=document_result,
                             evidence=evidence,
                             confirmed_by=(
-                                str(context.execution_id)
-                                if reviewed.get("humanReview")
-                                else None
+                                str(context.execution_id) if reviewed.get("humanReview") else None
                             ),
                             confirmed_at=(
-                                datetime.now(UTC)
-                                if reviewed.get("humanReview")
-                                else None
+                                datetime.now(UTC) if reviewed.get("humanReview") else None
                             ),
                         )
                     )
@@ -3832,12 +4084,8 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                     source_document.status = "AVAILABLE"
                     organization = document.get("organization")
                     if isinstance(organization, dict):
-                        suggested_name = str(
-                            organization.get("suggestedName") or ""
-                        ).strip()
-                        suggested_category = str(
-                            organization.get("category") or ""
-                        ).strip()
+                        suggested_name = str(organization.get("suggestedName") or "").strip()
+                        suggested_category = str(organization.get("category") or "").strip()
                         suggested_tags = [
                             str(value).strip()
                             for value in organization.get("tags") or []
@@ -3848,15 +4096,12 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                         if suggested_category:
                             source_document.category = suggested_category[:128]
                         source_document.tags = list(
-                            dict.fromkeys(
-                                [*source_document.tags, *suggested_tags]
-                            )
+                            dict.fromkeys([*source_document.tags, *suggested_tags])
                         )
                     processing_run = await session.scalar(
                         select(DocumentProcessingRun)
                         .where(
-                            DocumentProcessingRun.business_document_version_id
-                            == version_id,
+                            DocumentProcessingRun.business_document_version_id == version_id,
                             DocumentProcessingRun.tenant_id == tenant_id,
                             DocumentProcessingRun.project_id == project_id,
                         )
@@ -3870,9 +4115,7 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                                 project_id=project_id,
                                 processing_run_id=processing_run.id,
                                 business_document_version_id=version_id,
-                                event_seq=int(
-                                    processing_run.next_event_seq or 1
-                                ),
+                                event_seq=int(processing_run.next_event_seq or 1),
                                 type="document.agent.completed",
                                 stage="EXTRACTING",
                                 payload={
@@ -3886,9 +4129,7 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                                 actor_id=str(context.execution_id),
                             )
                         )
-                        processing_run.next_event_seq = (
-                            int(processing_run.next_event_seq or 1) + 1
-                        )
+                        processing_run.next_event_seq = int(processing_run.next_event_seq or 1) + 1
 
                 evaluation.result = reviewed
                 evaluation.status = "SUCCEEDED"
@@ -3924,9 +4165,7 @@ class DocumentStructuringPublisherExecutor(EvaluationRecorderExecutor):
                                 "runId": str(run_id),
                                 "effectId": effect_id,
                                 "resultHash": reviewed["contentHash"],
-                                "artifactIds": [
-                                    str(value) for value in artifact_ids.values()
-                                ],
+                                "artifactIds": [str(value) for value in artifact_ids.values()],
                             },
                         ),
                         OutboxEvent(
@@ -3994,10 +4233,7 @@ def _document_artifact_object_key(
     filename: str,
 ) -> str:
     suffix = Path(filename).suffix.lower()
-    return (
-        f"{tenant_id}/{project_id}/runs/{run_id}/"
-        f"document-structuring/{artifact_id}{suffix}"
-    )
+    return f"{tenant_id}/{project_id}/runs/{run_id}/document-structuring/{artifact_id}{suffix}"
 
 
 def capability_executors(
@@ -4021,6 +4257,7 @@ def capability_executors(
         "contract.document_read": document_read,
         "contract.rules_evaluate": rules_evaluate,
         "contract.cross_file_consistency": cross_file_consistency,
+        "contract.integrity_finalize": integrity_finalize,
         "workbench.record_evaluation": recorder,
         "report.render": report_render,
         "contract.post_evaluation": post_evaluation_evaluate,
@@ -4028,7 +4265,9 @@ def capability_executors(
         "resource.read_bound": BoundResourceReadExecutor(sessions),
         "document.read_versions": BoundDocumentReadExecutor(sessions),
         "document.structure_prepare": document_structuring_prepare,
+        "document.analysis_select": document_structuring_analysis_select,
         "document.quality_check": document_structuring_quality_check,
+        "document.review_select": document_structuring_review_select,
         "document.publish": DocumentStructuringPublisherExecutor(sessions),
         "evidence.search": evidence_search,
         "evidence.search_contextual": BoundEvidenceSearchExecutor(sessions),
@@ -4119,4 +4358,9 @@ def capability_executors(
         "calibration.finalize": calibration_finalize,
         "report.render_swarm_calibration": calibration_report_render,
         "workbench.record_swarm_calibration": SwarmCalibrationRecorderExecutor(sessions),
+        "ai.quality_benchmark": ai_quality_benchmark,
+        "ai.quality_finalize": ai_quality_finalize,
+        "report.render_ai_quality": ai_quality_report,
+        "workbench.record_ai_quality": recorder,
+        "report.generate_confirmed": ConfirmedEvaluationReportGenerator(sessions),
     }

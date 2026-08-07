@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Navigate, Route, Routes } from "react-router";
+import { MemoryRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/api/client";
 import type { DocumentSnapshot } from "@/api/types";
@@ -64,12 +64,17 @@ function renderPage(path = "/documents") {
     <MemoryRouter initialEntries={[path]}>
       <QueryClientProvider client={client}>
         <Routes>
-          <Route path="/documents" element={<DocumentLibraryPage />} />
+          <Route path="/documents" element={<><DocumentLibraryPage /><LocationProbe /></>} />
           <Route path="/documents/:documentId" element={<DocumentLibraryPage />} />
         </Routes>
       </QueryClientProvider>
     </MemoryRouter>,
   );
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.pathname}{location.search}</output>;
 }
 
 describe("business document library", () => {
@@ -271,6 +276,26 @@ describe("business document library", () => {
     fireEvent.click(screen.getByRole("button", { name: "更多筛选" }));
     expect(screen.getByLabelText("是否关联业务")).toBeVisible();
     expect(screen.getByLabelText("按标签筛选")).toBeVisible();
+  });
+
+  it("initializes the failed view from the URL and keeps view selection in sync", async () => {
+    vi.mocked(api.listDocuments).mockResolvedValue({
+      items: [document, {
+        ...document,
+        documentId: "document-failed",
+        name: "待确认资料",
+        status: "REVIEW_REQUIRED",
+        current: document.current === null ? null : { ...document.current, filename: "待确认资料.pdf" },
+      }],
+    });
+    renderPage("/documents?view=failed");
+
+    expect(await screen.findByText("待确认资料")).toBeVisible();
+    expect(screen.queryByText("采购合同.pdf")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "处理异常" })).toHaveAttribute("aria-current", "page");
+    fireEvent.click(screen.getByRole("button", { name: "全部资料" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/documents");
+    expect(screen.getByTestId("location")).not.toHaveTextContent("view=");
   });
 
   it("redirects the legacy resource route to the document library", async () => {

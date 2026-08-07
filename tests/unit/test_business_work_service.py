@@ -12,9 +12,10 @@ from swarmcore_application import (
     pack_name_for_work_key,
     work_key_for_pack_name,
 )
+from swarmcore_application.business_works import _result_is_production_qualified
 from swarmcore_capability_contract_integrity import MANIFEST, MANIFEST_V2_1, REFERENCES
 from swarmcore_capability_contract_post_evaluation import MANIFEST as POST_EVALUATION_MANIFEST
-from swarmcore_persistence.models import CapabilityPackVersion
+from swarmcore_persistence.models import CapabilityPackVersion, Evaluation
 from swarmcore_registry import CapabilityReferenceCatalog
 
 
@@ -44,12 +45,12 @@ def _service() -> BusinessWorkService:
 
 
 def test_central_mapping_covers_implemented_packs() -> None:
-    assert pack_name_for_work_key("ai-foundation-quality") == "swarm-calibration"
+    assert pack_name_for_work_key("ai-foundation-quality") == "ai-foundation-quality"
     assert pack_name_for_work_key("document-integrity") == "contract-integrity"
     assert pack_name_for_work_key("contract-post-evaluation") == "contract-post-evaluation"
     assert pack_name_for_work_key("deviation-analysis") == "deviation-analysis"
     assert pack_name_for_work_key("invoice-assurance") == "invoice-assurance"
-    assert pack_name_for_work_key("report-generation") == "contract-post-evaluation"
+    assert pack_name_for_work_key("report-generation") == "report-generation"
     assert work_key_for_pack_name("contract-integrity") == "document-integrity"
     assert work_key_for_pack_name("contract-post-evaluation") == "contract-post-evaluation"
     assert work_key_for_pack_name("deviation-analysis") == "deviation-analysis"
@@ -61,6 +62,12 @@ def test_central_mapping_covers_implemented_packs() -> None:
     assert "invoice-assurance" in deviation_keys
     invoice_keys = document_binding_keys("invoice-assurance", "invoice-assurance-case")
     assert invoice_keys == ("invoice-assurance", "invoice-assurance-case", "invoice-assurance")
+    executable_packs = [
+        definition.pack_name
+        for definition in BUSINESS_WORK_DEFINITIONS
+        if definition.pack_name is not None
+    ]
+    assert len(executable_packs) == len(set(executable_packs))
 
 
 @pytest.mark.asyncio
@@ -88,11 +95,66 @@ async def test_list_works_marks_unconfigured_and_maps_pack_status() -> None:
     assert by_key["document-integrity"].status == "runnable"
     assert by_key["document-integrity"].pack_name == "contract-integrity"
     assert by_key["document-integrity"].configuration == {"threshold": 0.8}
+    assert by_key["document-integrity"].qualification_status == "unverified"
     assert by_key["contract-post-evaluation"].status == "not_configured"
 
 
 @pytest.mark.asyncio
-async def test_report_generation_reuses_runnable_post_evaluation_pack() -> None:
+async def test_qualification_requires_explicit_production_evidence() -> None:
+    version = _version(MANIFEST)
+    version.dependency_snapshot = {
+        "strategy": {
+            "strategyVersionId": str(uuid4()),
+            "specHash": "a" * 64,
+            "planHash": "b" * 64,
+        }
+    }
+    session = AsyncMock()
+    session.scalar = AsyncMock(
+        return_value=Evaluation(result={"outcome": "PAYMENT_READY"})
+    )
+
+    status = await BusinessWorkService._qualification_status(
+        session,
+        tenant_id=uuid4(),
+        project_id=uuid4(),
+        version=version,
+        enabled=True,
+        dependency_blockers=[],
+    )
+
+    assert status == "local_verified"
+    assert _result_is_production_qualified({"outcome": "PAYMENT_READY"}) is False
+    assert _result_is_production_qualified(
+        {
+            "outcome": "PAYMENT_READY",
+            "qualificationEvidence": {
+                "level": "PRODUCTION",
+                "status": "PASSED",
+                "environment": "production",
+                "evidenceRef": "artifact://qualification/m6-2026-08-07",
+                "imageDigest": f"sha256:{'a' * 64}",
+            },
+        }
+    ) is True
+    assert _result_is_production_qualified(
+        {
+            "status": "REVIEW_REQUIRED",
+            "quality": {"decision": "REVIEW_REQUIRED"},
+            "sandbox": {"status": "UNVERIFIED"},
+            "qualificationEvidence": {
+                "level": "PRODUCTION",
+                "status": "PASSED",
+                "environment": "production",
+                "evidenceRef": "artifact://qualification/m6-2026-08-07",
+                "imageDigest": f"sha256:{'a' * 64}",
+            },
+        }
+    ) is False
+
+
+@pytest.mark.asyncio
+async def test_report_generation_requires_its_independent_pack_binding() -> None:
     service = _service()
     session = AsyncMock()
     pack = MagicMock()
@@ -118,14 +180,10 @@ async def test_report_generation_reuses_runnable_post_evaluation_pack() -> None:
         work_key="report-generation",
     )
 
-    assert summary.status == "runnable"
-    assert summary.pack_name == "contract-post-evaluation"
-    assert summary.work_item_type == "contract-post-evaluation-case"
-    assert summary.case_based is True
-    assert summary.case_definition is not None
-    assert summary.case_definition["type"] == "contract-post-evaluation-case"
-    assert summary.case_definition["schema"]
-    assert summary.case_definition["subjectRoles"][0]["key"] == "contract"
+    assert summary.status == "not_configured"
+    assert summary.pack_name == "report-generation"
+    assert summary.work_item_type is None
+    assert summary.case_based is False
 
 
 @pytest.mark.asyncio
@@ -135,6 +193,9 @@ async def test_business_work_exposes_decision_slot_contract() -> None:
     pack = MagicMock()
     pack.name = "contract-integrity"
     version = _version(MANIFEST_V2_1)
+    version.dependency_snapshot = {
+        "strategy": {"models": ["model://general@1", "model://review@1"]}
+    }
     binding = MagicMock()
     binding.status = "ENABLED"
     binding.configuration = {}
@@ -163,6 +224,7 @@ async def test_business_work_exposes_decision_slot_contract() -> None:
             "allowedTypes": ["CHECKLIST", "DECISION_TABLE"],
         },
     )
+    assert summary.models == ("model://general@1", "model://review@1")
 
 
 @pytest.mark.asyncio
@@ -278,6 +340,28 @@ def test_select_pack_template_prefers_document_requirements() -> None:
     assert selected[1] is complete
 
 
+def test_select_pack_version_orders_semver_numerically() -> None:
+    pack = MagicMock()
+    v_1_9 = _version({**MANIFEST, "metadata": {**MANIFEST["metadata"], "version": "1.9.0"}})
+    v_1_10 = _version({**MANIFEST, "metadata": {**MANIFEST["metadata"], "version": "1.10.0"}})
+    selected = BusinessWorkService._select_pack_version(
+        [(pack, v_1_9, None), (pack, v_1_10, None)]
+    )
+    assert selected is not None
+    assert selected[1] is v_1_10
+
+
+def test_models_are_projected_from_frozen_strategy_dependencies() -> None:
+    assert BusinessWorkService._models_from_dependency_snapshot(
+        {
+            "strategy": {"models": ["model://general@1"]},
+            "strategies": {
+                "REPORT": {"models": ["model://report@1", "model://general@1"]}
+            },
+        }
+    ) == ("model://general@1", "model://report@1")
+
+
 def test_manifest_for_strategy_rewrites_execute_agents_and_tools() -> None:
     strategy_id = uuid4()
     manifest = BusinessWorkService._manifest_for_strategy(
@@ -315,7 +399,7 @@ async def test_bind_strategy_publishes_and_enables_new_pack_version() -> None:
     published = _version(
         {
             **POST_EVALUATION_MANIFEST,
-            "metadata": {**POST_EVALUATION_MANIFEST["metadata"], "version": "2.0.6"},
+            "metadata": {**POST_EVALUATION_MANIFEST["metadata"], "version": "2.0.7"},
         }
     )
     published.dependency_snapshot = {
@@ -377,7 +461,7 @@ async def test_bind_strategy_publishes_and_enables_new_pack_version() -> None:
     cast(AsyncMock, service._capability_packs.publish).assert_awaited_once()
     publish_kwargs = cast(AsyncMock, service._capability_packs.publish).await_args.kwargs
     assert publish_kwargs["strategy_version_id"] == strategy_version_id
-    assert publish_kwargs["manifest"]["metadata"]["version"] == "2.0.7"
+    assert publish_kwargs["manifest"]["metadata"]["version"] == "2.0.8"
     assert (
         publish_kwargs["manifest"]["spec"]["strategies"]["execute"]
         == f"strategy://project/{strategy_id}@8"

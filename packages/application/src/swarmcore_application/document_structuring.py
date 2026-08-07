@@ -14,6 +14,36 @@ PACKAGE_SCHEMA = "schema://document-structuring/package@1"
 AGENT_SCHEMA = "schema://document-structuring/agent-result@1"
 
 
+def select_document_structuring_analysis(
+    original: dict[str, Any],
+    reprocessed: dict[str, Any] | None,
+    review: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Select the frozen analysis after the one permitted human-requested retry."""
+
+    decision = str((review or {}).get("decision") or "")
+    if decision != "REQUEST_REPROCESS":
+        return {"analysis": original, "reprocessed": False}
+    if not reprocessed:
+        raise ValueError("REQUEST_REPROCESS requires a completed reprocessing result")
+    return {"analysis": reprocessed, "reprocessed": True}
+
+
+def select_document_structuring_review(
+    initial: dict[str, Any] | None,
+    reprocessed: dict[str, Any] | None,
+    *,
+    was_reprocessed: bool,
+) -> dict[str, Any] | None:
+    """Require a fresh approval for reprocessed output and otherwise keep the first review."""
+
+    if not was_reprocessed:
+        return initial or None
+    if not reprocessed:
+        raise ValueError("reprocessed document package requires a fresh human review")
+    return reprocessed
+
+
 def prepare_document_structuring(
     documents: list[dict[str, Any]],
 ) -> dict[str, Any]:

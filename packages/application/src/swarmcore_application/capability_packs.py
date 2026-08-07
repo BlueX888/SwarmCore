@@ -155,6 +155,13 @@ class CapabilityPackService:
                     manifest=manifest,
                     actor="trusted-manifest-loader",
                 )
+            else:
+                parsed = CapabilityPackManifest.model_validate(manifest)
+                expected_hash = hash_manifest(parsed)
+                if version.content_hash != expected_hash:
+                    raise PersistenceConflictError(
+                        "trusted capability pack source changed without a version bump"
+                    )
             published.append(version)
         return published
 

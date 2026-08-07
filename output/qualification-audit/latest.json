@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "schema://swarmcore/qualification-audit@1",
+  "generatedAt": "2026-08-07T02:39:45.185963+00:00",
+  "status": "INCOMPLETE",
+  "checks": {
+    "realModel": {
+      "status": "PASSED",
+      "reasons": [],
+      "evidence": {
+        "runId": "019fd9ed-d08a-722c-900a-a9a6aa46f023",
+        "runStatus": "SUCCEEDED",
+        "resultStatus": "COMPLETED_DEGRADED",
+        "resultHash": "90db547d9b7462de0c7db8ed0794c469794d50325a7ad06af05f6bc9ee0e8450",
+        "inputTokens": 68333.0,
+        "outputTokens": 13370.0,
+        "sandboxStatus": "PASSED"
+      }
+    },
+    "realOcr": {
+      "status": "PASSED",
+      "reasons": [],
+      "evidence": {
+        "documentId": "019fda02-7929-7391-b08c-acae0a706b1b",
+        "processingStatus": "REVIEW_REQUIRED",
+        "ocrProvider": "ocr://http-ocr@2",
+        "ocrPageCount": 1,
+        "runId": "019fda02-9644-7f7b-8232-f8cf619f6f0f",
+        "runStatus": "SUCCEEDED",
+        "artifactCount": 4,
+        "publishedStatus": "READY"
+      }
+    },
+    "authorizedBusinessSource": {
+      "status": "MISSING",
+      "reasons": [
+        "AUTHORIZED_SOURCE_EVIDENCE_MISSING"
+      ],
+      "evidence": {}
+    },
+    "productionQualification": {
+      "status": "MISSING",
+      "reasons": [
+        "PRODUCTION_EVIDENCE_MISSING"
+      ],
+      "evidence": {}
+    }
+  }
+}

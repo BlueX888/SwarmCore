@@ -9,12 +9,11 @@ from typing import Any, ClassVar
 from xml.etree import ElementTree
 
 from .contracts import ParsedContent
+from .limits import MAX_SPREADSHEET_CELLS, MAX_SPREADSHEET_ROWS, ArchiveBudget, DocumentLimitError
 
 
 def _text(node: ElementTree.Element) -> str:
-    return " ".join(
-        part.strip() for part in node.itertext() if part and part.strip()
-    ).strip()
+    return " ".join(part.strip() for part in node.itertext() if part and part.strip()).strip()
 
 
 def _repeated(value: str | None, *, maximum: int = 10_000) -> int:
@@ -51,21 +50,22 @@ class OdfParser:
     def parse(self, *, filename: str, media_type: str, content: bytes) -> ParsedContent:
         try:
             with zipfile.ZipFile(io.BytesIO(content)) as archive:
+                budget = ArchiveBudget(archive)
                 package_media_type = (
-                    archive.read("mimetype").decode("ascii", errors="replace").strip()
+                    budget.read("mimetype").decode("ascii", errors="replace").strip()
                     if "mimetype" in archive.namelist()
                     else media_type
                 )
-                root = ElementTree.fromstring(archive.read("content.xml"))
-                metadata = self._metadata(archive)
+                root = ElementTree.fromstring(budget.read("content.xml"))
+                metadata = self._metadata(archive, budget)
+        except DocumentLimitError:
+            raise
         except (KeyError, ElementTree.ParseError, zipfile.BadZipFile) as exc:
             raise ValueError("DOCUMENT_PARSE_FAILED") from exc
 
         if package_media_type.startswith("application/vnd.oasis.opendocument.spreadsheet"):
             parsed = self._spreadsheet(root)
-        elif package_media_type.startswith(
-            "application/vnd.oasis.opendocument.presentation"
-        ):
+        elif package_media_type.startswith("application/vnd.oasis.opendocument.presentation"):
             parsed = self._presentation(root)
         else:
             parsed = self._text_document(root)
@@ -145,9 +145,7 @@ class OdfParser:
                 if index + 1 < len(sections)
                 else len(paragraphs) + 1
             )
-            section["paragraphEnd"] = max(
-                int(section["paragraphStart"]), next_start - 1
-            )
+            section["paragraphEnd"] = max(int(section["paragraphStart"]), next_start - 1)
         text = "\n".join(str(item["text"]) for item in paragraphs)
         source_heading_count = len(body.findall(".//text:h", self._NS))
         source_paragraph_count = len(body.findall(".//text:p", self._NS))
@@ -222,14 +220,8 @@ class OdfParser:
         paragraphs: list[dict[str, Any]] = []
         sections: list[dict[str, Any]] = []
         tables: list[dict[str, Any]] = []
-        for index, page in enumerate(
-            presentation.findall("draw:page", self._NS), start=1
-        ):
-            values = [
-                _text(node)
-                for node in page.findall(".//text:p", self._NS)
-                if _text(node)
-            ]
+        for index, page in enumerate(presentation.findall("draw:page", self._NS), start=1):
+            values = [_text(node) for node in page.findall(".//text:p", self._NS) if _text(node)]
             title = values[0] if values else f"Slide {index}"
             sections.append(
                 {
@@ -292,14 +284,16 @@ class OdfParser:
                     continue
                 value = _text(cell)
                 repeated = _repeated(
-                    cell.attrib.get(
-                        f"{{{self._NS['table']}}}number-columns-repeated"
-                    )
+                    cell.attrib.get(f"{{{self._NS['table']}}}number-columns-repeated")
                 )
+                if len(row_values) + repeated > MAX_SPREADSHEET_CELLS:
+                    raise DocumentLimitError("DOCUMENT_SPREADSHEET_CELL_LIMIT_EXCEEDED")
                 row_values.extend([value] * repeated)
-            row_repeat = _repeated(
-                row.attrib.get(f"{{{self._NS['table']}}}number-rows-repeated")
-            )
+            row_repeat = _repeated(row.attrib.get(f"{{{self._NS['table']}}}number-rows-repeated"))
+            if len(rows) + row_repeat > MAX_SPREADSHEET_ROWS:
+                raise DocumentLimitError("DOCUMENT_SPREADSHEET_ROW_LIMIT_EXCEEDED")
+            if (len(rows) + row_repeat) * len(row_values) > MAX_SPREADSHEET_CELLS:
+                raise DocumentLimitError("DOCUMENT_SPREADSHEET_CELL_LIMIT_EXCEEDED")
             rows.extend([list(row_values) for _ in range(row_repeat)])
         columns = max((len(row) for row in rows), default=0)
         normalized = [row + [""] * (columns - len(row)) for row in rows]
@@ -314,11 +308,11 @@ class OdfParser:
             "evidenceRefs": [{"sourcePath": "content.xml", "tableName": name}],
         }
 
-    def _metadata(self, archive: zipfile.ZipFile) -> dict[str, Any]:
+    def _metadata(self, archive: zipfile.ZipFile, budget: ArchiveBudget) -> dict[str, Any]:
         if "meta.xml" not in archive.namelist():
             return {}
         try:
-            root = ElementTree.fromstring(archive.read("meta.xml"))
+            root = ElementTree.fromstring(budget.read("meta.xml"))
         except ElementTree.ParseError:
             return {}
         metadata: dict[str, Any] = {}
@@ -348,6 +342,7 @@ class PptxParser:
     def parse(self, *, filename: str, media_type: str, content: bytes) -> ParsedContent:
         try:
             with zipfile.ZipFile(io.BytesIO(content)) as archive:
+                budget = ArchiveBudget(archive)
                 slide_names = sorted(
                     (
                         name
@@ -361,7 +356,7 @@ class PptxParser:
                 sections: list[dict[str, Any]] = []
                 tables: list[dict[str, Any]] = []
                 for page_number, name in enumerate(slide_names, start=1):
-                    root = ElementTree.fromstring(archive.read(name))
+                    root = ElementTree.fromstring(budget.read(name))
                     values = [
                         node.text.strip()
                         for node in root.findall(".//a:t", self._NS)
@@ -400,9 +395,7 @@ class PptxParser:
                             for row in table_node.findall("a:tr", self._NS)
                         ]
                         width = max((len(row) for row in rows), default=0)
-                        normalized = [
-                            row + [""] * (width - len(row)) for row in rows
-                        ]
+                        normalized = [row + [""] * (width - len(row)) for row in rows]
                         tables.append(
                             {
                                 "tableId": f"table-{len(tables) + 1}",
@@ -414,11 +407,11 @@ class PptxParser:
                                 "pageStart": page_number,
                                 "pageEnd": page_number,
                                 "sourceKind": "NATIVE",
-                                "evidenceRefs": [
-                                    {"page": page_number, "sourcePath": name}
-                                ],
+                                "evidenceRefs": [{"page": page_number, "sourcePath": name}],
                             }
                         )
+        except DocumentLimitError:
+            raise
         except (ElementTree.ParseError, zipfile.BadZipFile) as exc:
             raise ValueError("DOCUMENT_PARSE_FAILED") from exc
         text = "\n".join(str(item["text"]) for item in paragraphs)

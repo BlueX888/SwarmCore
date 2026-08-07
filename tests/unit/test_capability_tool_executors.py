@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from urllib.request import Request
 from uuid import uuid4
 
 import pytest
@@ -40,7 +41,9 @@ from swarmcore_application.capability_tool_executors import (
     BoundEvidenceSearchExecutor,
     DeviationRecorderExecutor,
     PostEvaluationRecorderExecutor,
+    _NoRedirectHandler,
     deviation_report_render,
+    invoice_parse,
 )
 from swarmcore_persistence import AuditRepository
 from swarmcore_persistence.models import Evaluation, Finding, Report, WorkItem
@@ -114,6 +117,69 @@ INVOICE_ASSURANCE_PURE_OPERATIONS = INVOICE_ASSURANCE_OPERATIONS - {
 }
 
 
+def test_capability_source_redirects_are_disabled_before_network_followup() -> None:
+    assert (
+        _NoRedirectHandler().redirect_request(
+            Request("https://api.qichacha.com/risk"),
+            None,
+            302,
+            "Found",
+            {},
+            "http://169.254.169.254/latest/meta-data",
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_invoice_parse_consumes_untruncated_document_text_projection() -> None:
+    original = Path("tests/fixtures/documents/demo-invoice.xml").read_text(encoding="utf-8")
+    version_id = uuid4()
+
+    result = await invoice_parse(
+        {
+            "documents": [
+                {
+                    "category": "INVOICE_ORIGINAL",
+                    "documentVersionId": str(version_id),
+                    "mediaType": "text/plain",
+                    "data": {
+                        "content": {
+                            "textExcerpt": original,
+                        }
+                    },
+                }
+            ]
+        },
+        "effect-parse",
+    )
+
+    assert result["invoiceFactSet"]["parseStatus"] == "STRUCTURED"
+    assert result["invoiceFactSet"]["invoiceNumber"] == "99992000000000000001"
+    assert result["invoiceFactSet"]["evidenceRefs"] == [str(version_id)]
+
+
+@pytest.mark.asyncio
+async def test_invoice_parse_rejects_truncated_document_text_projection() -> None:
+    with pytest.raises(ValueError, match="truncated"):
+        await invoice_parse(
+            {
+                "documents": [
+                    {
+                        "category": "INVOICE_ORIGINAL",
+                        "data": {
+                            "content": {
+                                "textExcerpt": "<EInvoice>",
+                                "textTruncated": True,
+                            }
+                        },
+                    }
+                ]
+            },
+            "effect-parse",
+        )
+
+
 def test_phase_six_tools_have_executors_and_closed_contracts() -> None:
     registrations = {
         item.operation: item
@@ -122,9 +188,7 @@ def test_phase_six_tools_have_executors_and_closed_contracts() -> None:
     }
     assert set(registrations) == PHASE_SIX_OPERATIONS
     assert set(capability_executors(None)) >= (  # type: ignore[arg-type]
-        PHASE_SIX_OPERATIONS
-        | EXPANDED_POST_EVALUATION_OPERATIONS
-        | DEVIATION_ANALYSIS_OPERATIONS
+        PHASE_SIX_OPERATIONS | EXPANDED_POST_EVALUATION_OPERATIONS | DEVIATION_ANALYSIS_OPERATIONS
     )
     for registration in registrations.values():
         Draft202012Validator.check_schema(registration.input_schema)
@@ -492,6 +556,82 @@ def test_expanded_domain_merge_ignores_wrong_typed_model_patches() -> None:
     ]
 
 
+def test_expanded_domain_merge_prefers_typed_confirmed_upstream_results() -> None:
+    payload = _expanded_payload()
+    upstream_invoices = [
+        {
+            "invoiceId": "INV-CONFIRMED",
+            "amount": 88,
+            "contractMatched": True,
+            "acceptanceMatched": True,
+            "taxValid": True,
+            "duplicate": False,
+        }
+    ]
+    merged = merge_domain_analyses(
+        payload,
+        {},
+        [
+            {
+                "evaluationId": "evaluation-1",
+                "businessWorkKey": "invoice-assurance",
+                "outputSchemaVersion": "schema://invoice/result@1",
+                "resultHash": "a" * 64,
+                "result": {"invoices": upstream_invoices},
+            }
+        ],
+    )
+
+    assert merged["payload"]["invoices"] == upstream_invoices
+    assert merged["upstreamEvaluationRefs"] == [
+        {
+            "evaluationId": "evaluation-1",
+            "businessWorkKey": "invoice-assurance",
+            "outputSchemaVersion": "schema://invoice/result@1",
+            "resultHash": "a" * 64,
+            "reusedFields": "invoices",
+        }
+    ]
+
+
+def test_expanded_domain_merge_adapts_contract_performance_result() -> None:
+    merged = merge_domain_analyses(
+        _expanded_payload(),
+        {},
+        [
+            {
+                "evaluationId": "evaluation-performance",
+                "businessWorkKey": "performance-plan-collection",
+                "outputSchemaVersion": "schema://contract-performance/result@1",
+                "resultHash": "b" * 64,
+                "result": {
+                    "schemaVersion": "schema://contract-performance/result@1",
+                    "plan": {
+                        "milestones": [
+                            {"id": "M1", "title": "设备交付", "dueDate": "2026-05-01"}
+                        ]
+                    },
+                    "performance": {
+                        "milestones": [
+                            {"milestoneId": "M1", "status": "CONDITIONALLY_ACCEPTED"}
+                        ]
+                    },
+                },
+            }
+        ],
+    )
+
+    assert merged["payload"]["obligations"] == [
+        {
+            "obligationId": "M1",
+            "category": "设备交付",
+            "timeliness": "ON_TIME",
+            "quality": "CONDITIONALLY_ACCEPTED",
+        }
+    ]
+    assert merged["upstreamEvaluationRefs"][0]["reusedFields"] == "obligations"
+
+
 @pytest.mark.asyncio
 async def test_evaluation_drops_model_annotations_before_scoring() -> None:
     payload = _expanded_payload()
@@ -791,9 +931,7 @@ async def test_bound_document_reader_uses_readable_review_required_processing_re
     assert result["documents"][0]["data"]["content"]["textTruncated"] is True
     assert "pages" not in result["documents"][0]["data"]["content"]
     assert "paragraphs" not in result["documents"][0]["data"]["content"]
-    assert result["documents"][0]["evidence"] == [
-        {"documentVersionId": str(version_id)}
-    ]
+    assert result["documents"][0]["evidence"] == [{"documentVersionId": str(version_id)}]
 
 
 @pytest.mark.asyncio
@@ -1015,9 +1153,7 @@ async def test_deviation_recorder_persists_same_frozen_result_as_json_and_pdf(
     assert evaluation.status == "SUCCEEDED"
     assert item.status == "COMPLETED"
     assert any(
-        isinstance(call.args[0], Finding)
-        for call in session.add.call_args_list
-        if call.args
+        isinstance(call.args[0], Finding) for call in session.add.call_args_list if call.args
     )
     assert receipt["recorded"] is True
 
